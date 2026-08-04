@@ -94,6 +94,18 @@ void tui_cleanup() {
 
 // Signal handler function
 static void signal_handler(int sig) {
+    // SIGHUP = controlling terminal closed (user closed the window / SSH dropped). The TUI is gone,
+    //   so die IMMEDIATELY. We must NOT just set a flag here: the flag is checked by the main loop,
+    //   and if the main thread is blocked in a long operation (heavy feed parse, a join, etc.) the
+    //   flag is never checked and the process lingers — holding the wlshm video window open and
+    //   forcing the user to kill it manually. Restore the line discipline + leave alt-screen, then
+    //   _exit (all async-signal-safe). Terminal-close → process always dies.
+    if (sig == SIGHUP) {
+        restore_termios_async();
+        const char restore[] = "\033[?1049l";  // leave alt-screen; bash redraws the prompt
+        (void)write(STDERR_FILENO, restore, sizeof(restore) - 1);
+        _exit(128 + sig);
+    }
     // N04-fix: a 2nd termination signal means graceful cleanup is stuck (worker blocked in
     //   yt-dlp/whisper). Restore the terminal and force _exit so a repeated `pkill panicast`
     //   kills the process immediately instead of hanging in pool_.shutdown()'s join.

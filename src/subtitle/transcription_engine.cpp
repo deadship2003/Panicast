@@ -47,6 +47,19 @@ bool cpu_has_room(int active, int max_concurrent) {
     if (n < 1) return true;
     return load[0] < threshold;
 }
+// Thread count for whisper-cli (-t). whisper with -t=$(nproc) pegs EVERY core and starves the
+//   ncurses UI thread (and mpv playback) → the TUI becomes unresponsive while transcribing. Reserve
+//   cores for the UI + mpv: auto = hardware_concurrency()-2 (min 1). [transcription] threads > 0
+//   overrides (power users with dedicated transcode boxes can set it higher).
+unsigned whisper_threads() {
+    int cfg = IniConfig::instance().get_int("transcription", "threads", 0);
+    if (cfg > 0) return static_cast<unsigned>(cfg);
+    unsigned t = std::thread::hardware_concurrency();
+    if (t == 0) t = 4;
+    if (t > 2) t -= 2;
+    else t = 1;
+    return t;
+}
 // Parse a whisper-cli stdout line "[HH:MM:SS.mmm --> HH:MM:SS.mmm]  text" into a segment.
 bool parse_whisper_line(const std::string& line, TranscriptSegment& seg) {
     static const std::regex re(
@@ -278,7 +291,7 @@ void TranscriptionEngine::transcribe_one(TreeNodePtr node) {
         LOG(fmt::format("[Transcribe] ffmpeg failed (exit={}): {}", r1.exit_code, r1.stderr_out.substr(0, 200)));
         fs::remove(tmp_wav); return;
     }
-    unsigned threads = std::thread::hardware_concurrency(); if (threads == 0) threads = 4;
+    unsigned threads = whisper_threads();  // capped: leave cores for the UI + mpv (see whisper_threads)
     // Y24.21: streaming whisper-cli (stop_pred enables L-toggle stop; segments captured from stdout).
     std::vector<std::string> wargs = {"-m", model, "-f", tmp_wav, "-t", std::to_string(threads)};
     if (offset_ms > 0) { wargs.push_back("-ot"); wargs.push_back(std::to_string(offset_ms)); }
@@ -315,7 +328,13 @@ void TranscriptionEngine::start_realtime(TreeNodePtr node, const std::string& ur
     unsigned gen = ++realtime_gen_;
     realtime_active_ = true;
     EVENT_LOG(fmt::format("Transcribe: real-time start for '{}' (video={})", node ? node->title : url, is_video));
-    if (realtime_thread_.joinable()) realtime_thread_.join();
+    // DETACH (don't join) any previous worker. start_realtime() is called from the L key handler on
+    //   the UI thread; a .join() here would block the UI until the previous chunk's ffmpeg/whisper
+    //   finishes (up to ~chunk+whisper time). The previous worker carries an old gen — it sees the
+    //   gen mismatch and self-terminates (killable ffmpeg via stop_pred), and a detached thread is
+    //   reaped by the OS / dies with the process at shutdown (_exit). Safe: this app exits via
+    //   _exit(0), so detached workers never outlive a live engine.
+    if (realtime_thread_.joinable()) realtime_thread_.detach();
     realtime_thread_ = std::thread([this, node, url, is_streaming, is_video, gen]() { realtime_worker(node, url, is_streaming, is_video, gen); });
 }
 
@@ -379,7 +398,7 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
         }
     }
 
-    unsigned threads = std::thread::hardware_concurrency(); if (threads == 0) threads = 4;
+    unsigned threads = whisper_threads();  // capped: leave cores for the UI + mpv (see whisper_threads)
     int chunk_sec = IniConfig::instance().get_int("transcription", "realtime_chunk_sec", 30);
     if (chunk_sec < 5) chunk_sec = 5;
     if (chunk_sec > 120) chunk_sec = 120;
