@@ -341,9 +341,14 @@ void MPVController::stop() {
     //   shutdown safely; a second stop() call re-sends the commands (harmless no-op).
     const char* stop_cmd[] = {"stop", nullptr};
     mpv_command(ctx_, stop_cmd);    // release the media stream (async)
-    running_ = false;
+    // NOTE: deliberately do NOT set running_=false here. The event loop must keep driving mpv
+    //   (calling mpv_wait_event) until it receives MPV_EVENT_SHUTDOWN — which mpv emits ONLY AFTER
+    //   VO/AO uninit, i.e. AFTER the wl_surface is destroyed (that closes the wlshm/WSLg window).
+    //   Setting running_=false would make the loop bail at the next while-check, possibly before
+    //   SHUTDOWN/VO-uninit → the video window would stay open. "quit" below reliably produces
+    //   SHUTDOWN; ~MPVController still sets running_=false as a fallback for the non-_exit path.
     const char* quit_cmd[] = {"quit", nullptr};
-    mpv_command(ctx_, quit_cmd);    // tell mpv core to shut down (async)
+    mpv_command(ctx_, quit_cmd);    // core shutdown (async) → VO uninit → SHUTDOWN event
 
     // Bounded wait for the VO to uninit so the wlshm/WSLg video window actually CLOSES before we
     //   exit. Previously this detached the event thread immediately, so the VO teardown raced with
