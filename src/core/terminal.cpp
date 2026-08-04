@@ -1,4 +1,4 @@
-#include "podradio/core/terminal.h"
+#include "panicast/core/terminal.h"
 
 #include <cstdlib>
 #include <cstdio>       // sscanf
@@ -7,7 +7,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-namespace podradio
+namespace panicast
 {
 
 int g_emoji_width_override = 0;  // 0 = auto (uses terminal detection)
@@ -137,4 +137,4 @@ int probe_emoji_width() {
     return result;
 }
 
-} // namespace podradio
+} // namespace panicast

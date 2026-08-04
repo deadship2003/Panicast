@@ -1,6 +1,6 @@
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
-namespace podradio
+namespace panicast
 {
 
     void App::download_node(int marked_count) {
@@ -425,4 +425,4 @@ bool App::start_one_download(TreeNodePtr n) {
         }
     }
 
-} // namespace podradio
+} // namespace panicast

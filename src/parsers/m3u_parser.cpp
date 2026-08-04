@@ -1,10 +1,10 @@
 // Y24.50: M3U playlist parser implementation.
-#include "podradio/parsers/m3u_parser.h"
+#include "panicast/parsers/m3u_parser.h"
 
 #include <regex>
 #include <sstream>
 
-namespace podradio
+namespace panicast
 {
 
 static std::string trim(const std::string& s) {
@@ -46,4 +46,4 @@ std::vector<IptvChannel> parse_m3u(const std::string& content) {
     return out;
 }
 
-}  // namespace podradio
+}  // namespace panicast

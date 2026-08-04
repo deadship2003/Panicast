@@ -1,14 +1,14 @@
-#include "podradio/net/network.h"
+#include "panicast/net/network.h"
 
 #include <chrono>
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 #include <thread>
 
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
 
-namespace podradio
+namespace panicast
 {
 
 using json = nlohmann::json;
@@ -208,7 +208,7 @@ std::string Network::fetch_auth(const std::string& url, const std::string& beare
         //   silently return empty and the user sees "no data" with no clue why.
         std::string snippet = data.size() > 400 ? data.substr(0, 400) : data;
         LOG(fmt::format("[Network] fetch_auth HTTP {} for {} : {}", http_code, url.substr(0, 90), snippet));
-        EVENT_LOG(fmt::format("YouTube Data API HTTP {} (details in podradio.log)", http_code));
+        EVENT_LOG(fmt::format("YouTube Data API HTTP {} (details in panicast.log)", http_code));
     }
     return data;
 }
@@ -269,4 +269,4 @@ std::string Network::del(const std::string& url, const std::string& bearer, int 
     return data;
 }
 
-} // namespace podradio
+} // namespace panicast

@@ -1,5 +1,5 @@
 // Y24.19/20: TranscriptionEngine — whisper.cpp offline + real-time transcription.
-#include "podradio/subtitle/transcription_engine.h"
+#include "panicast/subtitle/transcription_engine.h"
 
 #include <chrono>
 #include <cstdio>
@@ -11,24 +11,24 @@
 
 #include <fmt/format.h>
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/paths.h"
-#include "podradio/core/utils.h"
-#include "podradio/core/thread_pool.h"
-#include "podradio/playback/mpv_controller.h"  // Y24.28: for video ASR (sub_add + show_osd)
-#include "podradio/storage/database.h"
-#include "podradio/subtitle/subtitle_manager.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/paths.h"
+#include "panicast/core/utils.h"
+#include "panicast/core/thread_pool.h"
+#include "panicast/playback/mpv_controller.h"  // Y24.28: for video ASR (sub_add + show_osd)
+#include "panicast/storage/database.h"
+#include "panicast/subtitle/subtitle_manager.h"
 
-namespace podradio
+namespace panicast
 {
 namespace fs = std::filesystem;
 
 namespace {
 std::string temp_basename() {
     static std::atomic<unsigned> n{0};
-    return "/tmp/podradio_wh_" + std::to_string(++n);
+    return "/tmp/panicast_wh_" + std::to_string(++n);
 }
 std::string expand_home(const std::string& p) {
     if (!p.empty() && p[0] == '~') {
@@ -145,7 +145,7 @@ std::string TranscriptionEngine::resolve_whisper_bin() {
 }
 std::string TranscriptionEngine::resolve_model() {
     std::string v = IniConfig::instance().get("transcription", "model",
-                                              "~/.local/share/podradio/models/ggml-small.en-q5_1.bin");
+                                              "~/.local/share/panicast/models/ggml-small.en-q5_1.bin");
     v = expand_home(v);
     if (v.empty()) return "";
     if (v[0] == '/') return fs::exists(v) ? v : "";            // absolute → fs::exists
@@ -496,4 +496,4 @@ void TranscriptionEngine::shutdown() {
     workers_.clear();
 }
 
-} // namespace podradio
+} // namespace panicast

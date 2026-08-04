@@ -1,6 +1,6 @@
-#include "podradio/ui/border.h"
+#include "panicast/ui/border.h"
 
-namespace podradio
+namespace panicast
 {
 
 void draw_box(WINDOW* win) {
@@ -115,4 +115,4 @@ void protect_border(WINDOW* win, int ww, int wh,
     }
 }
 
-} // namespace podradio
+} // namespace panicast

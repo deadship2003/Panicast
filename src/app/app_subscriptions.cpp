@@ -1,7 +1,7 @@
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 #include <iostream>
 
-namespace podradio
+namespace panicast
 {
 
     // Use std::cout instead of EVENT_LOG for command-line mode compatibility
@@ -564,4 +564,4 @@ namespace podradio
         LOG(fmt::format("[LocalFolder] added: {}", path));
     }
 
-} // namespace podradio
+} // namespace panicast

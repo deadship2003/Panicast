@@ -1,10 +1,10 @@
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
 #include <map>
 
-#include "podradio/net/tiktok_region.h"  // Y24.11: T-mode region name in the T-key status line
+#include "panicast/net/tiktok_region.h"  // Y24.11: T-mode region name in the T-key status line
 
-namespace podradio
+namespace panicast
 {
 
     // Y24.27: unified mode switch — single source of truth (was 4+ duplicated sites).
@@ -278,7 +278,7 @@ namespace podradio
             case 'q':   // exit requires confirmation
             case 'Q':
             case 27:    // ESC key
-                if (ui.confirm_box("Quit PODRADIO?")) {
+                if (ui.confirm_box("Quit PANICAST?")) {
                     running = false;
                 }
                 break;
@@ -708,4 +708,4 @@ namespace podradio
         }
     }
 
-} // namespace podradio
+} // namespace panicast

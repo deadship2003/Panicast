@@ -2,7 +2,7 @@
 //   1) Terminal/signal lifecycle (save/restore terminal attributes, ncurses cleanup, signal handler registration);
 //   2) Accommodates future out-of-line definitions and static data member definitions;
 //   3) Included as a translation unit in CMakeLists to keep -Wweak-linkage and other checks consistent.
-#include "podradio/ui/ui.h"
+#include "panicast/ui/ui.h"
 
 #include <atomic>
 #include <cstdio>
@@ -14,7 +14,7 @@
 
 #include <ncurses.h>
 
-namespace podradio
+namespace panicast
 {
 
 // =========================================================
@@ -724,10 +724,10 @@ void UI::draw_help(WINDOW* win, const MPVController::State& state, int cw) {
                 "  --ao <val> Override audio output (default pulse,alsa; or pulse/alsa/pipewire/auto)",
                 "",
                 "---- Data Storage ----",
-                "  Database: ~/.local/share/podradio/podradio.db",
-                "  Config:   ~/.config/podradio/config.ini",
-                "  Downloads: ~/Downloads/PodRadio/",
-                "  Log:      ~/.local/share/podradio/podradio-YYYYMMDD.log (daily, kept 365 days)",
+                "  Database: ~/.local/share/panicast/panicast.db",
+                "  Config:   ~/.config/panicast/config.ini",
+                "  Downloads: ~/Downloads/PaniCast/",
+                "  Log:      ~/.local/share/panicast/panicast-YYYYMMDD.log (daily, kept 365 days)",
                 "",
                 "  Note: All data in SQLite database.",
                 "",
@@ -858,4 +858,4 @@ void UI::draw_help(WINDOW* win, const MPVController::State& state, int cw) {
             delwin(help_win);
         }
 
-} // namespace podradio
+} // namespace panicast

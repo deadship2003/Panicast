@@ -1,6 +1,6 @@
-#include "podradio/ui/art.h"
+#include "panicast/ui/art.h"
 
-namespace podradio
+namespace panicast
 {
 // ArtRenderer consists entirely of inline static methods; no out-of-line definitions.
-} // namespace podradio
+} // namespace panicast

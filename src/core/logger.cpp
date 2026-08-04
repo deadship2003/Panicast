@@ -1,20 +1,20 @@
-#include "podradio/core/logger.h"
+#include "panicast/core/logger.h"
 
 #include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <fmt/format.h>
 
-#include "podradio/core/constants.h"
-#include "podradio/core/paths.h"
-#include "podradio/core/platform.h"
+#include "panicast/core/constants.h"
+#include "panicast/core/paths.h"
+#include "panicast/core/platform.h"
 
-namespace podradio
+namespace panicast
 {
 
 namespace fs = std::filesystem;
 
-// Y24.17: log retention — one file per day (podradio-YYYYMMDD.log), auto-deleted after 365 days.
+// Y24.17: log retention — one file per day (panicast-YYYYMMDD.log), auto-deleted after 365 days.
 //   The mpv log subscription (also Y24.17) increases log volume, so bounded retention is needed.
 //   Daily files make "keep 365 days" precise; cleanup compares each file's mtime to now via the
 //   file_time_type clock (portable — no clock conversion, no date parsing).
@@ -32,7 +32,7 @@ static std::string today_date() {
     return buf;
 }
 
-// Delete podradio-*.log and legacy podradio.log files older than LOG_RETENTION_DAYS (by mtime).
+// Delete panicast-*.log and legacy panicast.log files older than LOG_RETENTION_DAYS (by mtime).
 static void cleanup_old_logs(const std::string& dir) {
     std::error_code ec;
     auto now = fs::file_time_type::clock::now();
@@ -40,10 +40,10 @@ static void cleanup_old_logs(const std::string& dir) {
     for (auto& e : fs::directory_iterator(dir, ec)) {
         if (ec) break;
         auto name = e.path().filename().string();
-        // Daily files "podradio-YYYYMMDD.log" + legacy "podradio.log". Don't touch other files.
-        bool is_log = (name.rfind("podradio-", 0) == 0 && name.size() > 10 &&
+        // Daily files "panicast-YYYYMMDD.log" + legacy "panicast.log". Don't touch other files.
+        bool is_log = (name.rfind("panicast-", 0) == 0 && name.size() > 10 &&
                        name.compare(name.size() - 4, 4, ".log") == 0) ||
-                      name == "podradio.log";
+                      name == "panicast.log";
         if (!is_log) continue;
         auto mt = fs::last_write_time(e, ec);
         if (ec) continue;
@@ -64,7 +64,7 @@ void Logger::init() {
     if (dir.empty()) return;
     fs::create_directories(dir);
     cleanup_old_logs(dir);  // Y24.17: delete logs older than 365 days
-    std::string path = dir + "/podradio-" + today_date() + ".log";
+    std::string path = dir + "/panicast-" + today_date() + ".log";
     file_.open(path, std::ios::app);
     if (file_.is_open()) {
         file_ << "========================================\n";
@@ -97,4 +97,4 @@ Logger::~Logger() {
     if (file_.is_open()) { file_ << "========================================\n"; file_.close(); }
 }
 
-} // namespace podradio
+} // namespace panicast

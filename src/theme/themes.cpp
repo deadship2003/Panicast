@@ -1,7 +1,7 @@
 // Y13: 15 terminal palettes (12 original + 3 high-contrast vibrant, interleaved at 5/10/15).
 // rgb[8][3]: [0]=BLACK(bg) [1]=RED [2]=GREEN [3]=YELLOW [4]=BLUE [5]=MAGENTA [6]=CYAN [7]=WHITE(fg). RGB 0-1000. All dark, soft fg.
-#include "podradio/theme/themes.h"
-namespace podradio {
+#include "panicast/theme/themes.h"
+namespace panicast {
 const Theme* themes() {
     static const Theme T[THEME_COUNT] = {
         {"Solarized Dark", true, {{0,169,212},{863,196,184},{522,600,0},{710,537,0},{149,545,824},{827,212,510},{165,631,596},{576,631,631}}},
@@ -30,4 +30,4 @@ const Theme* themes() {
     };
     return T;
 }
-} // namespace podradio
+} // namespace panicast

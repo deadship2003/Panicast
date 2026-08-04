@@ -1,10 +1,10 @@
-#include "podradio/core/thread_pool.h"
+#include "panicast/core/thread_pool.h"
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
+#include "panicast/core/logger.h"
 
-namespace podradio
+namespace panicast
 {
 
 ThreadPool::ThreadPool(size_t n) : stop_(false) {
@@ -21,7 +21,7 @@ void ThreadPool::shutdown() {
     }
     cv_.notify_all();
     // Fire-and-forget: DETACH workers (was: join). A worker stuck in a long curl/yt-dlp call
-    //   would block join indefinitely → podradio hangs on exit → no terminal restore → no prompt.
+    //   would block join indefinitely → panicast hangs on exit → no terminal restore → no prompt.
     //   The caller _exit()s after ui.cleanup(), so the detached workers die with the process.
     for (auto& t : workers_)
         if (t.joinable()) t.detach();
@@ -55,4 +55,4 @@ void ThreadPool::worker_loop() {
     }
 }
 
-} // namespace podradio
+} // namespace panicast

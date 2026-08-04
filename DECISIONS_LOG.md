@@ -47,18 +47,18 @@ Fix: classifyMediaType layers two pre-checks on top of classify(): (1) `file://`
 
 ## N04 — PIN auth + UDP discovery + WebSocket + embedded BS client + APK source
 
-**User goals:** (1) latest tarball; (2) open the backend address in any IE → control directly; (3) APK: install on modern Android with no dependency issues, auto-scan network for players, PIN pairing (dynamic PIN shown in PodRadio popup + universal 6696 for headless), full control + view.
+**User goals:** (1) latest tarball; (2) open the backend address in any IE → control directly; (3) APK: install on modern Android with no dependency issues, auto-scan network for players, PIN pairing (dynamic PIN shown in PaniCast popup + universal 6696 for headless), full control + view.
 
 **Auth model (resolves BS-direct vs APK-PIN tension):**
 - PIN-based auth replaces `auth_token`. Dynamic 4-digit PIN (`regenerate_pin()`), shown via `:pin` popup, rotatable via `:newpin`. Universal `6696` always valid (headless pairing).
-- **Localhost connections are open** (no PIN) → "open http://127.0.0.1:port/ in IE on the PodRadio host → control directly". Non-localhost → PIN required. The BS HTML shows a PIN overlay only when the server returns ACK auth-required.
+- **Localhost connections are open** (no PIN) → "open http://127.0.0.1:port/ in IE on the PaniCast host → control directly". Non-localhost → PIN required. The BS HTML shows a PIN overlay only when the server returns ACK auth-required.
 - `password <pin>` valid iff pin == dynamic || pin == "6696".
 
-**UDP discovery (N05):** APK broadcasts `PODRADIO_DISCOVER` to udp 18430; PodRadio's `discovery_loop` responds `PODRADIO 1 tcp=<port> ws=<port+1>`. APK uses the response source IP. Avoids mDNS/ZeroConf complexity + dependencies — plain UDP broadcast (Android `DatagramSocket` + `WifiManager.MulticastLock`).
+**UDP discovery (N05):** APK broadcasts `PANICAST_DISCOVER` to udp 18430; PaniCast's `discovery_loop` responds `PANICAST 1 tcp=<port> ws=<port+1>`. APK uses the response source IP. Avoids mDNS/ZeroConf complexity + dependencies — plain UDP broadcast (Android `DatagramSocket` + `WifiManager.MulticastLock`).
 
 **WebSocket (N06):** self-written RFC6455 (handshake SHA1+base64 via OpenSSL `SHA1`; frame codec with mask/ping-pong). One HTTP listener on port+1 serves the embedded BS client (GET /) AND upgrades to WS. **socketpair bridge**: RemoteSession was refactored to separate `read_fd_`/`write_fd_`; the WS bridge runs RemoteSession on one end of a socketpair and shuttles WS frames ↔ PRP lines on the other — the PRP engine is unchanged. This keeps ONE protocol (DRY) across raw-TCP and WS transports.
 
-**Embedded BS client:** a single self-contained HTML (inline CSS+JS, IE11-compatible) baked into the binary via `podradio_web_index.h` raw-string include → "open address and control" with zero external files. GitHub Dark, PIN overlay, now-playing + controls + idle live status + progress interpolation + auto-reconnect.
+**Embedded BS client:** a single self-contained HTML (inline CSS+JS, IE11-compatible) baked into the binary via `panicast_web_index.h` raw-string include → "open address and control" with zero external files. GitHub Dark, PIN overlay, now-playing + controls + idle live status + progress interpolation + auto-reconnect.
 
 **APK:** native Kotlin + Compose + Material3 (minSdk 24), no runtime deps (Gradle-bundled Compose). UDP scan → PIN → TCP PRP. Source project under `apk/`; this environment has no Android SDK so the APK is built in Android Studio (instructions in `apk/README.md`).
 
@@ -89,9 +89,9 @@ Fix: classifyMediaType layers two pre-checks on top of classify(): (1) `file://`
 
 ## N02 — PRP protocol engine, state snapshot, control command end-to-end
 
-**Goal:** make the remote terminal actually control PodRadio — query state AND issue commands that take effect — over the MPD-style line protocol defined in `PODRADIO_N_LINE_PROTOCOL_DESIGN.md`.
+**Goal:** make the remote terminal actually control PaniCast — query state AND issue commands that take effect — over the MPD-style line protocol defined in `PANICAST_N_LINE_PROTOCOL_DESIGN.md`.
 
-**Protocol (PRP — PodRadio Protocol):** MPD-style text line protocol. Greeting `OK PodRadio N02`; request `COMMAND [ARG...]\n` (double-quoted args for spaces); response `key: value` lines ending `OK` or `ACK [code@0] {cmd} msg`. Query commands (`status`/`currentsong`/`playlistinfo`/`ping`/`password`) answered inline; control commands forwarded to the UI thread via the bus. `password <token>` auth gate (MPD semantics). `idle`/`noidle` accepted as no-ops (N07 implements real subscription).
+**Protocol (PRP — PaniCast Protocol):** MPD-style text line protocol. Greeting `OK PaniCast N02`; request `COMMAND [ARG...]\n` (double-quoted args for spaces); response `key: value` lines ending `OK` or `ACK [code@0] {cmd} msg`. Query commands (`status`/`currentsong`/`playlistinfo`/`ping`/`password`) answered inline; control commands forwarded to the UI thread via the bus. `password <token>` auth gate (MPD semantics). `idle`/`noidle` accepted as no-ops (N07 implements real subscription).
 
 **Threading contract (the two sanctioned crossing points):**
 1. WRITE path — `RemoteCommandBus` (N01): server `push()`es control commands; UI thread `drain_remote_commands()` each frame; `dispatch_remote()` maps to existing App methods. UI never touched off-thread.
@@ -109,12 +109,12 @@ Fix: classifyMediaType layers two pre-checks on top of classify(): (1) `file://`
 
 ## N01 — Network control line: foundation skeleton (command bus + TCP server)
 
-**Context:** User requested a network-control feature line (N01–N99) branched from `Podradio_V0.1-Y24.56`, so a remote terminal — first an IE browser (BS), later an Android APK — can exercise **all** local-terminal control functions plus live monitoring. Development must follow `/mnt/e/AI/DEVELOPMENT_PRINCIPLES.md` (i18n / UNIX philosophy / plan-first / async-non-blocking / concurrency-safe / data-layer收敛).
+**Context:** User requested a network-control feature line (N01–N99) branched from `Panicast_V0.1-Y24.56`, so a remote terminal — first an IE browser (BS), later an Android APK — can exercise **all** local-terminal control functions plus live monitoring. Development must follow `/mnt/e/AI/DEVELOPMENT_PRINCIPLES.md` (i18n / UNIX philosophy / plan-first / async-non-blocking / concurrency-safe / data-layer收敛).
 
 **Key user decisions (confirmed):**
 - HTTP/server implementation: **self-written full C++ socket server** (no external lib). Chose POSIX `socket/bind/listen/accept` over adding cpp-httplib — zero new dependency, full control, matches "统一封装" philosophy extended to the server side.
 - Real-time state/LOG push: **MPD / ncmpcpp-style technique** — *protocol design deferred*. User will explain the MPD/ncmpcpp approach in detail before N02 protocol is finalized. (MPD uses a persistent TCP line protocol with an `idle` event-subscription command; ncmpcpp is an MPD client. This signals a move away from HTTP/REST toward a daemon TCP protocol + thin clients.)
-- Source tree: `/mnt/e/AI/PodRadio/Podradio_V0.1-N01/` (parallel to existing Y/F lines).
+- Source tree: `/mnt/e/AI/PaniCast/Panicast_V0.1-N01/` (parallel to existing Y/F lines).
 
 **Architecture (this version):**
 - The UI (ncurses) is single-threaded and not thread-safe. Therefore the network server NEVER calls App/MPVController methods directly. Two sanctioned crossing points:
@@ -136,7 +136,7 @@ Fix: classifyMediaType layers two pre-checks on top of classify(): (1) `file://`
 
 **Bug (user trial):** playing an IPTV channel whose address is correct but the station is not currently broadcasting → no video stream → mpv does not open a video window, and the user has no idea WHY. The 30s pending timeout only says "stream may have failed", indistinguishable from a wrong address.
 
-**Design (confirmed by user):** enumerate every situation where IPTV playback does not visibly start / no video window, and emit a concise English event message to the on-screen LOG area (EventLog, which double-writes to podradio.log). Two prefixes:
+**Design (confirmed by user):** enumerate every situation where IPTV playback does not visibly start / no video window, and emit a concise English event message to the on-screen LOG area (EventLog, which double-writes to panicast.log). Two prefixes:
 - `MPV:` = mpv-level behavior (the cause) — existing mpv_error_str / fallback messages, kept as-is.
 - `IPTV:` = IPTV-context explanation (the user-facing meaning) — new.
 - Same event causing both → print BOTH, in time order (MPV: first, IPTV: second); both reach screen + log file via EVENT_LOG.
@@ -168,7 +168,7 @@ Fix: classifyMediaType layers two pre-checks on top of classify(): (1) `file://`
 - #5 and #13 are disjoint (#5 needs has_media/FILE_LOADED; #13 fires only when has_media never appears) → no double-fire, no cross-layer pending clear needed.
 
 **Scope notes:**
-- mpv warn/error log lines still go ONLY to podradio.log (not routed to the on-screen LOG area) — avoids noise; the IPTV: messages are the curated screen-side diagnostics.
+- mpv warn/error log lines still go ONLY to panicast.log (not routed to the on-screen LOG area) — avoids noise; the IPTV: messages are the curated screen-side diagnostics.
 - `mpv_error_str` (the MPV: behavior text) left untouched per "MPV:的行为就用MPV:".
 
 Build: 0 warnings, 74/74, binary runs.

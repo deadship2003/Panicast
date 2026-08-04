@@ -1,15 +1,15 @@
 // XML parsing helpers: libxml2 attribute access + global error callbacks (redirected to LOG/EVENT_LOG).
-#include "podradio/parsers/xml_helpers.h"
+#include "panicast/parsers/xml_helpers.h"
 
 #include <cstdarg>
 #include <cstring>
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
-#include "podradio/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/event_log.h"
 
-namespace podradio
+namespace panicast
 {
 
 std::string g_last_xml_error;  // Stores the last XML error message
@@ -90,4 +90,4 @@ std::string get_last_xml_error() {
     return g_last_xml_error;
 }
 
-} // namespace podradio
+} // namespace panicast

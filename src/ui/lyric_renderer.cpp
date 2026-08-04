@@ -1,14 +1,14 @@
 // UI rendering layer — extracted implementation unit (Y24.33–Y24.36).
 //   Methods remain UI members (they touch private UI state); only their
 //   implementations live here. Declarations stay in ui.h.
-#include "podradio/ui/ui.h"
+#include "panicast/ui/ui.h"
 
 #include <algorithm>
 #include <string>
 
 #include <ncurses.h>
 
-namespace podradio
+namespace panicast
 {
 
 void UI::update_lyric_history(const MPVController::State& state) {
@@ -111,4 +111,4 @@ void UI::draw_lyric_bar(WINDOW* win, const MPVController::State& state) {
         }
 
 
-} // namespace podradio
+} // namespace panicast

@@ -1,4 +1,4 @@
-#include "podradio/net/url_guard.h"
+#include "panicast/net/url_guard.h"
 
 #include <algorithm>
 #include <cctype>
@@ -8,9 +8,9 @@
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
+#include "panicast/core/logger.h"
 
-namespace podradio
+namespace panicast
 {
 
 bool UrlGuard::is_safe_url(const std::string& url) {
@@ -103,4 +103,4 @@ bool UrlGuard::reject(const std::string& url, const std::string& ctx) {
     return false;
 }
 
-} // namespace podradio
+} // namespace panicast

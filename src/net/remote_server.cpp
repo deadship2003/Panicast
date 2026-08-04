@@ -1,13 +1,13 @@
 // Remote control TCP server implementation. N01: accept-loop skeleton only.
 //   See remote_server.h for the threading model and platform scope.
-#include "podradio/net/remote_server.h"
+#include "panicast/net/remote_server.h"
 
-#include "podradio/core/logger.h"
-#include "podradio/core/event_log.h"
-#include "podradio/config/ini_config.h"
-#include "podradio/net/remote_command_bus.h"
-#include "podradio/net/remote_session.h"
-#include "podradio/net/remote_ws.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/event_log.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/net/remote_command_bus.h"
+#include "panicast/net/remote_session.h"
+#include "panicast/net/remote_ws.h"
 
 #include <fmt/core.h>
 
@@ -28,7 +28,7 @@
   #include <unistd.h>
 #endif
 
-namespace podradio
+namespace panicast
 {
 
 #if defined(__linux__) || defined(__APPLE__)
@@ -104,7 +104,7 @@ bool RemoteServer::start(const std::string& bind_addr, int port, RemoteControlIn
     if (running_.load()) return true;
 
     control_ = control;
-    dynamic_pin_ = regenerate_pin();  // N04: random 4-digit PIN shown in the PodRadio popup
+    dynamic_pin_ = regenerate_pin();  // N04: random 4-digit PIN shown in the PaniCast popup
     universal_pin_ = IniConfig::instance().get_remote_universal_pin();  // N04: configurable (default 6696)
 
     listen_fd_ = make_listen_fd(bind_addr, port);  // dual-stack (IPv4+IPv6) when bind=0.0.0.0
@@ -126,7 +126,7 @@ bool RemoteServer::start(const std::string& bind_addr, int port, RemoteControlIn
 
     accept_thread_ = std::thread(&RemoteServer::accept_loop, this);
     diff_thread_ = std::thread(&RemoteServer::diff_loop, this);  // N07: state-diff → idle push
-    // N05: UDP discovery responder (APK broadcasts a probe; PodRadio answers with its ports).
+    // N05: UDP discovery responder (APK broadcasts a probe; PaniCast answers with its ports).
     {
         int dp = IniConfig::instance().get_remote_discovery_port();
         discovery_thread_ = std::thread(&RemoteServer::discovery_loop, this, dp);
@@ -196,7 +196,7 @@ void RemoteServer::accept_loop()
             continue;
         }
 
-        // N04: localhost (loopback) connections are open (no PIN) — so a browser on the PodRadio
+        // N04: localhost (loopback) connections are open (no PIN) — so a browser on the PaniCast
         //   host controls directly. Off-host connections require the PIN.
         std::string ipstr = peer_ip(&client);
         bool localhost = is_loopback_ip(ipstr);
@@ -261,7 +261,7 @@ void RemoteServer::handle_client(int fd, int64_t client_id, bool localhost)
 
 std::string RemoteServer::regenerate_pin()
 {
-    // Random 4-digit PIN (displayed in the PodRadio popup). std::random_device is non-deterministic.
+    // Random 4-digit PIN (displayed in the PaniCast popup). std::random_device is non-deterministic.
     std::random_device rd;
     int n = rd() % 10000;
     char buf[8];
@@ -284,7 +284,7 @@ void RemoteServer::unregister_session(RemoteSession* s)
 
 void RemoteServer::discovery_loop(int udp_port)
 {
-    // N05: UDP discovery responder. The APK broadcasts "PODRADIO_DISCOVER" to udp_port; PodRadio
+    // N05: UDP discovery responder. The APK broadcasts "PANICAST_DISCOVER" to udp_port; PaniCast
     //   answers with a one-line beacon carrying its TCP/WS ports. The APK uses the response's
     //   source address as the player's host. SO_REUSEADDR so rebind works right after restart.
     int s = ::socket(AF_INET, SOCK_DGRAM, 0);
@@ -317,9 +317,9 @@ void RemoteServer::discovery_loop(int udp_port)
         }
         if (!running_.load()) break;
         buf[n > 0 ? n : 0] = '\0';
-        if (std::string(buf).rfind("PODRADIO_DISCOVER", 0) == 0) {
+        if (std::string(buf).rfind("PANICAST_DISCOVER", 0) == 0) {
             // ws port = tcp port + 1 (convention: 18421 TCP, 18422 WS).
-            std::string resp = fmt::format("PODRADIO 1 tcp={} ws={}\n", port_, port_ + 1);
+            std::string resp = fmt::format("PANICAST 1 tcp={} ws={}\n", port_, port_ + 1);
             ::sendto(s, resp.data(), resp.size(), 0,
                      reinterpret_cast<struct sockaddr*>(&from), flen);
         }
@@ -402,4 +402,4 @@ std::string RemoteServer::regenerate_pin() { return "0000"; }
 
 #endif
 
-} // namespace podradio
+} // namespace panicast

@@ -1,13 +1,13 @@
 // Y01: QR rendering implementation. See header.
-#include "podradio/ui/qr.h"
+#include "panicast/ui/qr.h"
 
 #ifdef HAVE_QRENCODE
 #include <qrencode.h>
 #endif
 
-#include "podradio/core/logger.h"
+#include "panicast/core/logger.h"
 
-namespace podradio
+namespace panicast
 {
 
 bool qr_available() {
@@ -48,4 +48,4 @@ std::vector<std::string> render_qr_rows(const std::string& text) {
     return rows;
 }
 
-} // namespace podradio
+} // namespace panicast

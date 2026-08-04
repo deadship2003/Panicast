@@ -1,4 +1,4 @@
-#include "podradio/storage/persistence.h"
+#include "panicast/storage/persistence.h"
 
 #include <filesystem>
 #include <fstream>
@@ -6,12 +6,12 @@
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
-#include "podradio/core/paths.h"
-#include "podradio/storage/database.h"
-#include "podradio/app/online_state.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/paths.h"
+#include "panicast/storage/database.h"
+#include "panicast/app/online_state.h"
 
-namespace podradio
+namespace panicast
 {
 
 namespace fs = std::filesystem;
@@ -145,7 +145,7 @@ void Persistence::export_opml(const std::string& filename, const std::vector<Tre
     };
     f << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
     f << "<opml version=\"1.0\">\n";
-    f << "<head><title>PODRADIO Export</title></head>\n";
+    f << "<head><title>PANICAST Export</title></head>\n";
     f << "<body>\n";
     int count = 0;
     for (const auto& p : podcasts) {
@@ -165,4 +165,4 @@ TreeNodePtr Persistence::get_online_root() {
     return OnlineState::instance().online_root;
 }
 
-} // namespace podradio
+} // namespace panicast

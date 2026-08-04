@@ -1,6 +1,6 @@
 // Y01: Y-mode (Google account) controller — account tree, QR login, node activation.
 // See app.h declarations.
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
 #include <algorithm>
 #include <cctype>
@@ -10,10 +10,10 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
 
-namespace podradio
+namespace panicast
 {
 
 // ── Build/refresh account_root from the accounts table ───────────────────────
@@ -582,4 +582,4 @@ void App::subscribe_youtube_channel(TreeNodePtr node) {
     });
 }
 
-} // namespace podradio
+} // namespace panicast

@@ -1,13 +1,13 @@
-#include "podradio/theme/colors.h"
+#include "panicast/theme/colors.h"
 
 #include <chrono>
 #include <map>
 #include <mutex>
 #include <random>
 
-#include "podradio/core/platform.h"
+#include "panicast/core/platform.h"
 
-namespace podradio
+namespace panicast
 {
 
 int StatusBarColorRenderer::get_color(const StatusBarColorConfig& config, int offset) {
@@ -127,4 +127,4 @@ int StatusBarColorRenderer::get_custom_color(const StatusBarColorConfig& config,
     return config.custom_colors[idx];
 }
 
-} // namespace podradio
+} // namespace panicast

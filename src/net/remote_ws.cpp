@@ -1,11 +1,11 @@
 // WebSocket frontend implementation (N06). POSIX. See remote_ws.h.
-#include "podradio/net/remote_ws.h"
+#include "panicast/net/remote_ws.h"
 
-#include "podradio/core/logger.h"
-#include "podradio/net/remote_command_bus.h"
-#include "podradio/net/remote_protocol.h"
-#include "podradio/net/remote_server.h"
-#include "podradio/net/remote_session.h"
+#include "panicast/core/logger.h"
+#include "panicast/net/remote_command_bus.h"
+#include "panicast/net/remote_protocol.h"
+#include "panicast/net/remote_server.h"
+#include "panicast/net/remote_session.h"
 
 #include <openssl/sha.h>
 
@@ -24,7 +24,7 @@
   #include <unistd.h>
 #endif
 
-namespace podradio
+namespace panicast
 {
 
 #if defined(__linux__) || defined(__APPLE__)
@@ -165,7 +165,7 @@ std::string header_value(const std::string& req, const std::string& name)
 // The embedded BS web client — a single self-contained HTML (inline CSS+JS, IE11-compatible).
 //   No external files → "open http://host:port/ in any IE and control directly".
 const char* WS_HTML =
-#include "podradio/net/podradio_web_index.h"
+#include "panicast/net/panicast_web_index.h"
     ;
 
 } // namespace
@@ -290,4 +290,4 @@ void ws_serve_connection(int, RemoteServer&, bool) {}
 
 #endif
 
-} // namespace podradio
+} // namespace panicast

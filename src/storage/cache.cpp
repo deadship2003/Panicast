@@ -1,16 +1,16 @@
 // Media cache (singleton): per-URL local-media cache status, persisted to the `media_cache` table
 // (status: 0=none, 1=complete, 2=partial). In-memory sets are the fast read path (loaded once at
 // startup via load()); every mutation writes through to the DB.
-#include "podradio/storage/cache.h"
+#include "panicast/storage/cache.h"
 
 #include <filesystem>
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
-#include "podradio/storage/database.h"
+#include "panicast/core/logger.h"
+#include "panicast/storage/database.h"
 
-namespace podradio
+namespace panicast
 {
 
 namespace fs = std::filesystem;
@@ -92,4 +92,4 @@ void CacheManager::load() {
                     rows.size(), downloaded_.size(), partial_.size()));
 }
 
-} // namespace podradio
+} // namespace panicast

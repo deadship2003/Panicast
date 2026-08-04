@@ -1,12 +1,12 @@
 #include <unistd.h>  // _exit (skip destructors on clean exit)
-#include "podradio/app/app.h"
-#include "podradio/net/bilibili_api.h"
-#include "podradio/net/tiktok_region.h"
-#include "podradio/parsers/bilibili_parser.h"
+#include "panicast/app/app.h"
+#include "panicast/net/bilibili_api.h"
+#include "panicast/net/tiktok_region.h"
+#include "panicast/parsers/bilibili_parser.h"
 #include <cstdio>
 #include <iostream>
 
-namespace podradio
+namespace panicast
 {
 
     App::App() {
@@ -151,7 +151,7 @@ namespace podradio
                     running = false;
                     break;
                 }
-                if (ui.confirm_box("Quit PODRADIO? (CTRL+C)")) {
+                if (ui.confirm_box("Quit PANICAST? (CTRL+C)")) {
                     running = false;
                     break;
                 }
@@ -198,7 +198,7 @@ namespace podradio
                         std::chrono::steady_clock::now() - playback_pending_start_).count();
                     LOG(fmt::format("[PLAY] BUFFERING cleared: total {}ms (sync steps above + mpv load)", total_ms));
                     if (total_ms > 2000)
-                        EVENT_LOG(fmt::format("BUFFERING {}ms (see podradio.log for breakdown)", total_ms));
+                        EVENT_LOG(fmt::format("BUFFERING {}ms (see panicast.log for breakdown)", total_ms));
                 }
                 playback_pending_ = false;  // Y23.9: mpv has media → clear pending
                 if (state.core_idle && !state.paused) {
@@ -1192,4 +1192,4 @@ namespace podradio
 
     std::vector<TreeNodePtr>& App::cur_items() { return items_for_mode(mode); }
 
-} // namespace podradio
+} // namespace panicast

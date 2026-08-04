@@ -1,18 +1,18 @@
 // Online mode state management implementation.
-#include "podradio/app/online_state.h"
+#include "panicast/app/online_state.h"
 
 #include <algorithm>
 #include <ctime>
 
 #include <fmt/format.h>
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/platform.h"
-#include "podradio/parsers/itunes_search.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/platform.h"
+#include "panicast/parsers/itunes_search.h"
 
-namespace podradio
+namespace panicast
 {
 
 OnlineState& OnlineState::instance() { static OnlineState os; return os; }
@@ -164,4 +164,4 @@ std::string OnlineState::get_current_time_str() {
     return std::string(buf);
 }
 
-} // namespace podradio
+} // namespace panicast

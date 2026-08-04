@@ -1,6 +1,6 @@
-#include "podradio/ui/layout_metrics.h"
+#include "panicast/ui/layout_metrics.h"
 
-namespace podradio
+namespace panicast
 {
 
 LayoutMetrics& LayoutMetrics::instance() {
@@ -8,4 +8,4 @@ LayoutMetrics& LayoutMetrics::instance() {
     return lm;
 }
 
-} // namespace podradio
+} // namespace panicast

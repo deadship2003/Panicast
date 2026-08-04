@@ -8,14 +8,14 @@
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 
-#include "podradio/core/constants.h"
-#include "podradio/core/paths.h"
-#include "podradio/core/safe_tmp.h"
-#include "podradio/config/ini_config.h"
-#include "podradio/playback/sleep_timer.h"
-#include "podradio/parsers/xml_helpers.h"
-#include "podradio/ui/ui.h"
-#include "podradio/app/app.h"
+#include "panicast/core/constants.h"
+#include "panicast/core/paths.h"
+#include "panicast/core/safe_tmp.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/playback/sleep_timer.h"
+#include "panicast/parsers/xml_helpers.h"
+#include "panicast/ui/ui.h"
+#include "panicast/app/app.h"
 
 #if __has_include("version.h")
 #include "version.h"
@@ -23,8 +23,8 @@
 
 static void print_usage() {
     // Use global constants to dynamically update version info, including build time and email
-    std::cout << podradio::APP_NAME << " " << podradio::VERSION << " - Terminal Media Player\n";
-    std::cout << "By " << podradio::AUTHOR << " <" << podradio::EMAIL << "> @" << podradio::BUILD_TIME << "\n\n";
+    std::cout << panicast::APP_NAME << " " << panicast::VERSION << " - Terminal Media Player\n";
+    std::cout << "By " << panicast::AUTHOR << " <" << panicast::EMAIL << "> @" << panicast::BUILD_TIME << "\n\n";
     std::cout << "Usage:\n";
     std::cout << "  panicast                  Start the application (TUI mode)\n";
     std::cout << "  panicast -a <url>         Add feed from URL\n";
@@ -43,13 +43,13 @@ static void print_usage() {
     std::cout << "  5               Auto: <100 = hours (5 hours)\n";
     std::cout << "  100             Auto: >=100 = minutes (100 min)\n\n";
     std::cout << "Data Paths:\n";
-    std::cout << "  Database:   ~/.local/share/podradio/podradio.db (SQLite3)\n";
-    std::cout << "  Config:     ~/.config/podradio/config.ini\n";
-    std::cout << "  Downloads:  ~/Downloads/PodRadio/\n";
-    std::cout << "  Log:        ~/.local/share/podradio/podradio-YYYYMMDD.log (daily, kept 365 days)\n\n";
+    std::cout << "  Database:   ~/.local/share/panicast/panicast.db (SQLite3)\n";
+    std::cout << "  Config:     ~/.config/panicast/config.ini\n";
+    std::cout << "  Downloads:  ~/Downloads/PaniCast/\n";
+    std::cout << "  Log:        ~/.local/share/panicast/panicast-YYYYMMDD.log (daily, kept 365 days)\n\n";
     std::cout << "Database Tables:\n";
-    std::cout << "  history       - Playback history (max " << podradio::IniConfig::instance().get_history_max_days() << " days / "
-              << podradio::IniConfig::instance().get_history_max_records() << " records)\n";
+    std::cout << "  history       - Playback history (max " << panicast::IniConfig::instance().get_history_max_days() << " days / "
+              << panicast::IniConfig::instance().get_history_max_records() << " records)\n";
     std::cout << "  nodes         - Podcast subscription tree\n";
     std::cout << "  progress      - Resume positions\n";
     std::cout << "  favourites    - Favourite items\n";
@@ -61,21 +61,25 @@ static void print_usage() {
     std::cout << "  podcast_cache - Podcast info cache\n";
     std::cout << "  episode_cache - Episode list cache\n";
     std::cout << "  cache         - General cache\n\n";
-    std::cout << "YouTube config (in ~/.config/podradio/config.ini [youtube]):\n";
+    std::cout << "YouTube config (in ~/.config/panicast/config.ini [youtube]):\n";
     std::cout << "  cookies_file        Netscape cookies.txt (Ctrl+B). Default <data_dir>/youtube_cookie.txt\n";
     std::cout << "  player_client       Default tv_downgraded,web (least bot-check)\n";
     std::cout << "  js_runtime          Default quickjs (nsig solver; also deno / quickjs:/path)\n";
     std::cout << "  play_format_video   Default bestvideo[height<=1080]+bestaudio/best (1080p DASH)\n";
     std::cout << "  play_format_audio   Default bestaudio/best (highest audio)\n";
-    std::cout << "  Modes: P (cookies, no login) and Y (Google OAuth) work independently; see man podradio.\n\n";
+    std::cout << "  Modes: P (cookies, no login) and Y (Google OAuth) work independently; see man panicast.\n\n";
     std::cout << "Compile:\n";
-    std::cout << "  g++ -std=c++17 -o podradio \\\n";
+    std::cout << "  g++ -std=c++17 -o panicast \\\n";
     std::cout << "      -I/usr/include/libxml2 \\\n";
     std::cout << "      -lmpv -lncurses -lcurl -lxml2 -lfmt -lpthread -lsqlite3\n";
 }
 
 int main(int argc, char* argv[]) {
-    using namespace podradio;
+    using namespace panicast;
+
+    // One-shot legacy data migration (podradio → panicast) BEFORE anything touches the config/DB,
+    //   so IniConfig / DatabaseManager see the new (~/.local/share/panicast) location. Idempotent.
+    Paths::migrate_legacy();
 
     int opt;
     std::string import_url, export_file, import_opml_file, sleep_time;

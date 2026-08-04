@@ -1,6 +1,6 @@
 // Y01: Google OAuth device flow + YouTube Data API v3 + InnerTube watch history.
 // See header for the SmartTube-style rationale and the known API limits.
-#include "podradio/net/google_oauth.h"
+#include "panicast/net/google_oauth.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -12,13 +12,13 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/paths.h"
-#include "podradio/net/network.h"
-#include "podradio/core/utils.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/paths.h"
+#include "panicast/net/network.h"
+#include "panicast/core/utils.h"
 
-namespace podradio
+namespace panicast
 {
 
 using json = nlohmann::json;
@@ -84,7 +84,7 @@ const ClientCreds& client_creds() {
 //   configure time — baking secrets/client_secret.json if present (other users drop their own
 //   there and rebuild), else the project fallback. A runtime <data_dir>/client_secret*.json still
 //   takes precedence over this builtin (see client_creds() above).
-#include "podradio/net/client_secret_builtin.h"
+#include "panicast/net/client_secret_builtin.h"
 
 std::string GoogleOAuth::client_id() {
     const auto& c = client_creds();
@@ -111,7 +111,7 @@ GoogleOAuth::DeviceCode GoogleOAuth::request_device_code() {
         if (j.contains("error")) {
             dc.error = j.value("error", "unknown");
             // Log the full Google response so endpoint rejections (invalid_client /
-            //   disallowed_useragent / etc.) are visible in podradio.log for diagnosis.
+            //   disallowed_useragent / etc.) are visible in panicast.log for diagnosis.
             LOG(fmt::format("[OAuth] device code rejected: {} — {}",
                             dc.error, j.value("error_description", "")));
             return dc;
@@ -199,7 +199,7 @@ GoogleOAuth::TokenResult GoogleOAuth::refresh(const std::string& refresh_token) 
 //   Data API failures (403 accessNotConfigured = API not enabled in GCP project; 403 quotaExceeded;
 //   401 invalid_token; 403 forbidden = OAuth consent screen in Testing mode / scope not granted) were
 //   previously swallowed silently — fetch_* returned empty and the user saw "no data" with no clue.
-//   This surfaces the real Google reason to podradio.log and the LOG panel.
+//   This surfaces the real Google reason to panicast.log and the LOG panel.
 void log_api_error(const std::string& op, const json& j) {
     if (!j.contains("error")) return;
     const auto& e = j["error"];
@@ -476,4 +476,4 @@ std::vector<YouTubeSearchRow> GoogleOAuth::search(const std::string& access_toke
     return out;
 }
 
-} // namespace podradio
+} // namespace panicast

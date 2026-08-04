@@ -1,7 +1,7 @@
 // Path utilities: expand_path, get_download_dir, get_log_file, sanitize_filename.
 // Y24.38: split out of utils.cpp. Methods remain Utils:: static members
 //   (declarations stay in utils.h); only implementations live here.
-#include "podradio/core/utils.h"
+#include "panicast/core/utils.h"
 
 #include <algorithm>
 #include <cctype>
@@ -22,12 +22,12 @@
 
 #include <fmt/format.h>
 
-#include "podradio/core/paths.h"
-#include "podradio/core/terminal.h"
+#include "panicast/core/paths.h"
+#include "panicast/core/terminal.h"
 
 extern char** environ;  // Required by posix_spawnp
 
-namespace podradio
+namespace panicast
 {
 
 std::string Utils::expand_path(const std::string& path) {
@@ -37,12 +37,12 @@ std::string Utils::expand_path(const std::string& path) {
 }
 
 std::string Utils::get_download_dir() { return expand_path("~" + std::string(DOWNLOAD_DIR)); }
-// Y24.17: daily log file (podradio-YYYYMMDD.log); logs older than 365 days are auto-deleted on init.
+// Y24.17: daily log file (panicast-YYYYMMDD.log); logs older than 365 days are auto-deleted on init.
 std::string Utils::get_log_file() {
     std::time_t t = std::time(nullptr);
     char buf[16];
     std::strftime(buf, sizeof(buf), "%Y%m%d", std::localtime(&t));
-    return expand_path("~" + std::string(DATA_DIR) + "/podradio-" + buf + ".log");
+    return expand_path("~" + std::string(DATA_DIR) + "/panicast-" + buf + ".log");
 }
 
 std::string Utils::sanitize_filename(const std::string& name) {
@@ -60,4 +60,4 @@ std::string Utils::sanitize_filename(const std::string& name) {
     if (result == "." || result == "..") result = "unnamed";
     return result;
 }
-} // namespace podradio
+} // namespace panicast

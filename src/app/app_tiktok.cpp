@@ -2,7 +2,7 @@
 //   No login: TikTok user listings work anonymously via yt-dlp (--geo-bypass-country for region).
 //   Douyin usually needs a cookies.txt + a CN network exit. Search is a best-effort search-engine
 //   fallback (site:tiktok.com/@) because yt-dlp has no TikTok search extractor.
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
 #include <chrono>
 #include <filesystem>
@@ -12,14 +12,14 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/net/tiktok_region.h"
-#include "podradio/net/ytdlp_runner.h"
-#include "podradio/storage/database.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/net/tiktok_region.h"
+#include "panicast/net/ytdlp_runner.h"
+#include "panicast/storage/database.h"
 
-namespace podradio
+namespace panicast
 {
 using json = nlohmann::json;
 
@@ -335,4 +335,4 @@ void App::tiktok_direct_input() {
 }
 
 
-}  // namespace podradio
+}  // namespace panicast

@@ -1,9 +1,9 @@
 // RemoteSession implementation — PRP line protocol engine (N02) + idle subscription (N07). POSIX.
 //   See remote_session.h for the threading/transport contract.
-#include "podradio/net/remote_session.h"
+#include "panicast/net/remote_session.h"
 
-#include "podradio/core/constants.h"
-#include "podradio/core/logger.h"
+#include "panicast/core/constants.h"
+#include "panicast/core/logger.h"
 
 #include <fmt/core.h>
 
@@ -21,7 +21,7 @@
   #include <unistd.h>
 #endif
 
-namespace podradio
+namespace panicast
 {
 
 namespace {
@@ -343,4 +343,4 @@ void RemoteSession::handle_line(const std::string&) {}
 
 #endif
 
-} // namespace podradio
+} // namespace panicast

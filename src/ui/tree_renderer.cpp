@@ -1,14 +1,14 @@
 // UI rendering layer — extracted implementation unit (Y24.33–Y24.36).
 //   Methods remain UI members (they touch private UI state); only their
 //   implementations live here. Declarations stay in ui.h.
-#include "podradio/ui/ui.h"
+#include "panicast/ui/ui.h"
 
 #include <algorithm>
 #include <string>
 
 #include <ncurses.h>
 
-namespace podradio
+namespace panicast
 {
 
 void UI::draw_line(WINDOW* win, int y, const DisplayItem& item, bool selected, bool in_visual, int max_len, const std::string& current_url) {
@@ -221,4 +221,4 @@ void UI::draw_line(WINDOW* win, int y, const DisplayItem& item, bool selected, b
             else if (item.node->parse_failed) wattroff(win, COLOR_PAIR(13));
         }
 
-} // namespace podradio
+} // namespace panicast

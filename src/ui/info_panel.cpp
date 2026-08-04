@@ -1,14 +1,14 @@
 // UI rendering layer — extracted implementation unit (Y24.33–Y24.36).
 //   Methods remain UI members (they touch private UI state); only their
 //   implementations live here. Declarations stay in ui.h.
-#include "podradio/ui/ui.h"
+#include "panicast/ui/ui.h"
 
 #include <algorithm>
 #include <string>
 
 #include <ncurses.h>
 
-namespace podradio
+namespace panicast
 {
 
 void UI::draw_info(WINDOW* win, const MPVController::State& state, AppState app_state, TreeNodePtr playback_node, int marked_count, const std::string& search_query, int current_match, int total_matches, TreeNodePtr selected_node, const std::vector<DownloadProgress>& downloads, bool visual_mode, int cw, const std::vector<PlaylistItem>& playlist, int playlist_index, PlayMode play_mode, const std::vector<std::string>& history_titles, const std::vector<int>& next_indices) {
@@ -597,4 +597,4 @@ void UI::draw_info(WINDOW* win, const MPVController::State& state, AppState app_
             protect_border(win, right_ww, right_wh, TITLE_EMBED_START, TITLE_EMBED_END, split_y, TITLE_EMBED_START, SPLIT_TITLE_EMBED_END);
         }
 
-} // namespace podradio
+} // namespace panicast

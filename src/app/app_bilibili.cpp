@@ -1,6 +1,6 @@
 // Y15: B-mode (Bilibili) controller — login (QR + cookie import), browse, play, search.
 //   Reuses YtdlpRunner (yt-dlp --cookies bilibili_cookie.txt), mpv playback, pool async, tree.
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
 #include <chrono>
 #include <fstream>
@@ -9,20 +9,20 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/crypto.h"
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/paths.h"
-#include "podradio/net/bilibili_api.h"
-#include "podradio/net/network.h"
-#include "podradio/net/ytdlp_runner.h"
-#include "podradio/net/url_classifier.h"
-#include "podradio/parsers/youtube_channel_parser.h"
-#include "podradio/parsers/bilibili_parser.h"
-#include "podradio/storage/database.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/core/crypto.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/paths.h"
+#include "panicast/net/bilibili_api.h"
+#include "panicast/net/network.h"
+#include "panicast/net/ytdlp_runner.h"
+#include "panicast/net/url_classifier.h"
+#include "panicast/parsers/youtube_channel_parser.h"
+#include "panicast/parsers/bilibili_parser.h"
+#include "panicast/storage/database.h"
 
-namespace podradio
+namespace panicast
 {
 using json = nlohmann::json;
 
@@ -412,4 +412,4 @@ void App::perform_bilibili_search(const std::string& preset) {
     });
 }
 
-}  // namespace podradio
+}  // namespace panicast

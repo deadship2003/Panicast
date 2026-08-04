@@ -1,8 +1,8 @@
-#include "podradio/net/tiktok_region.h"
+#include "panicast/net/tiktok_region.h"
 
 #include <algorithm>
 
-namespace podradio
+namespace panicast
 {
 
 std::vector<std::string> TikTokRegion::all() {
@@ -40,4 +40,4 @@ static std::string g_current_region = "US";
 const std::string& TikTokRegion::current() { return g_current_region; }
 void TikTokRegion::set_current(const std::string& code) { g_current_region = code; }
 
-} // namespace podradio
+} // namespace panicast

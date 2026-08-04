@@ -1,6 +1,6 @@
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
-namespace podradio
+namespace panicast
 {
 
     // Improved delete_node supporting all modes
@@ -558,4 +558,4 @@ namespace podradio
         }
     }
 
-} // namespace podradio
+} // namespace panicast

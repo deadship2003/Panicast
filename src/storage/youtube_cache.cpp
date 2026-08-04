@@ -1,16 +1,16 @@
 // YouTube channel cache (singleton): in-memory cache + `youtube_cache` DB table persistence.
 // All DB access goes through DatabaseManager's single shared connection (no second sqlite
 // connection, which used to race with the main one).
-#include "podradio/storage/youtube_cache.h"
+#include "panicast/storage/youtube_cache.h"
 
 #include <nlohmann/json.hpp>
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
-#include "podradio/storage/database.h"
+#include "panicast/core/logger.h"
+#include "panicast/storage/database.h"
 
-namespace podradio
+namespace panicast
 {
 
 using json = nlohmann::json;
@@ -85,4 +85,4 @@ void YouTubeCache::save_to_db(const std::string& channel_url, const std::string&
     DatabaseManager::instance().youtube_cache_save(channel_url, channel_name, videos_json.dump());
 }
 
-} // namespace podradio
+} // namespace panicast

@@ -1,6 +1,6 @@
 // Y01: dependency-free crypto primitives (SHA-256, HMAC, PBKDF2, ChaCha20) + token seal/open.
 // See header for rationale. Implementations follow the public specs (NIST FIPS 180-4, RFC 8439).
-#include "podradio/core/crypto.h"
+#include "panicast/core/crypto.h"
 
 #include <atomic>
 #include <cstdio>
@@ -13,10 +13,10 @@
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
-#include "podradio/core/paths.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/paths.h"
 
-namespace podradio
+namespace panicast
 {
 
 // ───────────────────────── SHA-256 (FIPS 180-4) ─────────────────────────
@@ -310,7 +310,7 @@ bool token_open(const Key32& key, const std::string& b64, std::string& out_plain
 // ───────────────────────── machine key ─────────────────────────
 // P2-S5: no hardcoded fallback secret. The key is derived from /etc/machine-id (+hostname+user).
 //   On minimal/container hosts where those are all unavailable, a per-install random key is
-//   generated once and stored at <data_dir>/podradio_machine_key (0600) — never a shared constant.
+//   generated once and stored at <data_dir>/panicast_machine_key (0600) — never a shared constant.
 Key32 machine_key() {
     static Key32 k = ([]() -> Key32 {
         std::string secret;
@@ -321,7 +321,7 @@ Key32 machine_key() {
         if (user) secret += user;
 
         if (!secret.empty()) {
-            const char salt[] = "podradio-y01-token-v1";
+            const char salt[] = "panicast-y01-token-v1";
             bytes dk = pbkdf2_hmac_sha256(reinterpret_cast<const uint8_t*>(secret.data()), secret.size(),
                                           reinterpret_cast<const uint8_t*>(salt), sizeof(salt)-1,
                                           100000, 32);
@@ -330,7 +330,7 @@ Key32 machine_key() {
         }
 
         // Minimal environment: use/generate a per-install random key file (0600).
-        std::string keypath = Paths::get_data_dir() + "/podradio_machine_key";
+        std::string keypath = Paths::get_data_dir() + "/panicast_machine_key";
         Key32 out;
         std::ifstream kf(keypath, std::ios::binary);
         if (kf && kf.read(reinterpret_cast<char*>(out.data()), 32) && kf.gcount() == 32) {
@@ -356,4 +356,4 @@ Key32 machine_key() {
     return k;
 }
 
-} // namespace podradio
+} // namespace panicast
