@@ -1,6 +1,8 @@
 #include "panicast/net/network.h"
 
 #include <chrono>
+#include <cstdio>
+#include <filesystem>
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 #include <thread>
@@ -45,6 +47,45 @@ static void configure_curl(CURL* curl, const std::string& url,
 size_t Network::write_cb(void* ptr, size_t size, size_t nmemb, void* data) {
     ((std::string*)data)->append((char*)ptr, size * nmemb);
     return size * nmemb;
+}
+
+// fwrite-based write callback for download_to_file (streams the body to a FILE* instead of a string).
+static size_t write_to_file_cb(void* ptr, size_t size, size_t nmemb, void* f) {
+    return fwrite(ptr, size, nmemb, (FILE*)f);
+}
+
+// ASR: download a media URL to a file via the configured proxy (curl handles SOCKS; ffmpeg can't).
+bool Network::download_to_file(const std::string& url, const std::string& dest, int timeout) {
+    CurlRAII curl_raii;
+    CURL* curl = curl_raii.handle;
+    if (!curl) return false;
+    if (IniConfig::instance().get_reject_unsafe_url() && UrlGuard::reject(url, "download_to_file")) {
+        return false;
+    }
+    FILE* f = std::fopen(dest.c_str(), "wb");
+    if (!f) return false;
+    struct curl_slist* headers = NULL;
+    configure_curl(curl, url, headers, timeout);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_file_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, f);
+    // NOTE: no CURLOPT_MAXFILESIZE here (fetch_once caps at 64MB; podcasts can be larger).
+    //   A low-speed abort would be nicer than a hard wall-clock cap, but a generous timeout lets
+    //   slow-but-progressing proxy downloads complete while still bounding a hung connection.
+    CURLcode res = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_slist_free_all(headers);
+    std::fflush(f);
+    long sz = std::ftell(f);
+    std::fclose(f);
+    bool ok = (res == CURLE_OK && http_code >= 200 && http_code < 300 && sz > 0);
+    if (!ok) {
+        std::error_code ec;
+        std::filesystem::remove(dest, ec);
+        LOG(fmt::format("[Network] download_to_file failed (curl={}, http={}, bytes={}) for {}",
+                        curl_easy_strerror(res), http_code, sz, url.substr(0, 80)));
+    }
+    return ok;
 }
 
 std::string Network::fetch_once(const std::string& url, int timeout, std::string* err_out) {

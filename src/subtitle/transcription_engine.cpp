@@ -18,6 +18,8 @@
 #include "panicast/core/utils.h"
 #include "panicast/core/thread_pool.h"
 #include "panicast/playback/mpv_controller.h"  // Y24.28: for video ASR (sub_add + show_osd)
+#include "panicast/net/network.h"             // ASR: Network::download_to_file (proxy-aware source fetch)
+#include "panicast/storage/cache.h"           // ASR: CacheManager (reuse/register the episode's local cache)
 #include "panicast/storage/database.h"
 #include "panicast/subtitle/subtitle_manager.h"
 
@@ -418,6 +420,50 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
     LOG(fmt::format("[Transcribe] realtime chunked: chunk={}s start={:.1f}s dur={} url='{}'",
                     chunk_sec, start, seekable ? fmt::format("{:.0f}s", duration) : std::string("live"), url));
 
+    // Source for chunk capture. FINITE media (duration known) needs a LOCAL file: ffmpeg's HTTP input
+    //   CANNOT tunnel over the configured SOCKS proxy, so a direct ffmpeg capture stalls on CDN URLs
+    //   that need the proxy — the "Shift+L does nothing" bug (ffmpeg hangs on the network read, whisper
+    //   never runs, no CPU load, no caption). curl handles SOCKS, so we fetch via curl.
+    //   The fetch is a PERSISTENT cache of the episode (not a throwaway temp): if the episode is already
+    //   cached (D-key download or a prior ASR), reuse it; otherwise download it ONCE into the normal
+    //   download dir and register it via CacheManager (mark_downloaded → DB-persisted, is_downloaded
+    //   highlight, and reused by playback + future ASR — no re-fetching). Then ffmpeg seeks the LOCAL
+    //   file (instant, no per-chunk network) and chunk transcription stays progressive. LIVE streams
+    //   have no finite file → capture directly with ffmpeg (best-effort; -timeout makes a stall fail fast).
+    std::error_code ec;
+    std::string src = url;
+    if (seekable) {
+        std::string cached = CacheManager::instance().get_local_file(url);
+        if (!cached.empty() && fs::exists(cached, ec)) {
+            src = cached;
+            LOG(fmt::format("[Transcribe] realtime: using cached local file: {}", cached));
+        } else {
+            std::string dir = Utils::get_download_dir();
+            fs::create_directories(dir, ec);
+            std::string ext = ".mp3";
+            size_t dot = url.find_last_of('.'), slash = url.find_last_of('/');
+            if (dot != std::string::npos && dot > slash) {
+                std::string ue = url.substr(dot);
+                size_t q = ue.find('?');
+                if (q != std::string::npos) ue = ue.substr(0, q);
+                if (ue.length() <= 5 && !ue.empty()) ext = ue;
+            }
+            std::string path = dir + "/" + Utils::sanitize_filename(node ? node->title : std::string("asr")) + ext;
+            EVENT_LOG(fmt::format("Transcribe: caching episode via proxy ({:.0f}s; highlighted + reused next time)...", duration));
+            if (!Network::download_to_file(url, path, 600)) {
+                LOG(fmt::format("[Transcribe] realtime: source download failed: {}", url.substr(0, 80)));
+                EVENT_LOG("Transcribe: source download failed — check [network] proxy / connectivity");
+                CacheManager::instance().mark_partial(url);
+                realtime_active_ = false;
+                return;
+            }
+            if (realtime_gen_.load() != gen) { realtime_active_ = false; return; }  // stopped during fetch
+            CacheManager::instance().mark_downloaded(url, path);  // persist + reuse (+ highlight)
+            if (node) { node->local_file = path; node->is_downloaded = true; }      // highlight this session
+            src = path;
+        }
+    }
+
     bool stopped = false;
     while (realtime_gen_.load() == gen) {
         // Finite media stop condition.
@@ -426,8 +472,9 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
         // ── capture one bounded chunk → wav (killable via -progress pipe:1) ──
         std::string tmp_wav = temp_basename() + ".wav";
         std::vector<std::string> fargs = {"-y"};
+        fargs.push_back("-timeout"); fargs.push_back("20000000");  // 20s net read timeout (live/network input; ignored for local files)
         if (seekable && start > 0.5) { fargs.push_back("-ss"); fargs.push_back(fmt::format("{:.3f}", start)); }
-        fargs.push_back("-i"); fargs.push_back(url);
+        fargs.push_back("-i"); fargs.push_back(src);
         fargs.push_back("-t"); fargs.push_back(std::to_string(chunk_sec));
         fargs.push_back("-ar"); fargs.push_back("16000");
         fargs.push_back("-ac"); fargs.push_back("1");
@@ -441,7 +488,6 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
         // ffmpeg returns non-zero at end-of-media for the last partial chunk, or on a decode error;
         // either way we stop after saving whatever segments we have. A too-small/missing wav also means
         // nothing useful was captured for this chunk.
-        std::error_code ec;
         if (frc != 0 || !fs::exists(tmp_wav, ec) || fs::file_size(tmp_wav, ec) < 1000) {
             LOG(fmt::format("[Transcribe] realtime capture end/failed (rc={}, start={:.1f}s)", frc, start));
             fs::remove(tmp_wav, ec);
@@ -473,6 +519,8 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
 
         start += chunk_sec;  // advance to the next window
     }
+    // NOTE: src is the episode's persistent cache (dl_dir) — do NOT delete it; it's reused by
+    //   playback + future ASR (registered via CacheManager). Only tmp_wav chunks are removed above.
 
     realtime_active_ = false;
     if (segs.empty()) {

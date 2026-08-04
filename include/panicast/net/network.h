@@ -64,6 +64,13 @@ public:
     // with a short human-readable reason: the curl error string ("SSL connect error", "Connection
     // timed out", ...) or "HTTP <code>". Does NOT EVENT_LOG — callers own logging/retry policy.
     static std::string fetch_once(const std::string& url, int timeout, std::string* err_out);
+
+    // ASR: download a (potentially large) media URL straight to a FILE through the configured proxy.
+    //   curl handles SOCKS natively; ffmpeg's HTTP input CANNOT tunnel over SOCKS, which is why an
+    //   ffmpeg capture of a CDN URL stalls when the network needs the proxy (the "Shift+L ASR does
+    //   nothing" bug). Unlike fetch(), there is no 64MB cap and the body is streamed to disk (not a
+    //   string) so multi-hundred-MB podcasts don't blow up RAM. Returns true on 2xx + non-empty file.
+    static bool download_to_file(const std::string& url, const std::string& dest, int timeout = 600);
 };
 
 } // namespace panicast
