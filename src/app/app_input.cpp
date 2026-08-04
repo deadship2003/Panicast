@@ -208,6 +208,41 @@ namespace panicast
             return;
         }
 
+        // ":secret" — import the user's Google OAuth client_secret*.json into <data_dir> so the
+        //   runtime OAuth loader (google_oauth.cpp scans <data_dir>/client_secret*.json) uses it for
+        //   Y-mode login, taking precedence over the build-time builtin client. This is the
+        //   client_secret analog of Ctrl+B (cookies): prompt for a path, COPY the file into the data
+        //   dir (the loader reads from there — there is no INI path for it). The client is cached at
+        //   first OAuth use, so the new file is picked up on the next Y-mode login (restart if you
+        //   already logged in this session).
+        if (s == "secret") {
+            std::string input = ui.input_box(
+                "Google client_secret.json path (~/... or absolute; copies into data dir)",
+                "", /*prefill=*/false);
+            if (UI::is_input_cancelled(input)) { EVENT_LOG("client_secret import cancelled"); return; }
+            std::string p = input;
+            p.erase(0, p.find_first_not_of(" \t\r\n"));
+            p.erase(p.find_last_not_of(" \t\r\n") + 1);
+            if (p.empty()) { EVENT_LOG(":secret — no path given"); return; }
+            std::string src = Utils::expand_path(p);
+            std::string dir = Paths::get_data_dir();
+            std::error_code ec;
+            if (dir.empty()) { EVENT_LOG(":secret — data dir unavailable (HOME unset?)"); return; }
+            if (!std::filesystem::exists(src, ec)) {
+                EVENT_LOG(fmt::format(":secret — file not found: {}", src));
+                return;
+            }
+            std::filesystem::create_directories(dir, ec);
+            std::string dst = dir + "/client_secret.json";
+            std::filesystem::copy_file(src, dst, std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec) {
+                EVENT_LOG(fmt::format(":secret — copy failed: {}", ec.message()));
+                return;
+            }
+            EVENT_LOG(fmt::format("client_secret imported -> {} (used on next Y-mode login)", dst));
+            return;
+        }
+
         PlayMode new_mode = play_mode;
         // Prefix matching: "rep"/"repeat" → REPEAT, "shu"/"shuffle" → SHUFFLE, "cyc"/"cycle" → CYCLE
         if (s.size() >= 2 && std::string("repeat").rfind(s, 0) == 0) new_mode = PlayMode::REPEAT;

@@ -672,6 +672,7 @@ void UI::draw_help(WINDOW* win, const MPVController::State& state, int cw) {
                 "  j / k      Select account",
                 "  r          Re-sync account / refresh Subs·History node",
                 "  d          Delete selected account",
+                "  :secret    Import Google client_secret.json into data dir (Y-mode OAuth client)",
                 "  (active account = primary, default 1#; expand another to switch)",
                 "",
                 "---- Playback ----",
