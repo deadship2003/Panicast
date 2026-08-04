@@ -406,6 +406,14 @@ namespace podradio
         player.stop();
 
         ui.cleanup();
+        // Kill EVERY tracked child subtree before exiting. _exit(0) below skips ~App (where
+        //   kill_all_child_processes normally runs), so without this only DIRECT children die —
+        //   via the kernel's PR_SET_PDEATHSIG — while GRANDCHILDREN (e.g. yt-dlp's ffmpeg merge
+        //   child, or ffmpeg spawned by a download) get reparented to init and keep running. The
+        //   tracked children are each process-group leaders (pgid==pid), so kill(-pgid) takes down
+        //   the whole subtree. Terminal is already restored above; the ~200ms SIGTERM→SIGKILL grace
+        //   is invisible. After this, _exit(0) returns to the shell prompt immediately.
+        Utils::kill_all_child_processes();
         // Exit IMMEDIATELY — skip ~App destructors (the pool workers are detached and could
         //   access App members during destruction → use-after-free). The terminal is already
         //   restored by ui.cleanup; the OS reclaims all resources (threads, mpv, DB handles).

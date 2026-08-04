@@ -17,6 +17,7 @@
 - **[YouTube] 播放解析超时可配 + 重试**（`src/app/app_playback.cpp` `resolve_youtube_url`、`include/podradio/config/ini_config.h`）。播放解析用固定 **30s** yt-dlp `-g` 超时——经 SOCKS 代理 + quickjs/ejs 解 nsig，单次解析合理耗时 30–60s，30s 上限导致间歇性"YouTube resolve failed"（日志里精确 30s 的 YtdlpRunner timeout；而下载路径正确用了 3600s）。
   - 已核实 nsig solver 本身可用：app 注入 `--js-runtimes quickjs:<qjs>` 后 yt-dlp 报 `JS runtimes: quickjs-ng-0.15.1` 且 `yt_dlp_ejs-0.8.0` 在场（不注入则为 none）；日志 08-01 亦显示解析多次成功。故失败为延迟/抖动，超时+重试是对症修复。
   - 新增 `[youtube] resolve_timeout_sec`（默认 90）、`resolve_retries`（默认 3，含首次）；失败/超时按重试循环再解析，并在 LOG/EVENT_LOG 记录每次尝试。
+- **[退出] 退出时杀全部子进程（含孙进程）**（`src/app/app_run.cpp` `run()` 收尾）。`_exit(0)` 跳过 `~App`，而 `kill_all_child_processes()` 原只在 `~App` 里 → 退出时只有**直接子进程**经内核 `PR_SET_PDEATHSIG` 被杀，**孙进程**（如 yt-dlp 的 ffmpeg 合流子进程、下载派生的 ffmpeg）被 init 收养继续跑（用户即观察到"退出后仍有残留进程"）。修复：在 `ui.cleanup()`（终端已恢复）之后、`_exit(0)` 之前显式调 `Utils::kill_all_child_processes()`——被跟踪子进程各自是进程组长(pgid==pid)，`kill(-pgid)` 整组终结含孙进程；~200ms 的 SIGTERM→SIGKILL 宽限不可见，`_exit(0)` 随即回到 shell PROMPT。异步即时退出 + 全子进程回收两全。
 - 二进制 `build/panicast` 全量编译通过（45/45，-j2，0-warning）。
 
 ## Podradio_V0.1-N07 — 2026-08-01 — titlebar-as-root 数据模型重构 + 退出 typeahead 修复
