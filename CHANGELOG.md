@@ -18,6 +18,7 @@
   - 已核实 nsig solver 本身可用：app 注入 `--js-runtimes quickjs:<qjs>` 后 yt-dlp 报 `JS runtimes: quickjs-ng-0.15.1` 且 `yt_dlp_ejs-0.8.0` 在场（不注入则为 none）；日志 08-01 亦显示解析多次成功。故失败为延迟/抖动，超时+重试是对症修复。
   - 新增 `[youtube] resolve_timeout_sec`（默认 90）、`resolve_retries`（默认 3，含首次）；失败/超时按重试循环再解析，并在 LOG/EVENT_LOG 记录每次尝试。
 - **[退出] 退出时杀全部子进程（含孙进程）**（`src/app/app_run.cpp` `run()` 收尾）。`_exit(0)` 跳过 `~App`，而 `kill_all_child_processes()` 原只在 `~App` 里 → 退出时只有**直接子进程**经内核 `PR_SET_PDEATHSIG` 被杀，**孙进程**（如 yt-dlp 的 ffmpeg 合流子进程、下载派生的 ffmpeg）被 init 收养继续跑（用户即观察到"退出后仍有残留进程"）。修复：在 `ui.cleanup()`（终端已恢复）之后、`_exit(0)` 之前显式调 `Utils::kill_all_child_processes()`——被跟踪子进程各自是进程组长(pgid==pid)，`kill(-pgid)` 整组终结含孙进程；~200ms 的 SIGTERM→SIGKILL 宽限不可见，`_exit(0)` 随即回到 shell PROMPT。异步即时退出 + 全子进程回收两全。
+- **[退出] 关闭 wlshm 视频窗口（修"退出后 MPV 窗口残留"）**（`src/playback/mpv_controller.cpp` `stop()`）。`stop()` 原本发完 `stop`/`quit` 异步命令后**立即 detach** 事件线程 → VO 的 `wl_surface` 销毁（即关 wlshm/WSLg 窗口的那一步）与随后的 `_exit(0)` 竞态，进程已退但窗口变 WSLg 幽灵窗口——播放视频后最明显。修复：`stop()` 在 detach 前对 `mpv_thread_done_`（event_loop 见到 SHUTDOWN、即 VO/AO 已 uninit 后置位）做**有界等待**（≤~1.2s）——VO 正常 <100ms 即关窗并 join；若 WSLg 上 VO teardown 病态挂起（原 fire-and-forget 的初衷）则超时 detach 不无限阻塞。`stop()` 仅在退出路径调用（非逐曲），故该延迟仅退出时发生。
 - 二进制 `build/panicast` 全量编译通过（45/45，-j2，0-warning）。
 
 ## Podradio_V0.1-N07 — 2026-08-01 — titlebar-as-root 数据模型重构 + 退出 typeahead 修复

@@ -4,6 +4,7 @@
 #include <clocale>    // setlocale
 #include <chrono>    // steady_clock (bounded join in stop())
 #include <cstring>    // strlen
+#include <thread>     // std::this_thread::sleep_for (bounded VO-teardown wait in stop())
 #include <fcntl.h>    // open, O_WRONLY (Y24.55: stderr redirect)
 #include <fstream>
 #include <sstream>
@@ -334,18 +335,31 @@ bool MPVController::initialize() {
 void MPVController::stop() {
     if (!ctx_) return;  // idempotent
 
-    // User directive: signal mpv to release resources ASYNCHRONOUSLY (stop + quit), detach the
-    //   event thread, and return IMMEDIATELY. Don't join or wait for VO/AO teardown — on WSLg
-    //   that can hang indefinitely, blocking the TUI cleanup + exit. The OS reclaims mpv/VO/AO
-    //   when the process exits. ctx_ is left valid (not destroyed) so the detached thread can use
-    //   it safely until it exits; a second stop() call re-sends the commands (harmless no-op).
+    // Signal mpv to release resources: stop the stream + quit the core (async). "quit" triggers mpv
+    //   core shutdown → AO/VO uninit; VO uninit destroys the wl_surface, which is what actually
+    //   CLOSES the wlshm/WSLg video window. ctx_ is left valid so the event thread can finish its
+    //   shutdown safely; a second stop() call re-sends the commands (harmless no-op).
     const char* stop_cmd[] = {"stop", nullptr};
     mpv_command(ctx_, stop_cmd);    // release the media stream (async)
     running_ = false;
     const char* quit_cmd[] = {"quit", nullptr};
     mpv_command(ctx_, quit_cmd);    // tell mpv core to shut down (async)
-    if (mpv_thread_.joinable()) mpv_thread_.detach();  // fire-and-forget; dies with the process
-    // F25: no stderr restore — F23's dup2 redirect was removed (see initialize()).
+
+    // Bounded wait for the VO to uninit so the wlshm/WSLg video window actually CLOSES before we
+    //   exit. Previously this detached the event thread immediately, so the VO teardown raced with
+    //   the following _exit(0) and the window was left open (a ghost window in WSLg) after the
+    //   process exited — most visible right after playing a video. mpv_thread_done_ is set by
+    //   event_loop() once it sees MPV_EVENT_SHUTDOWN (emitted AFTER VO/AO uninit), so waiting for it
+    //   guarantees the surface is destroyed. VO teardown normally completes in <100ms; bound the
+    //   wait at ~1.2s so a pathological WSLg teardown hang (the original reason for fire-and-forget)
+    //   can't block the exit indefinitely — fall back to detach if it hasn't finished. stop() runs
+    //   only on the exit path (never per-track), so this latency is exit-only.
+    if (mpv_thread_.joinable()) {
+        for (int i = 0; i < 120 && !mpv_thread_done_.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (mpv_thread_done_.load()) mpv_thread_.join();   // VO uninited → window closed; reap
+        else mpv_thread_.detach();                          // timed out → fire-and-forget (no hang)
+    }
 }
 
 void MPVController::play_audio(const std::string& url) {
