@@ -1,8 +1,8 @@
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
-#include "podradio/parsers/transcript_parser.h"
+#include "panicast/parsers/transcript_parser.h"
 
-namespace podradio
+namespace panicast
 {
 
 // Y24.17: helpers shared by play_current's subtitle handling (sync + async pool paths).
@@ -354,7 +354,7 @@ static std::string basename_of(const std::string& p) {
                         player.sub_add(pn_cap->subtitle_url);
                         LOG(fmt::format("[Subtitle] mpv sub-add: {} (Method A — mpv renders)", basename_of(pn_cap->subtitle_url)));
                     } else {
-                        LOG(fmt::format("[Subtitle] podradio resolves: {} (Method B — video, non-mpv format)", basename_of(pn_cap->subtitle_url)));
+                        LOG(fmt::format("[Subtitle] panicast resolves: {} (Method B — video, non-mpv format)", basename_of(pn_cap->subtitle_url)));
                         subtitle_mgr_.load_async(pn_cap, pool_);  // fills Method B (LYRIC for JSON)
                     }
                 } else {
@@ -366,11 +366,11 @@ static std::string basename_of(const std::string& p) {
             //   load_async probes for a local sidecar async; if none and no transcript URL → NONE.
             subtitle_mgr_.load_async(pn, pool_);
             if (pn && pn->has_subtitle && !pn->subtitle_url.empty())
-                LOG(fmt::format("[Subtitle] podradio resolves: {} (Method B — audio, async)", basename_of(pn->subtitle_url)));
+                LOG(fmt::format("[Subtitle] panicast resolves: {} (Method B — audio, async)", basename_of(pn->subtitle_url)));
         }
 
         // Y23.9: BUFFERING state — set pending before play; cleared when mpv reports has_media.
-        // Y24.17: timestamp each step so podradio.log shows WHERE the wait goes (sync fs::exists/DB
+        // Y24.17: timestamp each step so panicast.log shows WHERE the wait goes (sync fs::exists/DB
         //   vs mpv load). >5s on a local file is abnormal — this pinpoints it.
         playback_pending_ = true;
         playback_pending_start_ = std::chrono::steady_clock::now();
@@ -546,4 +546,4 @@ static std::string basename_of(const std::string& p) {
         pool_.submit([this]() { load_history_to_root(); });
     }
 
-} // namespace podradio
+} // namespace panicast

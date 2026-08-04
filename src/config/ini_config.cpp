@@ -1,6 +1,6 @@
-#include "podradio/config/ini_config.h"
+#include "panicast/config/ini_config.h"
 
-namespace podradio
+namespace panicast
 {
 
 IniConfig& IniConfig::instance() {
@@ -8,4 +8,4 @@ IniConfig& IniConfig::instance() {
     return ic;
 }
 
-} // namespace podradio
+} // namespace panicast

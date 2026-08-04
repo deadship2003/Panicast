@@ -1,4 +1,4 @@
-#include "podradio/net/ytdlp_runner.h"
+#include "panicast/net/ytdlp_runner.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -16,13 +16,13 @@
 
 #include <fmt/format.h>
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/utils.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/utils.h"
 
 extern char** environ;  // Required by posix_spawnp
 
-namespace podradio
+namespace panicast
 {
 
 YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string>& args,
@@ -63,7 +63,7 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string>& args,
     }
 
     // N04-fix: fork+exec with PR_SET_PDEATHSIG + new process group (see Utils::spawn_child).
-    //   PDEATHSIG makes the yt-dlp child auto-die when podradio is killed (even by SIGKILL);
+    //   PDEATHSIG makes the yt-dlp child auto-die when panicast is killed (even by SIGKILL);
     //   the new pgroup lets graceful shutdown kill(-pid) take down yt-dlp + its ffmpeg merge child.
     pid_t pid = Utils::spawn_child(ytdlp, argv.data(), -1, out_pipe[1], err_pipe[1], true);
     close(out_pipe[1]);
@@ -169,4 +169,4 @@ std::string YtdlpRunner::find_ytdlp() {
     return "";
 }
 
-} // namespace podradio
+} // namespace panicast

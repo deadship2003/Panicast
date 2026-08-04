@@ -17,13 +17,13 @@ project(PaniCast
     LANGUAGES CXX
 )
 
-# Version information (single source of truth; five locations must stay in sync: CMakeLists.txt / vcpkg.json / include/podradio/core/constants.h / man/panicast.1 / README.md)
-# Naming scheme: baseline Podradio_V0.1.
-#   - Fix iterations:   Podradio_V0.1-F01 .. -F99  (bug-fix line, parallel)
-#   - Y (account) line: Podradio_V0.1-Y01 .. -Y99  (multi-account / Google-login feature line, parallel to F)
-#   Empty PODRADIO_FIX_SUFFIX = baseline.
-set(PODRADIO_FIX_SUFFIX "")
-set(PODRADIO_FULL_VERSION "PaniCast-V0.01")
+# Version information (single source of truth; five locations must stay in sync: CMakeLists.txt / vcpkg.json / include/panicast/core/constants.h / man/panicast.1 / README.md)
+# Naming scheme: baseline Panicast_V0.1.
+#   - Fix iterations:   Panicast_V0.1-F01 .. -F99  (bug-fix line, parallel)
+#   - Y (account) line: Panicast_V0.1-Y01 .. -Y99  (multi-account / Google-login feature line, parallel to F)
+#   Empty PANICAST_FIX_SUFFIX = baseline.
+set(PANICAST_FIX_SUFFIX "")
+set(PANICAST_FULL_VERSION "PaniCast-V0.01")
 
 # V0.05B9n3e5g3p P3-2: Generate version.h via configure_file; source code includes it
 # Avoids manually syncing the version in 3 places (old code had CMake=n, vcpkg=n, source=o mismatch)
@@ -65,8 +65,8 @@ else()
                     "Drop your own client_secret.json into secrets/ and rebuild to bake a builtin client.")
 endif()
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/podradio/net/client_secret_builtin.h.in
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/podradio/net/client_secret_builtin.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/panicast/net/client_secret_builtin.h.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/panicast/net/client_secret_builtin.h
     @ONLY
 )
 
@@ -88,27 +88,27 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "PaniCast version: ${PODRADIO_FULL_VERSION}")
+message(STATUS "PaniCast version: ${PANICAST_FULL_VERSION}")
 
 # =============================================================================
 # Platform detection
 # =============================================================================
 # V0.05B9n3e5g3p P3-9: Use target_compile_definitions instead of deprecated add_definitions
-# Platform macros will be defined on the podradio target (see below)
+# Platform macros will be defined on the panicast target (see below)
 if(WIN32)
-    set(PODRADIO_PLATFORM "Windows")
-    set(PODRADIO_PLATFORM_DEFINE PODRADIO_WINDOWS)
+    set(PANICAST_PLATFORM "Windows")
+    set(PANICAST_PLATFORM_DEFINE PANICAST_WINDOWS)
 elseif(APPLE)
-    set(PODRADIO_PLATFORM "macOS")
-    set(PODRADIO_PLATFORM_DEFINE PODRADIO_MACOS)
+    set(PANICAST_PLATFORM "macOS")
+    set(PANICAST_PLATFORM_DEFINE PANICAST_MACOS)
 elseif(UNIX)
-    set(PODRADIO_PLATFORM "Linux")
-    set(PODRADIO_PLATFORM_DEFINE PODRADIO_LINUX)
+    set(PANICAST_PLATFORM "Linux")
+    set(PANICAST_PLATFORM_DEFINE PANICAST_LINUX)
 else()
     message(FATAL_ERROR "Unsupported platform")
 endif()
 
-message(STATUS "Target platform: ${PODRADIO_PLATFORM}")
+message(STATUS "Target platform: ${PANICAST_PLATFORM}")
 
 # =============================================================================
 # Find dependencies
@@ -239,8 +239,8 @@ endif()
 # V0.05B9n3e5g3p P3-1: Keep a single source file (splitting into multiple files is v0.6 work)
 # But add generated/ to the include path to support version.h injection
 # =============================================================================
-add_executable(podradio
-    # Panicast: renamed binary output (target stays 'podradio' internally)
+add_executable(panicast
+    # Panicast: renamed binary output (target stays 'panicast' internally)
     src/main.cpp
     src/core/paths.cpp
     src/core/logger.cpp
@@ -320,12 +320,12 @@ add_executable(podradio
     src/app/app_sync.cpp
     src/ui/qr.cpp
 )
-set_target_properties(podradio PROPERTIES OUTPUT_NAME "panicast")
+set_target_properties(panicast PROPERTIES OUTPUT_NAME "panicast")
 
-target_compile_options(podradio PRIVATE ${COMPILER_FLAGS})
-target_compile_definitions(podradio PRIVATE ${PODRADIO_PLATFORM_DEFINE} ${COMPILER_DEFS})
+target_compile_options(panicast PRIVATE ${COMPILER_FLAGS})
+target_compile_definitions(panicast PRIVATE ${PANICAST_PLATFORM_DEFINE} ${COMPILER_DEFS})
 
-target_include_directories(podradio PRIVATE
+target_include_directories(panicast PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}/generated
@@ -334,16 +334,16 @@ target_include_directories(podradio PRIVATE
 # =============================================================================
 # Link libraries
 # =============================================================================
-target_link_libraries(podradio PRIVATE
+target_link_libraries(panicast PRIVATE
     Threads::Threads
 )
 
 # MPV
 if(MPV_FOUND)
     if(TARGET PkgConfig::MPV)
-        target_link_libraries(podradio PRIVATE PkgConfig::MPV)
+        target_link_libraries(panicast PRIVATE PkgConfig::MPV)
     elseif(MPV_LIBRARY)
-        target_link_libraries(podradio PRIVATE ${MPV_LIBRARY})
+        target_link_libraries(panicast PRIVATE ${MPV_LIBRARY})
     endif()
     message(STATUS "MPV: Found")
 else()
@@ -352,7 +352,7 @@ endif()
 
 # SQLite3
 if(SQLITE3_LINK_LIB)
-    target_link_libraries(podradio PRIVATE ${SQLITE3_LINK_LIB})
+    target_link_libraries(panicast PRIVATE ${SQLITE3_LINK_LIB})
     message(STATUS "SQLite3: Found (${SQLITE3_LINK_LIB})")
 elseif(SQLite3_FOUND)
     message(WARNING "SQLite3 found but no link target available")
@@ -363,9 +363,9 @@ endif()
 # CURL
 if(CURL_FOUND)
     if(TARGET CURL::libcurl)
-        target_link_libraries(podradio PRIVATE CURL::libcurl)
+        target_link_libraries(panicast PRIVATE CURL::libcurl)
     elseif(CURL_LIBRARY)
-        target_link_libraries(podradio PRIVATE ${CURL_LIBRARY})
+        target_link_libraries(panicast PRIVATE ${CURL_LIBRARY})
     endif()
     message(STATUS "CURL: Found")
 else()
@@ -375,9 +375,9 @@ endif()
 # libxml2
 if(LibXml2_FOUND)
     if(TARGET LibXml2::LibXml2)
-        target_link_libraries(podradio PRIVATE LibXml2::LibXml2)
+        target_link_libraries(panicast PRIVATE LibXml2::LibXml2)
     elseif(XML2_LIBRARY)
-        target_link_libraries(podradio PRIVATE ${XML2_LIBRARY})
+        target_link_libraries(panicast PRIVATE ${XML2_LIBRARY})
     endif()
     message(STATUS "libxml2: Found")
 else()
@@ -386,7 +386,7 @@ endif()
 
 # fmt
 if(fmt_FOUND)
-    target_link_libraries(podradio PRIVATE fmt::fmt)
+    target_link_libraries(panicast PRIVATE fmt::fmt)
     message(STATUS "fmt: Found")
 else()
     message(STATUS "fmt: Using bundled version")
@@ -394,7 +394,7 @@ endif()
 
 # nlohmann_json
 if(nlohmann_json_FOUND)
-    target_link_libraries(podradio PRIVATE nlohmann_json::nlohmann_json)
+    target_link_libraries(panicast PRIVATE nlohmann_json::nlohmann_json)
     message(STATUS "nlohmann_json: Found")
 else()
     message(STATUS "nlohmann_json: Using bundled version")
@@ -403,11 +403,11 @@ endif()
 # ncurses
 if(UNIX)
     if(CURSES_FOUND)
-        target_link_libraries(podradio PRIVATE ${CURSES_LIBRARIES})
-        target_include_directories(podradio PRIVATE ${CURSES_INCLUDE_DIR})
+        target_link_libraries(panicast PRIVATE ${CURSES_LIBRARIES})
+        target_include_directories(panicast PRIVATE ${CURSES_INCLUDE_DIR})
         message(STATUS "ncurses: Found")
     elseif(NCURSES_LIBRARY)
-        target_link_libraries(podradio PRIVATE ${NCURSES_LIBRARY})
+        target_link_libraries(panicast PRIVATE ${NCURSES_LIBRARY})
         message(STATUS "ncurses: Found (${NCURSES_LIBRARY})")
     else()
         message(WARNING "ncurses not found - TUI disabled")
@@ -417,31 +417,31 @@ endif()
 # libqrencode (Y01: QR rendering for Google OAuth device-flow login)
 if(HAVE_QRENCODE)
     if(TARGET PkgConfig::QRENCODE)
-        target_link_libraries(podradio PRIVATE PkgConfig::QRENCODE)
+        target_link_libraries(panicast PRIVATE PkgConfig::QRENCODE)
     else()
-        target_include_directories(podradio PRIVATE ${QRENCODE_INCLUDE_DIR})
-        target_link_libraries(podradio PRIVATE ${QRENCODE_LIBRARY})
+        target_include_directories(panicast PRIVATE ${QRENCODE_INCLUDE_DIR})
+        target_link_libraries(panicast PRIVATE ${QRENCODE_LIBRARY})
     endif()
-    target_compile_definitions(podradio PRIVATE HAVE_QRENCODE=1)
+    target_compile_definitions(panicast PRIVATE HAVE_QRENCODE=1)
 endif()
 
 # Y18: OpenSSL libcrypto (MD5 for Bilibili WBI signing in bilibili_api.cpp)
 find_package(OpenSSL QUIET)
 if(OpenSSL_FOUND)
-    target_link_libraries(podradio PRIVATE OpenSSL::Crypto)
+    target_link_libraries(panicast PRIVATE OpenSSL::Crypto)
 else()
-    target_link_libraries(podradio PRIVATE crypto)
+    target_link_libraries(panicast PRIVATE crypto)
 endif()
 
 # =============================================================================
 # Install
 # =============================================================================
-install(TARGETS podradio
+install(TARGETS panicast
     RUNTIME DESTINATION bin
 )
 
 install(FILES README.md LICENSE
-    DESTINATION share/doc/podradio
+    DESTINATION share/doc/panicast
 )
 
 # Install man page
@@ -454,8 +454,8 @@ endif()
 # =============================================================================
 # Packaging
 # =============================================================================
-set(CPACK_PACKAGE_NAME "PodRadio")
-set(CPACK_PACKAGE_VERSION ${PODRADIO_FULL_VERSION})
+set(CPACK_PACKAGE_NAME "PaniCast")
+set(CPACK_PACKAGE_VERSION ${PANICAST_FULL_VERSION})
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Terminal Podcast/Radio Player")
 set(CPACK_PACKAGE_VENDOR "Panic")
 set(CPACK_PACKAGE_CONTACT "Deadship2003@gmail.com")
@@ -499,9 +499,9 @@ endif()
 # =============================================================================
 message(STATUS "")
 message(STATUS "═══════════════════════════════════════════════════════════════")
-message(STATUS "  PodRadio ${PODRADIO_FULL_VERSION} Configuration Summary")
+message(STATUS "  PaniCast ${PANICAST_FULL_VERSION} Configuration Summary")
 message(STATUS "═══════════════════════════════════════════════════════════════")
-message(STATUS "  Platform:     ${PODRADIO_PLATFORM}")
+message(STATUS "  Platform:     ${PANICAST_PLATFORM}")
 message(STATUS "  Build Type:   ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Compiler:     ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")

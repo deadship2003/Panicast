@@ -1,13 +1,13 @@
 // Y23.1: Bilibili parser implementation — see header. Wraps BilibiliAPI (net) → TreeNode subtrees.
-#include "podradio/parsers/bilibili_parser.h"
+#include "panicast/parsers/bilibili_parser.h"
 
 #include <fmt/format.h>
 
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/net/bilibili_api.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/net/bilibili_api.h"
 
-namespace podradio
+namespace panicast
 {
 
 TreeNodePtr BilibiliParser::parse_user_videos(const std::string& sessdata, const std::string& mid,
@@ -72,4 +72,4 @@ std::vector<TreeNodePtr> BilibiliParser::parse_history(const std::string& sessda
     return out;
 }
 
-}  // namespace podradio
+}  // namespace panicast

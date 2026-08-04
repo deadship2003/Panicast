@@ -1,13 +1,13 @@
 // Y01: YouTube sync — subscriptions (bidirectional via Data API v3) + watch history
 // (pull via InnerTube /browse; local plays recorded locally). See CHANGELOG Y01 known limits.
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
 #include <fmt/format.h>
 
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
 
-namespace podradio
+namespace panicast
 {
 
 // Pull the account's YouTube subscriptions and replace the local cache.
@@ -58,4 +58,4 @@ void App::record_youtube_play(const std::string& video_id, const std::string& ti
     AccountsManager::instance().upsert_history(aid, r);
 }
 
-} // namespace podradio
+} // namespace panicast

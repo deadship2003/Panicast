@@ -1,13 +1,13 @@
-#include "podradio/core/event_log.h"
+#include "panicast/core/event_log.h"
 
 #include <chrono>
 #include <ctime>
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
-#include "podradio/core/platform.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/platform.h"
 
-namespace podradio
+namespace panicast
 {
 
 EventLog& EventLog::instance() {
@@ -46,4 +46,4 @@ size_t EventLog::size() {
     return logs_.size();
 }
 
-} // namespace podradio
+} // namespace panicast

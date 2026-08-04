@@ -6,7 +6,7 @@
 # Usage:
 #   ./setup.sh              # install build deps (apt) + JS runtime + build + install panicast
 #   ./setup.sh --no-deps    # skip the apt build-deps step (you already have them)
-#   ./setup.sh --no-sudo    # user-local only: JS runtime -> ~/.local/bin, podradio -> ~/.local/bin
+#   ./setup.sh --no-sudo    # user-local only: JS runtime -> ~/.local/bin, panicast -> ~/.local/bin
 #   ./setup.sh js-only      # only install the bundled JS runtime (quickjs; deno fallback)
 #   ./setup.sh deno-only    # legacy: only install the bundled deno runtime
 #
@@ -124,20 +124,20 @@ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel "$(nproc)"
 say "built build/panicast ($(./build/panicast --version 2>/dev/null | head -1))"
 
-# ── 4. Install podradio ───────────────────────────────────────────────────────
+# ── 4. Install panicast ───────────────────────────────────────────────────────
 if [ "$NO_SUDO" = "0" ] && have sudo; then
-  sudo cmake --install build 2>/dev/null && say "installed -> /usr/local/bin/podradio" \
-    || { warn "cmake --install failed, trying direct copy"; sudo cp -f build/panicast /usr/local/bin/podradio && say "installed -> /usr/local/bin/podradio"; }
+  sudo cmake --install build 2>/dev/null && say "installed -> /usr/local/bin/panicast" \
+    || { warn "cmake --install failed, trying direct copy"; sudo cp -f build/panicast /usr/local/bin/panicast && say "installed -> /usr/local/bin/panicast"; }
 else
   mkdir -p "$HOME/.local/bin"
-  cp -f build/panicast "$HOME/.local/bin/podradio"
-  say "installed -> ~/.local/bin/podradio (user-local)"
+  cp -f build/panicast "$HOME/.local/bin/panicast"
+  say "installed -> ~/.local/bin/panicast (user-local)"
 fi
 
 echo
 echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
 echo -e "${GREEN} PaniCast ready.${NC}"
-echo -e " Run: ${BLUE}podradio${NC}"
+echo -e " Run: ${BLUE}panicast${NC}"
 echo -e " YouTube playback needs a JS runtime on PATH for yt-dlp nsig solving:"
 echo -e "   ${BLUE}qjs${NC} (quickjs-ng, ~2MB, recommended) or ${BLUE}deno${NC} (~106MB, fallback)."
 echo -e " Set [youtube] ${BLUE}js_runtime${NC} in config.ini to quickjs (default) or deno."

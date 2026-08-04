@@ -1,9 +1,9 @@
-#include "podradio/net/url_classifier.h"
+#include "panicast/net/url_classifier.h"
 
 #include <algorithm>
 #include <cctype>
 
-namespace podradio
+namespace panicast
 {
 
 std::string URLClassifier::url_path(const std::string& url) {
@@ -169,4 +169,4 @@ MediaType URLClassifier::classifyMediaType(const std::string& url) {
     }
 }
 
-} // namespace podradio
+} // namespace panicast

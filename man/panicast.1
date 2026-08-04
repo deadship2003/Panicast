@@ -166,7 +166,7 @@ Re-sync the selected account's YouTube subscriptions and watch history.
 Delete the selected account and all its per-account YouTube data (after confirmation).
 .PP
 All account data is stored in the single SQLite database
-(~/.local/share/podradio/podradio.db); OAuth tokens are encrypted at rest with a
+(~/.local/share/panicast/panicast.db); OAuth tokens are encrypted at rest with a
 machine-bound key. Existing podcast/radio/favorites/history data stays global and is
 unaffected by Y mode.
 .SS Other
@@ -404,7 +404,7 @@ DB table, so fixes to these shared components apply to both.
 Netscape cookies.txt path (single source, no browser fallback). Empty/bare
 .I youtube_cookie.txt
 resolves to
-.IR ~/.local/share/podradio/youtube_cookie.txt .
+.IR ~/.local/share/panicast/youtube_cookie.txt .
 Set via
 .B Ctrl+B
 Required for playback (bot-check bypass).
@@ -472,7 +472,7 @@ Three methods (priority: runtime file > baked builtin > fallback):
 (1) drop
 .I client_secret*.json
 into
-.IR ~/.local/share/podradio/ ;
+.IR ~/.local/share/panicast/ ;
 (2) put
 .I secrets/client_secret.json
 in the source tree before build (CMake auto-detects and bakes it);
@@ -581,10 +581,10 @@ Max concurrent offline jobs (default 3); the dispatcher ramps within [1, max] ba
 
 .SH FILES
 .TP
-.I ~/.local/share/podradio/
+.I ~/.local/share/panicast/
 Data directory containing database and cache
 .TP
-.I ~/.local/share/podradio/podradio.db
+.I ~/.local/share/panicast/panicast.db
 SQLite database file. Holds subscriptions, history, favourites, progress, and the
 media cache (table
 .BR media_cache :
@@ -596,21 +596,21 @@ is renamed to
 .I cached_urls.json.migrated
 (only after the DB write commits).
 .TP
-.I ~/.local/share/podradio/downloads/
+.I ~/.local/share/panicast/downloads/
 Downloaded media files
 .TP
-.I ~/.local/share/podradio/youtube_cookie.txt
+.I ~/.local/share/panicast/youtube_cookie.txt
 Netscape-format YouTube cookies for yt-dlp playback (set via
 .B Ctrl+B
 or [youtube] cookies_file). Default cookie location.
 .TP
-.I ~/.local/share/podradio/client_secret*.json
+.I ~/.local/share/panicast/client_secret*.json
 Optional runtime Google OAuth client (Y mode). If present, overrides the built-in client.
 .TP
 .I secrets/client_secret.json
 Source-tree OAuth client (optional). If present at CMake configure time, baked as the built-in default. Gitignored.
 .TP
-.I ~/.config/podradio/config.ini
+.I ~/.config/panicast/config.ini
 Configuration file. Sections include
 .B [display]
 (theme_index: 0-8 color scheme; layout_ratio: left:right panel split, default 0.25 = 25:75; log_height_ratio: LOG share of the right panel, default 0.3 = INFO:LOG 70:30; log_compress_height: terminal-height threshold below which LOG is compressed, default 23, see LAYOUT),

@@ -1,18 +1,18 @@
 // iTunes podcast search implementation.
-#include "podradio/parsers/itunes_search.h"
+#include "panicast/parsers/itunes_search.h"
 
 #include <fmt/format.h>
 
 #include <curl/curl.h>
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/utils.h"
-#include "podradio/net/network.h"
-#include "podradio/storage/database.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/utils.h"
+#include "panicast/net/network.h"
+#include "panicast/storage/database.h"
 
-namespace podradio
+namespace panicast
 {
 
 using json = nlohmann::json;
@@ -190,4 +190,4 @@ std::string ITunesSearch::fetch(const std::string& url) {
     return response;
 }
 
-} // namespace podradio
+} // namespace panicast

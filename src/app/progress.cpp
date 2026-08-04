@@ -1,14 +1,14 @@
 // Download progress management implementation.
-#include "podradio/app/progress.h"
+#include "panicast/app/progress.h"
 
 #include <cmath>     // std::isnan/std::isinf
 #include <algorithm> // std::sort
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
+#include "panicast/core/logger.h"
 
-namespace podradio
+namespace panicast
 {
 
 // Format download speed (internal helper)
@@ -190,4 +190,4 @@ int curl_progress_callback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
     return 0;
 }
 
-} // namespace podradio
+} // namespace panicast

@@ -1,9 +1,9 @@
 // Remote command bus implementation. See remote_command_bus.h for the threading contract.
-#include "podradio/net/remote_command_bus.h"
+#include "panicast/net/remote_command_bus.h"
 
 #include <utility>
 
-namespace podradio
+namespace panicast
 {
 
 void RemoteCommandBus::push(RemoteCommand cmd)
@@ -25,4 +25,4 @@ std::vector<RemoteCommand> RemoteCommandBus::drain_all()
     return out;
 }
 
-} // namespace podradio
+} // namespace panicast

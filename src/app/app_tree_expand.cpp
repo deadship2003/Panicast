@@ -1,6 +1,6 @@
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
-namespace podradio
+namespace panicast
 {
 
     void App::mark_cached_nodes(TreeNodePtr node) {
@@ -469,4 +469,4 @@ namespace podradio
         }
     }
 
-} // namespace podradio
+} // namespace panicast

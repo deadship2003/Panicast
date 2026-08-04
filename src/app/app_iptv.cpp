@@ -2,7 +2,7 @@
 //   Category/Language/Custom. m3u content is fetched live + cached (24h, INI [iptv] cache_hours),
 //   so data stays current without bundling stale snapshots. Channels play via the existing mpv path
 //   (vo=auto → video window; --quiet → audio-only).
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
 #include <cctype>
 #include <ctime>
@@ -15,14 +15,14 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/paths.h"
-#include "podradio/net/network.h"
-#include "podradio/parsers/m3u_parser.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/paths.h"
+#include "panicast/net/network.h"
+#include "panicast/parsers/m3u_parser.h"
 
-namespace podradio
+namespace panicast
 {
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -240,7 +240,7 @@ void App::expand_iptv_node(TreeNodePtr node) {
             }
             if (kids.empty()) {
                 auto hint = std::make_shared<TreeNode>();
-                hint->title = "(no custom m3u — set [iptv] custom_urls = url1,url2 in podradio.ini)";
+                hint->title = "(no custom m3u — set [iptv] custom_urls = url1,url2 in panicast.ini)";
                 hint->type = NodeType::FOLDER;
                 hint->children_loaded = true;
                 kids.push_back(hint);
@@ -269,4 +269,4 @@ void App::expand_iptv_node(TreeNodePtr node) {
     });
 }
 
-}  // namespace podradio
+}  // namespace panicast

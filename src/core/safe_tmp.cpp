@@ -1,4 +1,4 @@
-#include "podradio/core/safe_tmp.h"
+#include "panicast/core/safe_tmp.h"
 
 #include <cerrno>
 #include <cstring>      // strerror
@@ -8,17 +8,17 @@
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
-#include "podradio/core/paths.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/paths.h"
 
-namespace podradio
+namespace panicast
 {
 
 namespace fs = std::filesystem;
 
 std::string SafeTmpFile::create(const std::string& suffix) {
     ensure_tmp_dir();
-    std::string tmpl = tmp_dir() + "/podradio_XXXXXX" + suffix;
+    std::string tmpl = tmp_dir() + "/panicast_XXXXXX" + suffix;
     std::vector<char> buf(tmpl.begin(), tmpl.end());
     buf.push_back('\0');
     int fd = mkstemps(buf.data(), (int)suffix.size());
@@ -47,4 +47,4 @@ void SafeTmpFile::ensure_tmp_dir() {
     }
 }
 
-} // namespace podradio
+} // namespace panicast

@@ -1,6 +1,6 @@
-# PodRadio 源码审计报告
+# PaniCast 源码审计报告
 
-- **目标**：`src/podradio.cpp`（13912 行，单文件）+ `tests/test_units.cpp`
+- **目标**：`src/panicast.cpp`（13912 行，单文件）+ `tests/test_units.cpp`
 - **版本**：V0.5.0-B9n3f3
 - **方法**：全量逐行精读（1–2550 行主审 + 5 路并行子代理覆盖 2550–13912，关键发现回源核验）
 - **日期**：2026-07-14

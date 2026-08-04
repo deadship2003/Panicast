@@ -2,7 +2,7 @@
 //   - input_box / is_input_cancelled / dialog / show_url_popup / confirm_box / show_help
 //   - These remain UI member functions (they touch private geometry w,h and INPUT_CANCELLED);
 //     only their implementations live here. Declarations stay in ui.h.
-#include "podradio/ui/ui.h"
+#include "panicast/ui/ui.h"
 
 #include <algorithm>   // std::min / std::max / std::transform
 #include <cctype>      // ::tolower
@@ -10,7 +10,7 @@
 
 #include <ncurses.h>
 
-namespace podradio
+namespace panicast
 {
 
 std::string UI::input_box(const std::string& prompt, const std::string& default_val, bool prefill) {
@@ -499,4 +499,4 @@ void UI::show_help(const MPVController::State& state) {
             draw_help(nullptr, state, 0);
         }
 
-} // namespace podradio
+} // namespace panicast

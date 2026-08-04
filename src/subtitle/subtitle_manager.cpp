@@ -1,20 +1,20 @@
 // Y24.7: SubtitleManager implementation.
-#include "podradio/subtitle/subtitle_manager.h"
+#include "panicast/subtitle/subtitle_manager.h"
 
 #include <filesystem>
 #include <fstream>
 
 #include <fmt/format.h>
 
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/thread_pool.h"
-#include "podradio/config/ini_config.h"
-#include "podradio/net/network.h"
-#include "podradio/parsers/transcript_parser.h"  // TranscriptParser::load (facade → registry)
-#include "podradio/ui/ui.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/thread_pool.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/net/network.h"
+#include "panicast/parsers/transcript_parser.h"  // TranscriptParser::load (facade → registry)
+#include "panicast/ui/ui.h"
 
-namespace podradio
+namespace panicast
 {
 namespace fs = std::filesystem;
 
@@ -133,7 +133,7 @@ void SubtitleManager::load_async(TreeNodePtr node, ThreadPool& pool) {
         probe_sidecar(node);  // picks up local ASR SRT if present (sets subtitle_url + has_asr_srt)
         // Y24.25: load if has_subtitle (online 📜) OR has_asr_srt (local ASR 📝) + subtitle_url set.
         if (!node || (!node->has_subtitle && !node->has_asr_srt) || node->subtitle_url.empty()) {
-            LOG(fmt::format("[Subtitle] podradio: no transcript for '{}'", node ? node->title : std::string("<null>")));
+            LOG(fmt::format("[Subtitle] panicast: no transcript for '{}'", node ? node->title : std::string("<null>")));
             EVENT_LOG("No subtitle for this track");
             std::lock_guard<std::mutex> lk(mtx_);
             pending_.clear();
@@ -151,7 +151,7 @@ void SubtitleManager::load_async(TreeNodePtr node, ThreadPool& pool) {
         size_t slash = fname.find_last_of("/\\");
         if (slash != std::string::npos) fname = fname.substr(slash + 1);
 
-        LOG(fmt::format("[Subtitle] podradio resolves: {} (Method B — {})",
+        LOG(fmt::format("[Subtitle] panicast resolves: {} (Method B — {})",
                         fname, is_local ? "local sidecar" : "fetching online"));
         EVENT_LOG(fmt::format("Loading subtitle: {}", fname));
         {
@@ -316,4 +316,4 @@ void SubtitleManager::set_status_locked(TranscriptStatus st) {
     status_ = st;
 }
 
-}  // namespace podradio
+}  // namespace panicast

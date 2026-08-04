@@ -1,13 +1,13 @@
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 #include <set>
 
 #include <nlohmann/json.hpp>
 
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/storage/database.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/storage/database.h"
 
-namespace podradio
+namespace panicast
 {
 using json = nlohmann::json;
 
@@ -492,4 +492,4 @@ using json = nlohmann::json;
         EVENT_LOG(fmt::format("Deleted search record: {}", query));
     }
 
-} // namespace podradio
+} // namespace panicast

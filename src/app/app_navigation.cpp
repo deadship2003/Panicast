@@ -1,9 +1,9 @@
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
-#include "podradio/app/online_state.h"
-#include "podradio/core/event_log.h"
+#include "panicast/app/online_state.h"
+#include "panicast/core/event_log.h"
 
-namespace podradio
+namespace panicast
 {
 
     // Y24.54: jump to the currently playing node — switch to its mode (without rebuilding the tree,
@@ -334,4 +334,4 @@ namespace podradio
         Persistence::save_cache(radio_root, podcast_root);
     }
 
-} // namespace podradio
+} // namespace panicast

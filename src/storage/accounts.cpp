@@ -1,5 +1,5 @@
 // Y01: AccountsManager implementation. See header.
-#include "podradio/storage/accounts.h"
+#include "panicast/storage/accounts.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -14,11 +14,11 @@
 #include <nlohmann/json.hpp>
 #include <sqlite3.h>
 
-#include "podradio/core/logger.h"
-#include "podradio/net/google_oauth.h"
-#include "podradio/storage/database.h"
+#include "panicast/core/logger.h"
+#include "panicast/net/google_oauth.h"
+#include "panicast/storage/database.h"
 
-namespace podradio
+namespace panicast
 {
 
 using json = nlohmann::json;
@@ -540,4 +540,4 @@ int64_t AccountsManager::get_sync_last(int account_id, const std::string& sync_t
     return ts;
 }
 
-} // namespace podradio
+} // namespace panicast

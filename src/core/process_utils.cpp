@@ -1,7 +1,7 @@
 // Process / IPC utilities: which_binary, run_process(_streaming), copy_to_clipboard, emit_osc8_link, emit_cup (+ osc52/base64 helpers).
 // Y24.38: split out of utils.cpp. Methods remain Utils:: static members
 //   (declarations stay in utils.h); only implementations live here.
-#include "podradio/core/utils.h"
+#include "panicast/core/utils.h"
 
 #include <algorithm>
 #include <cctype>
@@ -26,13 +26,13 @@
 
 #include <fmt/format.h>
 
-#include "podradio/core/paths.h"
-#include "podradio/core/terminal.h"
-#include "podradio/core/logger.h"
+#include "panicast/core/paths.h"
+#include "panicast/core/terminal.h"
+#include "panicast/core/logger.h"
 
 extern char** environ;  // Required by posix_spawnp
 
-namespace podradio
+namespace panicast
 {
 
 // Remove the shell sink from popen/system (command injection risk).
@@ -360,7 +360,7 @@ void Utils::kill_all_child_processes() {
 }
 
 // N04-fix: fork+exec helper with PR_SET_PDEATHSIG (see utils.h). Replaces posix_spawn for the
-//   yt-dlp / ffmpeg / whisper children so that `kill -9 PID` (SIGKILL of podradio) still kills them
+//   yt-dlp / ffmpeg / whisper children so that `kill -9 PID` (SIGKILL of panicast) still kills them
 //   — the kernel delivers the parent-death signal even though no handler can run.
 pid_t Utils::spawn_child(const std::string& exe, char* const argv[],
                          int in_fd, int out_fd, int err_fd, bool new_pgroup) {
@@ -370,7 +370,7 @@ pid_t Utils::spawn_child(const std::string& exe, char* const argv[],
         // child
         if (new_pgroup) setpgid(0, 0);  // become a new process-group leader (pgid == our pid)
 #ifdef __linux__
-        prctl(PR_SET_PDEATHSIG, SIGKILL);  // auto-die when podradio dies (covers SIGKILL of parent)
+        prctl(PR_SET_PDEATHSIG, SIGKILL);  // auto-die when panicast dies (covers SIGKILL of parent)
 #endif
         if (in_fd >= 0)  dup2(in_fd,  STDIN_FILENO);
         if (out_fd >= 0) dup2(out_fd, STDOUT_FILENO);
@@ -388,4 +388,4 @@ pid_t Utils::spawn_child(const std::string& exe, char* const argv[],
     if (new_pgroup) setpgid(pid, pid);
     return pid;
 }
-} // namespace podradio
+} // namespace panicast

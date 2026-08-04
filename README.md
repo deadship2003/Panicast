@@ -6,9 +6,9 @@
 
 *A powerful ncurses-based media player for the command line — TuneIn 电台 / RSS 播客 / YouTube（P 模式 cookies 解析 + Y 模式 Google OAuth）/ 本地媒体*
 
-[![Version](https://img.shields.io/badge/version-PaniCast-V0.01-blue.svg)](https://github.com/deadship2003/Podradio)
+[![Version](https://img.shields.io/badge/version-PaniCast-V0.01-blue.svg)](https://github.com/deadship2003/Panicast)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/deadship2003/Podradio)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/deadship2003/Panicast)
 [![C++](https://img.shields.io/badge/C++-17-orange.svg)](https://isocpp.org/)
 [![JS runtime](https://img.shields.io/badge/yt--dlp%20nsig-quickjs--ng-2ea44f.svg)](https://github.com/quickjs-ng/quickjs)
 
@@ -60,7 +60,7 @@ cd PaniCast-V0.01
 ./setup.sh              # 装 apt 构建依赖 + JS 运行时(quickjs，回退 deno) + 编译 + 安装 panicast
 # 可选参数:
 #   --no-deps    跳过 apt 依赖安装（已装好时）
-#   --no-sudo    全用户级安装（qjs/podradio 都装到 ~/.local/bin）
+#   --no-sudo    全用户级安装（qjs/panicast 都装到 ~/.local/bin）
 #   js-only      只安装 bundled JS 运行时（quickjs，回退 deno）
 #   deno-only    只安装 bundled deno 运行时（回退方案）
 ```
@@ -108,7 +108,7 @@ sudo cmake --install build
 > apt: `libqrencode-dev` · pacman: `qrencode` · dnf: `qrencode-devel` · brew: `qrencode` · vcpkg: `qrencode`.
 
 > **Y24.30 运行时依赖：JS 运行时**（YouTube 播放/下载必需）。yt-dlp 2026.07+ 需要一个 JavaScript 运行时来求解 YouTube 的 nsig「n 挑战」，否则只能取到缩略图、音视频格式全部缺失（报错 `Requested format is not available` / `n challenge solving failed`）。
-> **Y24.30 推荐 `quickjs-ng`（`qjs`，~2MB）**：冷启动比 deno 快约 10×，可消除首次播放 YouTube 的初始卡顿。在 `config.ini（~/.config/podradio/）` 设 `[youtube] js_runtime = quickjs`（默认），并确保 `qjs` 在 `PATH`。
+> **Y24.30 推荐 `quickjs-ng`（`qjs`，~2MB）**：冷启动比 deno 快约 10×，可消除首次播放 YouTube 的初始卡顿。在 `config.ini（~/.config/panicast/）` 设 `[youtube] js_runtime = quickjs`（默认），并确保 `qjs` 在 `PATH`。
 > ⚠️ **`node` 不可用**：yt-dlp 内置的 EJS 求解器把 Node 20（Debian/Ubuntu `apt install nodejs` 所装版本）标记为 `unsupported`（需 Node ≥22）。Node ≥22 + `--js-runtimes node` 也可用，但二进制 ~120MB，不如 quickjs 轻。
 > **quickjs 安装**：从 [quickjs-ng releases](https://github.com/quickjs-ng/quickjs/releases) 取 ≥0.12.0 的 `qjs` 放到 `PATH`，并 `pip install -U "yt-dlp[default]"`（带入 yt-dlp-ejs；quickjs 不能从 npm 拉 EJS）。
 > **deno 回退**：装不了 yt-dlp-ejs 时，`[youtube] js_runtime = deno` 并 `curl -fsSL https://deno.land/install.sh | sh`（~106MB，deno 自动从 npm 拉 EJS）。这是**运行时**依赖（yt-dlp 播放时调用），不影响编译，但未安装时 YouTube 无法播放。
@@ -259,7 +259,7 @@ cookies_file = bilibili_cookie.txt   # 默认 <数据目录>/bilibili_cookie.txt
 
 Y 模式扫码登录需要一个 Google OAuth "Desktop app / TV and Limited Input" 客户端。三种方式（按优先级，前者覆盖后者）：
 
-1. **运行时文件（免编译，推荐）**：把自己的 `client_secret*.json` 放到 `~/.local/share/podradio/`（数据目录）。程序运行时优先读它，覆盖内置客户端。
+1. **运行时文件（免编译，推荐）**：把自己的 `client_secret*.json` 放到 `~/.local/share/panicast/`（数据目录）。程序运行时优先读它，覆盖内置客户端。
 2. **编译时内置（bake）**：把 `client_secret.json` 放到源码树 `secrets/` 目录再编译——CMake `configure` 时自动检测，将其 `client_id`/`client_secret` 烘焙为内置默认（方便分发自己编译的版本）。模板见 `secrets/client_secret.json.example`。
 3. **不配置**：用项目内置的兜底客户端（开箱即用，无需任何文件）。
 
@@ -269,7 +269,7 @@ Y 模式扫码登录需要一个 Google OAuth "Desktop app / TV and Limited Inpu
 
 ## 💬 YouTube 字幕（软字幕，Y11）
 
-YouTube 视频的字幕默认**不加载**（`resolve_youtube_url` 用 `yt-dlp -g` 只取视频+音频流，不取字幕）。要启用软字幕（可缩放/移位/居中），在 `config.ini（~/.config/podradio/）` 设：
+YouTube 视频的字幕默认**不加载**（`resolve_youtube_url` 用 `yt-dlp -g` 只取视频+音频流，不取字幕）。要启用软字幕（可缩放/移位/居中），在 `config.ini（~/.config/panicast/）` 设：
 
 ```ini
 [youtube]
@@ -300,8 +300,8 @@ sub_auto = true      # 无手动字幕时用自动生成字幕
 ```bash
 sudo pacman -S whisper-cpp          # 提供 whisper-cli
 # 模型（按 CPU 选；AMD 7735HS 用 small.en-q5_1，弱 CPU 用 tiny.en）：
-mkdir -p ~/.local/share/podradio/models
-wget -O ~/.local/share/podradio/models/ggml-small.en-q5_1.bin \
+mkdir -p ~/.local/share/panicast/models
+wget -O ~/.local/share/panicast/models/ggml-small.en-q5_1.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin
 ```
 **Debian**（Trixie+ 有包；Bookworm 源码编译）：
@@ -310,11 +310,11 @@ sudo apt install -y whisper.cpp     # 或：git clone https://github.com/ggml-or
 ./models/download-ggml-model.sh small.en-q5_1   # 源码方式下模型
 ```
 
-### 配置（`config.ini（~/.config/podradio/）`）
+### 配置（`config.ini（~/.config/panicast/）`）
 ```ini
 [transcription]
 whisper_bin = whisper-cli                              # 或源码编译的绝对路径
-model = ~/.local/share/podradio/models/ggml-small.en-q5_1.bin
+model = ~/.local/share/panicast/models/ggml-small.en-q5_1.bin
 max_concurrent = 3                                     # 离线并发上限，[1,3] 内动态 CPU 感知
 ```
 
@@ -339,7 +339,7 @@ max_concurrent = 3                                     # 离线并发上限，[1
 
 `Solarized Dark`(默认) · `Gruvbox Dark` · `Nord` · `Dracula` · `Catppuccin Mocha` · `Tokyo Night` · `Rose Pine` · `One Dark` · `Everforest` · `Kanagawa` · `Ayu Mirage` · `Amber Terminal` · `Cobalt2` · `Horizon Dark` · `Material Ocean`
 
-**配色表单独一个文件**：`src/theme/themes.cpp`（声明在 `include/podradio/theme/themes.h`）。调整配色只改这个文件（`rgb[8][3]`：`[0]=背景 [1-6]=红绿黄蓝品红青 [7]=前景`，RGB 0-1000），不动 UI 逻辑。CMakeLists 已包含。
+**配色表单独一个文件**：`src/theme/themes.cpp`（声明在 `include/panicast/theme/themes.h`）。调整配色只改这个文件（`rgb[8][3]`：`[0]=背景 [1-6]=红绿黄蓝品红青 [7]=前景`，RGB 0-1000），不动 UI 逻辑。CMakeLists 已包含。
 
 ---
 
@@ -559,7 +559,7 @@ panicast -v                 # 显示版本
 ### Y 模式（Google 帐号）— Y01 新增
 
 Y 模式用于管理多个 Google 帐号，每个帐号的 YouTube 订阅与观看记录互相独立。登录走 SmartTube
-同款方案（Google OAuth 设备授权 + 终端二维码扫码）。所有数据仍存在同一个 `podradio.db`，OAuth
+同款方案（Google OAuth 设备授权 + 终端二维码扫码）。所有数据仍存在同一个 `panicast.db`，OAuth
 token 用本机密钥加密存储；现有 podcast/电台/收藏/历史等数据保持全局，不受影响。
 
 左侧树：每个 Google 帐号是一个节点，其下有 `播放历史` 与 `订阅列表` 两个子节点（订阅频道再展开为视频列表）。
@@ -586,14 +586,14 @@ YouTube 频道、F 模式、Y 模式频道浏览），即 yt-dlp/mpv 拿到登�
 ## 📁 项目结构
 
 ```
-PodRadio/
+PaniCast/
 ├── CMakeLists.txt              # CMake 配置
 ├── CMakePresets.json           # CMake 预设
 ├── vcpkg.json                  # vcpkg 依赖管理
 ├── src/
-│   └── podradio.cpp            # 主程序源码 (14,043 行)
+│   └── panicast.cpp            # 主程序源码 (14,043 行)
 ├── man/
-│   └── podradio.1              # man 手册页
+│   └── panicast.1              # man 手册页
 ├── cmake/
 │   ├── toolchain-aarch64-linux.cmake  # Linux ARM64 交叉编译
 │   └── toolchain-windows-mingw.cmake  # Windows MinGW 交叉编译
@@ -624,15 +624,15 @@ PodRadio/
 
 ## 📂 数据存储
 
-所有用户数据存储在 `~/.local/share/podradio/`:
+所有用户数据存储在 `~/.local/share/panicast/`:
 
 | 文件/目录 | 说明 |
 |----------|------|
-| `podradio.db` | SQLite数据库 (订阅、历史、缓存) |
+| `panicast.db` | SQLite数据库 (订阅、历史、缓存) |
 | `downloads/` | 下载的媒体文件 |
 | `cache/` | 缓存的媒体和元数据 |
 
-配置文件位置: `~/.config/podradio/config.ini`
+配置文件位置: `~/.config/panicast/config.ini`
 
 ---
 

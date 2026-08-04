@@ -1,6 +1,6 @@
-# Changelog — Podradio
+# Changelog — Panicast
 
-单一总日志，按 `[模块]` 分节记录。命名方案：基线 `Podradio_V0.1`；修正迭代 `Podradio_V0.1-F01`…`-F99`；帐号线迭代 `Podradio_V0.1-Y01`…`-Y99`；网络控制线迭代 `Podradio_V0.1-N01`…`-N99`。Y/F/N 线并行，互不影响。
+单一总日志，按 `[模块]` 分节记录。命名方案：基线 `Panicast_V0.1`；修正迭代 `Panicast_V0.1-F01`…`-F99`；帐号线迭代 `Panicast_V0.1-Y01`…`-Y99`；网络控制线迭代 `Panicast_V0.1-N01`…`-N99`。Y/F/N 线并行，互不影响。
 
 ---
 
@@ -14,14 +14,14 @@
   - ffmpeg 经 `-progress pipe:1 -stats_period 1` 把进度写 stdout，`run_process_streaming` 的 stop_pred 每秒轮询 → `stop_realtime()`/换轨/关停在 ~1s 内杀掉在途 ffmpeg，UI 线程不再阻塞、线程不再泄漏。whisper-cli 本就按行输出 segment，同样可中断。
   - 每块 whisper 转写后，segment 时间戳 **+块起点偏移**映射回源时间线，累加并渐进喂给 LYRIC（音频）/OSD（视频）。有限媒体循环到 ≥duration，直播循环到被停止。
   - 验证：分块模拟（jfk.wav [0,6]s/[6,12]s 两块）→ 段时间戳连续正确（第二块 +6s 后 06.000–11.000）；编译 0-warning。
-- **[YouTube] 播放解析超时可配 + 重试**（`src/app/app_playback.cpp` `resolve_youtube_url`、`include/podradio/config/ini_config.h`）。播放解析用固定 **30s** yt-dlp `-g` 超时——经 SOCKS 代理 + quickjs/ejs 解 nsig，单次解析合理耗时 30–60s，30s 上限导致间歇性"YouTube resolve failed"（日志里精确 30s 的 YtdlpRunner timeout；而下载路径正确用了 3600s）。
+- **[YouTube] 播放解析超时可配 + 重试**（`src/app/app_playback.cpp` `resolve_youtube_url`、`include/panicast/config/ini_config.h`）。播放解析用固定 **30s** yt-dlp `-g` 超时——经 SOCKS 代理 + quickjs/ejs 解 nsig，单次解析合理耗时 30–60s，30s 上限导致间歇性"YouTube resolve failed"（日志里精确 30s 的 YtdlpRunner timeout；而下载路径正确用了 3600s）。
   - 已核实 nsig solver 本身可用：app 注入 `--js-runtimes quickjs:<qjs>` 后 yt-dlp 报 `JS runtimes: quickjs-ng-0.15.1` 且 `yt_dlp_ejs-0.8.0` 在场（不注入则为 none）；日志 08-01 亦显示解析多次成功。故失败为延迟/抖动，超时+重试是对症修复。
   - 新增 `[youtube] resolve_timeout_sec`（默认 90）、`resolve_retries`（默认 3，含首次）；失败/超时按重试循环再解析，并在 LOG/EVENT_LOG 记录每次尝试。
 - **[退出] 退出时杀全部子进程（含孙进程）**（`src/app/app_run.cpp` `run()` 收尾）。`_exit(0)` 跳过 `~App`，而 `kill_all_child_processes()` 原只在 `~App` 里 → 退出时只有**直接子进程**经内核 `PR_SET_PDEATHSIG` 被杀，**孙进程**（如 yt-dlp 的 ffmpeg 合流子进程、下载派生的 ffmpeg）被 init 收养继续跑（用户即观察到"退出后仍有残留进程"）。修复：在 `ui.cleanup()`（终端已恢复）之后、`_exit(0)` 之前显式调 `Utils::kill_all_child_processes()`——被跟踪子进程各自是进程组长(pgid==pid)，`kill(-pgid)` 整组终结含孙进程；~200ms 的 SIGTERM→SIGKILL 宽限不可见，`_exit(0)` 随即回到 shell PROMPT。异步即时退出 + 全子进程回收两全。
 - **[退出] 关闭 wlshm 视频窗口（修"退出后 MPV 窗口残留"）**（`src/playback/mpv_controller.cpp` `stop()`）。`stop()` 原本发完 `stop`/`quit` 异步命令后**立即 detach** 事件线程 → VO 的 `wl_surface` 销毁（即关 wlshm/WSLg 窗口的那一步）与随后的 `_exit(0)` 竞态，进程已退但窗口变 WSLg 幽灵窗口——播放视频后最明显。修复：`stop()` 在 detach 前对 `mpv_thread_done_`（event_loop 见到 SHUTDOWN、即 VO/AO 已 uninit 后置位）做**有界等待**（≤~1.2s）——VO 正常 <100ms 即关窗并 join；若 WSLg 上 VO teardown 病态挂起（原 fire-and-forget 的初衷）则超时 detach 不无限阻塞。`stop()` 仅在退出路径调用（非逐曲），故该延迟仅退出时发生。
 - 二进制 `build/panicast` 全量编译通过（45/45，-j2，0-warning）。
 
-## Podradio_V0.1-N07 — 2026-08-01 — titlebar-as-root 数据模型重构 + 退出 typeahead 修复
+## Panicast_V0.1-N07 — 2026-08-01 — titlebar-as-root 数据模型重构 + 退出 typeahead 修复
 
 > 消除 per-mode 根节点（数据模型 E 化）：8 个模式根 `TreeNodePtr` → `std::vector<TreeNodePtr>`（根节点不再存在，一级条目直接在 vector 里），`current_root` 移除。`online_root` 作为跨模式 LINK 目标保留。另修退出时 typeahead 残留。
 
@@ -37,7 +37,7 @@
 - **退出 typeahead 残留**：关停期间（主循环停止读取后）敲入的键留在终端输入队列，退出后 shell 接续回显/执行（如 `kjkkj`）。修复：`restore_terminal_state()`/`restore_termios_async()` 末尾 `tcflush(STDIN, TCIFLUSH)` 排空输入队列；shell 启动干净。验证：优雅退出 code 0、termios 恢复 ICANON/ECHO/ISIG。
 - 版本号 → N07（六处同步）。
 
-## Podradio_V0.1-N06 — 2026-07-31 — MediaType 分类（DB 驱动的显示图标）
+## Panicast_V0.1-N06 — 2026-07-31 — MediaType 分类（DB 驱动的显示图标）
 
 > history/favourites 存 `media_type` 列，显示时直接用 DB 的分类图标，取代每次渲染从 URL 推断。核心诉求：**特定平台优先于通用类型**——YouTube 不被当 ONLINE VIDEO、m3u8(IPTV) 不被当 RADIO。
 
@@ -55,7 +55,7 @@
 ### 验证
 - 编译 0-warning；DB 副本 schema 46→47 + 回填全部正确；Ｂ 三层(glibc/终端/app)宽度均=2 验证通过；版本号六处同步。
 
-## Podradio_V0.1-N05 — 2026-07-31 — 'r' 键跨模式统一刷新（Y/B/T 修复）
+## Panicast_V0.1-N05 — 2026-07-31 — 'r' 键跨模式统一刷新（Y/B/T 修复）
 
 > 修复 Y 模式 'r' 无差别全量 resync、B 模式 'r' 长期 no-op、T 模式无法刷新缓存三处问题；'r' 键统一为"按节点刷新最新数据并替换本地缓存"。另修 Q 退出后终端无干净换行（`tui_cleanup` 缺尾换行）。
 
@@ -65,19 +65,19 @@
 - **T 模式 'r' 无法刷新**（`app_nodes.cpp:526`）：`refresh_node` 新增 T 分支——创作者节点按 'r' → `spawn_load_feed`(TIKTOK_USER) 在线重抓(yt-dlp) → `commit_feed_result` 替换 children + `episode_cache`(DEL+INS)，解决本地缓存过期。
 - **account 节点按 mode 消歧**：`is_account` 被 T 创作者复用，'r' 分流中 Y/B account 靠 `AppMode::ACCOUNT/BILIBILI` 区分，避免误匹配。
 - **Q 退出无干净换行**（`ui.cpp` `tui_cleanup`）：退出时已正确 `endwin`+恢复副屏/光标，但末尾未输出换行；副屏退出把光标还原到启动前那一行，shell 提示符便粘在该行 → "退出后没有干净换行"。末尾加 `printf("\n")`（恢复 termios 后转 CRLF），光标落新行、提示符干净出现。pty 抓包验证：退出字节结尾由 `\x1b[?25h` 变为 `\x1b[?25h\r\n`；Q→Y / Ctrl+C→Y 均 exit 0、终端完整恢复。
-- 文档同步：`man/podradio.1` 'r' 条目 + `ui.cpp` Y/B/T 帮助行修正；版本号 → N05（六处同步）。
+- 文档同步：`man/panicast.1` 'r' 条目 + `ui.cpp` Y/B/T 帮助行修正；版本号 → N05（六处同步）。
 
 ### 验证
 - 编译 0-warning（Linux 全量重编 18 + 增量 3 通过）；六处版本号同步；功能检验表(Sheet50) + 修复记录(Sheet53) 同步。
 
-## Podradio_V0.1-N04 — 2026-07-29 — PIN 鉴权 + UDP 发现 + WebSocket + 内嵌 BS 客户端
+## Panicast_V0.1-N04 — 2026-07-29 — PIN 鉴权 + UDP 发现 + WebSocket + 内嵌 BS 客户端
 
-> 浏览器/手机可直接控制 PodRadio：IE 打开 http://地址:端口/ 即控制；APK 扫描网络发现播放器 + PIN 配对。本版含完整服务端 + BS 客户端 + APK 源码工程。
+> 浏览器/手机可直接控制 PaniCast：IE 打开 http://地址:端口/ 即控制；APK 扫描网络发现播放器 + PIN 配对。本版含完整服务端 + BS 客户端 + APK 源码工程。
 
 ### 新增（服务端）
 - **PIN 鉴权**（`remote_server.h/.cpp` + `remote_session.cpp`）：动态 4 位 PIN（`regenerate_pin()`，`:pin` 弹窗显示、`:newpin` 轮换）+ 万能 PIN **6696**（无屏场景）；localhost 连接开放（IE 在本机打开→直接控制）；非本机需 `password <PIN>`。`pin_test.py` 验证：LAN 无 PIN→ACK、错 PIN→ACK、6696→OK、status→OK。
-- **UDP 网络发现**（`discovery_loop` + `[remote] discovery_port=18430`）：APK 广播 `PODRADIO_DISCOVER`，PodRadio 回 `PODRADIO 1 tcp=<port> ws=<port+1>`。`discovery_test` 验证通过。
-- **WebSocket 前端**（`remote_ws.h/.cpp` + `podradio_web_index.h`）：RFC6455 握手（SHA1+base64，OpenSSL）+ 帧编解码（掩码处理/ping-pong）。端口 = TCP+1。socketpair 桥接 RemoteSession（PRP 不变）。GET / 返回**内嵌** BS 客户端（单 HTML，无外部文件）。`ws_test.py` 验证：握手 101 + greeting 帧 + ping/status/volume 端到端 PASS。
+- **UDP 网络发现**（`discovery_loop` + `[remote] discovery_port=18430`）：APK 广播 `PANICAST_DISCOVER`，PaniCast 回 `PANICAST 1 tcp=<port> ws=<port+1>`。`discovery_test` 验证通过。
+- **WebSocket 前端**（`remote_ws.h/.cpp` + `panicast_web_index.h`）：RFC6455 握手（SHA1+base64，OpenSSL）+ 帧编解码（掩码处理/ping-pong）。端口 = TCP+1。socketpair 桥接 RemoteSession（PRP 不变）。GET / 返回**内嵌** BS 客户端（单 HTML，无外部文件）。`ws_test.py` 验证：握手 101 + greeting 帧 + ping/status/volume 端到端 PASS。
 - **`RemoteSession` 重构**：读写双 fd（`read_fd_`/`write_fd_`）+ `closed_` 标志，使 WS 桥接可经 socketpair 喂入同一 PRP 引擎（TCP 两 fd 相同）。
 - **App 接入**：`:pin`/`:newpin` 命令（`app_input.cpp`）；启动时 EVENT_LOG 显示 PIN + 浏览器地址。
 - 版本号 → N04（六处同步）。
@@ -99,7 +99,7 @@
 
 ---
 
-## Podradio_V0.1-N03 — 2026-07-29 — idle 事件订阅 + 状态同步推送
+## Panicast_V0.1-N03 — 2026-07-29 — idle 事件订阅 + 状态同步推送
 
 > 实现"状态同步"核心：远程客户端 `idle` 订阅子系统，服务端在状态变更时推送 `changed: <subsystem>`。路线图精简：N02 已吸收原计划 N03–N06 的控制命令覆盖，故本版序号为 N03（对应原路线图的 N07 idle 里程碑）。
 
@@ -108,7 +108,7 @@
 - **`RemoteServer` 会话注册表 + `notify()`**：`register_session`/`unregister_session`/`notify(subsys)` 广播给所有 idling 订阅者。
 - **差分轮询线程 `diff_loop`**：10Hz 拉 `snapshot_state()`，比对 player(state/song/title/url/elapsed)/mixer(volume)/options(speed/play_mode/sleep)/mode/subtitle/art，命中即 `notify()`。100ms 轮询即去抖合并窗口；捕获 mpv 自身变化（seek/pause/换轨）无需 App 插桩。
 - **重构 `run()`/`poll_line`**：`recv_buf_` 改为成员，`poll_line(out, timeout_ms)` 共享缓冲区，供 `run()` 阻塞读与 `handle_idle` 多路复用复用。
-- 问候语改用 `VERSION` 常量自动跟踪（`OK Podradio_V0.1-N03`，MPD 风格）。
+- 问候语改用 `VERSION` 常量自动跟踪（`OK Panicast_V0.1-N03`，MPD 风格）。
 - 版本号 → N03（六处同步）。
 
 ### 验证
@@ -121,20 +121,20 @@
 
 ---
 
-## Podradio_V0.1-N02 — 2026-07-29 — PRP 协议引擎 + 状态查询 + 控制命令端到端
+## Panicast_V0.1-N02 — 2026-07-29 — PRP 协议引擎 + 状态查询 + 控制命令端到端
 
-> N 线协议定稿落地。基于 MPD 风格行协议（PRP），实现"远程终端复刻本地键盘"的控制闭环 + 线程安全状态查询。三份设计文档：`PODRADIO_N_LINE_PLAN.md` / `PODRADIO_N_LINE_PROTOCOL_DESIGN.md` / `PODRADIO_N_LINE_UI_DESIGN.md`。
+> N 线协议定稿落地。基于 MPD 风格行协议（PRP），实现"远程终端复刻本地键盘"的控制闭环 + 线程安全状态查询。三份设计文档：`PANICAST_N_LINE_PLAN.md` / `PANICAST_N_LINE_PROTOCOL_DESIGN.md` / `PANICAST_N_LINE_UI_DESIGN.md`。
 
 ### 新增
-- **协议类型与控制接口**（`include/podradio/net/remote_protocol.h`）：`RemoteStateSnapshot`（player+app 状态 POD）、`RemotePlaylistItem`、`RemoteControlInterface`（App 实现的抽象接口，服务端依赖接口而非 App —— 可组合）。
-- **`RemoteSession`**（`include/podradio/net/remote_session.h` + `src/net/remote_session.cpp`）：每连接 PRP 引擎，跑在 worker 线程。行解析（MPD 风格 token 化，支持双引号参数）；查询命令（`status`/`currentsong`/`playlistinfo`/`ping`/`password`）即时从快照应答；控制命令经 `RemoteCommandBus` 转发 UI 线程；`OK`/`ACK [code@0] {cmd} msg` 响应；问候 `OK PodRadio N02`。鉴权：token 非空时除 `password` 外命令回 `ACK [5@0] {cmd} auth required`。`idle`/`noidle` 占位（N07 实装）。Windows stub。
+- **协议类型与控制接口**（`include/panicast/net/remote_protocol.h`）：`RemoteStateSnapshot`（player+app 状态 POD）、`RemotePlaylistItem`、`RemoteControlInterface`（App 实现的抽象接口，服务端依赖接口而非 App —— 可组合）。
+- **`RemoteSession`**（`include/panicast/net/remote_session.h` + `src/net/remote_session.cpp`）：每连接 PRP 引擎，跑在 worker 线程。行解析（MPD 风格 token 化，支持双引号参数）；查询命令（`status`/`currentsong`/`playlistinfo`/`ping`/`password`）即时从快照应答；控制命令经 `RemoteCommandBus` 转发 UI 线程；`OK`/`ACK [code@0] {cmd} msg` 响应；问候 `OK PaniCast N02`。鉴权：token 非空时除 `password` 外命令回 `ACK [5@0] {cmd} auth required`。`idle`/`noidle` 占位（N07 实装）。Windows stub。
 - **`RemoteServer` 升级**：`start()` 增加 `control` + `auth_token` 参数；`handle_client` 改为创建 `RemoteSession` 并 `run()`；`next_client_id_` 原子计数。
 - **App 接入**（`app.h` / `app_run.cpp` / `app_remote.cpp`）：`App : public RemoteControlInterface`；`snapshot_state()` 加锁返回快照副本；`update_remote_state_cache()` 主循环每帧在 UI 线程构建快照（player state + mode/play_mode/selected/playlist/art/sleep/subtitle，`playlist_mutex_` 下拷贝）；`dispatch_remote()` 映射核心控制命令到既有方法。
 - **控制命令覆盖（N02 核心）**：play/pause/resume/play_pause/stop/next/previous、seek/seekto/seek_percent（mpv 透传）、volume/volume_up/down、speed/speed_up/down/reset、repeat/shuffle/cycle/set_mode、sleep/sleep_cancel、mode/mode_next/mode_prev、nav_up/down/top/bottom/page_up/down/back/enter/select、sort_toggle、mpv 原生透传。search/mark/edit/download/subtitle/asr/queue 标记为 N03–N05。
 - **版本号 → N02**（六处同步）。
 
 ### 验证
-0 warning 编译（`-Wall -Wextra -Wpedantic`）。Python PRP 测试客户端（`prp_test.py`）连 :18421：问候 `OK PodRadio N02`；`ping`→`OK`；`status`→16 字段 key:value；`volume 55` 后 `status` 回显 `volume: 55`（控制端到端生效）；`play_pause`/`nav_down`/`mode PODCAST` 转发 `OK`。默认 `enable=false` 本地 TUI 不受影响。
+0 warning 编译（`-Wall -Wextra -Wpedantic`）。Python PRP 测试客户端（`prp_test.py`）连 :18421：问候 `OK PaniCast N02`；`ping`→`OK`；`status`→16 字段 key:value；`volume 55` 后 `status` 回显 `volume: 55`（控制端到端生效）；`play_pause`/`nav_down`/`mode PODCAST` 转发 `OK`。默认 `enable=false` 本地 TUI 不受影响。
 
 ### 待办
 - N03：search/mark/edit/download/subtitle/asr/queue 命令覆盖（对齐键位表全量）。
@@ -144,19 +144,19 @@
 
 ---
 
-## Podradio_V0.1-N01 — 2026-07-29 — 网络控制线立项 + 服务端骨架
+## Panicast_V0.1-N01 — 2026-07-29 — 网络控制线立项 + 服务端骨架
 
-> 新增 N 线（Network control），基线 `Podradio_V0.1-Y24.56`。目标：远程终端（先 IE 浏览器 BS，后安卓 APK）实现本地终端控制的全部功能 + 实时监视。本版仅交付地基骨架，命令协议待定稿（参考 MPD/ncmpcpp 路线，待用户确认）。
+> 新增 N 线（Network control），基线 `Panicast_V0.1-Y24.56`。目标：远程终端（先 IE 浏览器 BS，后安卓 APK）实现本地终端控制的全部功能 + 实时监视。本版仅交付地基骨架，命令协议待定稿（参考 MPD/ncmpcpp 路线，待用户确认）。
 
 ### 新增
-- **版本号切到 N 线**：`PODRADIO_FIX_SUFFIX="N01"`，六处同步（CMakeLists / vcpkg.json / constants.h / man / README / version.h.in）。`--version` = `Podradio_V0.1-N01`。
+- **版本号切到 N 线**：`PANICAST_FIX_SUFFIX="N01"`，六处同步（CMakeLists / vcpkg.json / constants.h / man / README / version.h.in）。`--version` = `Panicast_V0.1-N01`。
 - **`[remote]` 配置段**（`ini_config.h` + 默认模板）：`enable`(默认 false, opt-in) / `port`(8421) / `bind`(127.0.0.1) / `auth_token`(空)。默认关闭 → 本地 TUI 零影响。
-- **`RemoteCommandBus`**（`include/podradio/net/remote_command_bus.h` + `src/net/remote_command_bus.cpp`）：网络线程→UI 线程的命令队列，mutex 保护、`drain_all()` 非阻塞 swap、`shutdown()` 原子标志。这是服务端线程与 UI 线程之间唯一的越界点（UI 非线程安全）。
-- **`RemoteServer`**（`include/podradio/net/remote_server.h` + `src/net/remote_server.cpp`）：自写 C++ POSIX socket TCP 服务端骨架。accept 线程 + 跟踪式 worker 线程（atomic done 标志 + reap，无 detach 孤儿线程）；`start()`/`stop()` 优雅停机（close listen fd 解阻塞 accept → join accept 线程 + 全部 worker）。N01 仅回 banner 关闭，协议在 N02+。Windows 平台编译为 stub（远程控制 Linux 优先，与 mpv 依赖一致）。
+- **`RemoteCommandBus`**（`include/panicast/net/remote_command_bus.h` + `src/net/remote_command_bus.cpp`）：网络线程→UI 线程的命令队列，mutex 保护、`drain_all()` 非阻塞 swap、`shutdown()` 原子标志。这是服务端线程与 UI 线程之间唯一的越界点（UI 非线程安全）。
+- **`RemoteServer`**（`include/panicast/net/remote_server.h` + `src/net/remote_server.cpp`）：自写 C++ POSIX socket TCP 服务端骨架。accept 线程 + 跟踪式 worker 线程（atomic done 标志 + reap，无 detach 孤儿线程）；`start()`/`stop()` 优雅停机（close listen fd 解阻塞 accept → join accept 线程 + 全部 worker）。N01 仅回 banner 关闭，协议在 N02+。Windows 平台编译为 stub（远程控制 Linux 优先，与 mpv 依赖一致）。
 - **App 接入**（`app.h` / `app_run.cpp` / 新增 `app_remote.cpp`）：`run()` 启动前按 `[remote] enable` 启动服务端；主循环每帧 `drain_remote_commands()` 在 UI 线程出队派发；析构先 `remote_server_.stop()` + `remote_bus_.shutdown()` 再拆其余成员。N01 的 `dispatch_remote()` 仅记日志，动作映射在 N02–N06。
 
 ### 验证
-0 warning 编译（77→51 增量，`-Wall -Wextra -Wpedantic`），`--version`=N01。运行时冒烟：`[remote] enable=true port=18421` → `bash /dev/tcp` 连接成功收到 banner `PodRadio remote control — protocol not implemented yet (N01 skeleton)`；timeout 退出优雅 join 无挂起。默认 `enable=false` 时不启动服务端，本地 TUI 行为不变。
+0 warning 编译（77→51 增量，`-Wall -Wextra -Wpedantic`），`--version`=N01。运行时冒烟：`[remote] enable=true port=18421` → `bash /dev/tcp` 连接成功收到 banner `PaniCast remote control — protocol not implemented yet (N01 skeleton)`；timeout 退出优雅 join 无挂起。默认 `enable=false` 时不启动服务端，本地 TUI 行为不变。
 
 ### 待办（N02+）
 - 命令协议定稿（MPD/ncmpcpp 风格行协议，待用户解释细节后确认）。
@@ -165,12 +165,12 @@
 
 ---
 
-## Podradio_V0.1-Y24.56 — 2026-07-28 — IPTV 播放诊断：LOG 区事件消息
+## Panicast_V0.1-Y24.56 — 2026-07-28 — IPTV 播放诊断：LOG 区事件消息
 
 > 用户报：播放 IPTV 时，地址正确但电视台当前未广播→无视频流→mpv 不开视频窗，用户不知原因；30s 超时只说"stream may have failed"，无法区分地址错/未开播/无音频设备。WSL2 音频设备故障时 PULSE/ALSA 错误溢出致花屏。
 
 ### 新功能 / 修复
-- **[iptv] 13 条 LOG 区事件消息**（`mpv_controller.cpp` + `app_playback.cpp`）：枚举 IPTV 播放"不开窗/不起播"的全部情况，在屏幕 LOG 区输出简练英文事件（同时落 podradio.log）。
+- **[iptv] 13 条 LOG 区事件消息**（`mpv_controller.cpp` + `app_playback.cpp`）：枚举 IPTV 播放"不开窗/不起播"的全部情况，在屏幕 LOG 区输出简练英文事件（同时落 panicast.log）。
   - 前缀约定：`MPV:` = mpv 行为（原因，沿用既有 `mpv_error_str`）；`IPTV:` = IPTV 语境解释。同一事件同时触发两者时按时间先后各输出一条（MPV: 先、IPTV: 后），均经 `EVENT_LOG` 进屏幕+文件。
   - 覆盖：不可达/404/403/5xx（`-13` 按日志关键词细分）、空播放列表（`-16`）、AO 初始化失败（`-14`）、VO 初始化失败（`-15`）、缺解码器（`-17`）、**已连接但无流数据=可能未开播（轮询检测 #5）**、纯音频频道（#7）、网速过慢（#11）、**播放中途断流（#12，按 `PLAYBACK_RESTART` 是否触发区分）**、30s 超时兜底（#13，去括号）。
   - **#5 与 #13 天然互斥**：#5 要求 `FILE_LOADED`（has_media=true），#13 仅在 has_media 始终不出现时触发，不双发。
@@ -185,7 +185,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.50 — 2026-07-28 — 新增 I 模式（IPTV，iptv-org 源）
+## Panicast_V0.1-Y24.50 — 2026-07-28 — 新增 I 模式（IPTV，iptv-org 源）
 
 > 接入 GitHub 最全 IPTV 源 `iptv-org/iptv`（CC0，8000+ 频道，自动更新），按全部/地区/国家/分类/语言/自定义浏览。m3u 实时拉取+缓存（不打包陈旧快照）。
 
@@ -203,7 +203,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.49 — 2026-07-28 — B 模式：扫码显示用户名 + D 下载修复
+## Panicast_V0.1-Y24.49 — 2026-07-28 — B 模式：扫码显示用户名 + D 下载修复
 
 > 用户报：① B 站扫码登录后显示 UID 而非用户名；② B 模式 D 下载失败。
 
@@ -217,7 +217,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.48 — 2026-07-28 — LYRIC 默认不开，仅在可显示字幕/ASR 时自动开
+## Panicast_V0.1-Y24.48 — 2026-07-28 — LYRIC 默认不开，仅在可显示字幕/ASR 时自动开
 
 > 用户报：播放 B 站视频（无在线/内嵌字幕）时 LYRIC 默认开了空面板。要求：默认不开，仅在检测到内嵌/在线字幕且已解析可显示、或手动 ASR 成功运行时才自动开。
 
@@ -235,13 +235,13 @@
 
 ---
 
-## Podradio_V0.1-Y24.47 — 2026-07-28 — 音频模式自动只拉音频流（省带宽）+ 开发脚本
+## Panicast_V0.1-Y24.47 — 2026-07-28 — 音频模式自动只拉音频流（省带宽）+ 开发脚本
 
 > 用户需求：`--quiet`/VO=null 音频模式播放在线视频时，只拉音频流、不拉视频流以省带宽。
 
 ### 优化
 - **[playback] YouTube/自适应流音频模式选音频格式**（`resolve_youtube_url`）：新增 `MPVController::is_audio_only_mode()`（判定 `vo=null`/`vid=no`，来自 `--quiet` 或 INI）。音频模式时即使节目是视频，也选 `play_format_audio`（bestaudio）→ yt-dlp 返回纯音频流 URL → **视频流不下载，省带宽**。仍走 `play_video`（vo=null 不开窗 + sub_file 字幕照常加载）。
-- **[dev] 个人开发脚本** `~/podradio-dev.sh`（源码树外，不进 Git）：一键 解压→建 secrets+cp client_secret.json→build→install→启动。每次测试从 8 步降到 1 条命令。密钥不进源码（`.gitignore` 已排除 `secrets/`）。
+- **[dev] 个人开发脚本** `~/panicast-dev.sh`（源码树外，不进 Git）：一键 解压→建 secrets+cp client_secret.json→build→install→启动。每次测试从 8 步降到 1 条命令。密钥不进源码（`.gitignore` 已排除 `secrets/`）。
 
 ### 限制（无法修）
 直接复用的 mp4 URL（如 TED `download.ted.com/...mp4`）：音视频在 `mdat` 交错复用，mpv 必须顺序下载整文件才能取音频 → `--quiet` 只省 CPU/解码，**不省带宽**。需服务端提供独立音频流才行。
@@ -251,7 +251,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.46 — 2026-07-28 — LYRIC 内嵌字幕：合并多行 + 超宽滚动 + 修复历史花屏
+## Panicast_V0.1-Y24.46 — 2026-07-28 — LYRIC 内嵌字幕：合并多行 + 超宽滚动 + 修复历史花屏
 
 > 用户实测：Y24.45 只在"当前行"拆 `\n`，未处理"历史行"——含 `\n` 的多行字幕成为历史上一条时，`\n` 仍留在 prev 字符串里，`mvwprintw` 跳行 → 花屏。用户要求：每个时间戳的多行字幕合并为一行，居中显示，超宽水平滚动；成为历史后也在上一行单行居中/滚动。
 
@@ -265,7 +265,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.45 — 2026-07-28 — LYRIC 歌词式布局（垂直居中 + 历史上一行）
+## Panicast_V0.1-Y24.45 — 2026-07-28 — LYRIC 歌词式布局（垂直居中 + 历史上一行）
 
 > 用户优化：单行字幕在 LYRIC 区垂直居中（3 行空间的中间行），上面显示上一条历史字幕，下面留给下一条；长行不换行直接居中（LYRIC 区宽度大）。
 
@@ -282,7 +282,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.44 — 2026-07-28 — LYRIC 多行内嵌字幕修复
+## Panicast_V0.1-Y24.44 — 2026-07-28 — LYRIC 多行内嵌字幕修复
 
 > 用户实测：TED mp4 纯音频模式 L 打开 LYRIC，含 `\n` 的两行内嵌字幕第二行跑到 LYRIC 边框、不居中。
 
@@ -294,7 +294,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.43 — 2026-07-28 — 字幕流程统一（L / ASR / LYRIC 面板）
+## Panicast_V0.1-Y24.43 — 2026-07-28 — 字幕流程统一（L / ASR / LYRIC 面板）
 
 > 用户报：TED mp4（内嵌 mov_text 字幕）VO 开时字幕在视频窗口正常；VO 关纯音频时字幕只在 INFO/LOG 区显示且换行居中乱码；Shift+L 打开底部 LYRIC 无反应（误触发 ASR）。重新设计统一 L 逻辑：显示目标与 ASR 模式由 `vo_open`（mpv 视频窗口是否渲染）驱动，本地字幕永远优先于在线。
 
@@ -316,21 +316,21 @@
 
 ---
 
-## Podradio_V0.1-Y24.42 — 2026-07-28 — 总体审计修复（数据访问收口 + i18n）
+## Panicast_V0.1-Y24.42 — 2026-07-28 — 总体审计修复（数据访问收口 + i18n）
 
 > 按 `DEVELOPMENT_PRINCIPLES.md` 做总体审计并修复全部发现。审计维度：i18n / 并发安全 / 数据访问 / DRY-结构。
 
 ### 修复
 - **[storage] 全量参数化查询**：消除 `escape_sql` + `fmt::format` 字符串拼接 SQL（违反准则六「只用参数化查询」）。涉及 `tree_repo`/`feed_cache_repo`/`history_repo`/`player_state_repo` 共 ~24 处 → 改为 `sqlite3_prepare_v2` + `bind_text/int/double` + step + finalize；`accounts.cpp` 10 处 `account_id` 整数拼接 → 新增 `exec_locked_int()` 单参 helper。`escape_sql` 现 0 调用方。修复编译器捕获的 bug：`get_progress` 初版漏 bind `url`（unused-parameter 警告暴露）→ 已补。
 - **[i18n]** `app_tiktok.cpp` 一条 EVENT_LOG 的中文全角标点 → ASCII。重 grep 确认 src/+include/（除 ini_config.h 双语注释）0 CJK。
-- **[build]** CMakeLists 注释中失效的 `src/podradio.cpp` 引用 → 更正为真实的 5 处版本源。
+- **[build]** CMakeLists 注释中失效的 `src/panicast.cpp` 引用 → 更正为真实的 5 处版本源。
 
 ### 验证
 0 warning 编译 + DB 往返 smoke test（OPML 导入→`save_tree_node_recursive` INSERT→导出→`load_tree_node_recursive` SELECT）数据一致。并发安全审计通过（无 detach、worker 全 join、共享标志位均 atomic、crash 标志 sig_atomic_t）。
 
 ---
 
-## Podradio_V0.1-Y24.41 — 2026-07-28 — 主题修订（fg-only 文字 / Y24.20 进度条 / GitHub Dark 默认 / +7 配色）
+## Panicast_V0.1-Y24.41 — 2026-07-28 — 主题修订（fg-only 文字 / Y24.20 进度条 / GitHub Dark 默认 / +7 配色）
 
 > 用户需求：文字只要前景色、字符串后不要背景色块（光标行除外）；进度条用回 Y24.20 前景色；找回 Y24.20 配色（偏好 GitHub Dark）；15 种不够丰富。
 
@@ -342,7 +342,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.33–Y24.40 — 2026-07-28 — 审计收尾：god 文件/函数按关注点拆分
+## Panicast_V0.1-Y24.33–Y24.40 — 2026-07-28 — 审计收尾：god 文件/函数按关注点拆分
 
 > 沿用 Y24.32 模式（成员方法声明留头文件、实现迁至独立 .cpp），机械、低风险，全程 0 warning。决策详见 `DECISIONS_LOG.md`。
 
@@ -358,7 +358,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.32 — 2026-07-28 — 提取 PopupStack（ui.cpp 按关注点拆分第 1 步）
+## Panicast_V0.1-Y24.32 — 2026-07-28 — 提取 PopupStack（ui.cpp 按关注点拆分第 1 步）
 
 > 审计收尾第二步（机械、低风险）：将弹窗/模态对话框代码从 `src/ui/ui.cpp` 拆出至独立单元 `src/ui/popups.cpp`。`ui.cpp` 从 2518 行降至 2078 行；6 个弹窗方法集中到 456 行的新单元。方法仍为 `UI::` 成员（访问私有几何成员 `w`/`h` 与静态 `INPUT_CANCELLED`，并委托 `draw_help`），声明保留在 `ui.h`，仅实现迁出 —— 与迭代计划中 Y24.33–Y24.36 的拆分模式一致。
 
@@ -372,19 +372,19 @@
   - `show_help()`（委托 `draw_help`）
 - 方法体加 `UI::` 限定原样迁出，逻辑零改动；默认参数仅在 `ui.h` 声明保留（定义已在 Y24.31 剥离）。
 - `CMakeLists.txt` 新增 `src/ui/popups.cpp`。
-- 相比计划文本的两处偏差（已记入 `DECISIONS_LOG.md`）：(1) 未新建 `include/podradio/ui/popups.h` —— 成员函数声明须留在 `ui.h`，C++ 无 partial class，独立头无意义；(2) 一并迁移 `dialog` + `is_input_cancelled`（同为弹窗关注点，DRY/单一职责）。
+- 相比计划文本的两处偏差（已记入 `DECISIONS_LOG.md`）：(1) 未新建 `include/panicast/ui/popups.h` —— 成员函数声明须留在 `ui.h`，C++ 无 partial class，独立头无意义；(2) 一并迁移 `dialog` + `is_input_cancelled`（同为弹窗关注点，DRY/单一职责）。
 
 ### 验证
 本机 Linux 编译 0 warning。TUI 实测需用户 WSL2 环境执行（弹窗行为应与 Y24.31 完全一致）。
 
 ---
 
-## Podradio_V0.1-Y24.31 — 2026-07-27 — UI .cpp 迁移（header-only → 声明+实现分离）
+## Panicast_V0.1-Y24.31 — 2026-07-27 — UI .cpp 迁移（header-only → 声明+实现分离）
 
 > 审计收尾第一步（机械、低风险）：`ui.h` 从 header-only（2659 行）拆为声明（299 行）+ 实现（`src/ui/ui.cpp`，2518 行）。多行方法体迁出并加 `UI::` 限定、剥离默认参数（声明保留）；单行 getter/setter 保留 inline；嵌套 struct/成员声明原样保留。编译 0 警告。
 
 ### 重构
-- **[ui] .cpp 迁移**：22 个非 inline 方法体（init/cleanup/draw/draw_info/draw_status/draw_line/draw_help/input_box/confirm_box/draw_lyric_* 等）从 `include/podradio/ui/ui.h` 迁至 `src/ui/ui.cpp`：
+- **[ui] .cpp 迁移**：22 个非 inline 方法体（init/cleanup/draw/draw_info/draw_status/draw_line/draw_help/input_box/confirm_box/draw_lyric_* 等）从 `include/panicast/ui/ui.h` 迁至 `src/ui/ui.cpp`：
   - `ui.h` 仅留类声明 + 成员变量 + 13 个 inline getter/setter（299 行，原 2659 行）。
   - 方法体加 `UI::` 限定；默认参数仅在 .h 声明保留，.cpp 定义剥离（避免重定义）。
   - 现有终端/信号生命周期代码（tui_cleanup/setup_signal_handlers/g_*）保持不变。
@@ -392,7 +392,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.21 — 2026-07-26 — 离线转写 skip/resume（避免重复转写）
+## Panicast_V0.1-Y24.21 — 2026-07-26 — 离线转写 skip/resume（避免重复转写）
 
 > Bug：离线转写已转过字幕的文件仍重复转，浪费算力。修复：先检测已有 SRT → 完整则跳过；不完整则断点续转。
 
@@ -409,9 +409,9 @@
 
 ---
 
-## Podradio_V0.1-Y24.20 — 2026-07-26 — 实时转写 + 路径处理修复
+## Panicast_V0.1-Y24.20 — 2026-07-26 — 实时转写 + 路径处理修复
 
-## Podradio_V0.1-Y24.20 — 2026-07-26 — 实时转写 + 路径处理修复
+## Panicast_V0.1-Y24.20 — 2026-07-26 — 实时转写 + 路径处理修复
 
 > Y24.19 离线转写基础上的实时转写（播放中无字幕→`L`→whisper.cpp 渐进段→LYRIC）。含 BTW 路径处理修复。
 
@@ -424,7 +424,7 @@
 ### 修复（BTW 路径处理）
 - **`resolve_whisper_bin`**：裸名→`which_binary` 搜 PATH；`~`→展开 `$HOME`；绝对路径→`fs::exists`。
 - **`resolve_model`**：`~`→展开；绝对/相对路径→`fs::exists`；**裸文件名→`<data_dir>/models/<file>`** 自动补全。
-- **INI 默认统一**：`whisper_bin = whisper-cli`，`model = ~/.local/share/podradio/models/ggml-small.en-q5_1.bin`。
+- **INI 默认统一**：`whisper_bin = whisper-cli`，`model = ~/.local/share/panicast/models/ggml-small.en-q5_1.bin`。
 
 ### L 状态机（Y24.19+20 合并）
 | 场景 | `L` 行为 |
@@ -444,7 +444,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.19 — 2026-07-26 — 离线转写（whisper.cpp → SRT sidecar）
+## Panicast_V0.1-Y24.19 — 2026-07-26 — 离线转写（whisper.cpp → SRT sidecar）
 
 > 需求：无字幕节目实时/离线转写生成字幕。分两期：Y24.19 离线（本期），Y24.20 实时。模型选型经实测：i3-5010U 上 small.en-q5_1 8x 慢于实时、base.en-q5_1 2.8x、tiny.en 1.5x；用户 WSL2=AMD 7735HS（实时可行）。
 
@@ -474,7 +474,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.18 — 2026-07-26 — 切换文件时 LYRIC 区即时清空（消除 stale 旧歌词）
+## Panicast_V0.1-Y24.18 — 2026-07-26 — 切换文件时 LYRIC 区即时清空（消除 stale 旧歌词）
 
 > 反馈：切换播放文件时 LYRIC 打印区要正确处理——切字幕、无字幕要关闭。分析发现切换瞬间 LYRIC 显示旧歌词（stale）。
 
@@ -491,7 +491,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.17 — 2026-07-26 — BUFFERING 诊断 + 视频字幕异步 + 日志轮转 + OSC8 日志洪流修复
+## Panicast_V0.1-Y24.17 — 2026-07-26 — BUFFERING 诊断 + 视频字幕异步 + 日志轮转 + OSC8 日志洪流修复
 
 > 反馈：F 模式本地文件 BUFFERING >5s 异常；"LOG 看不到事件不放心"；视频字幕可异步；OSC8 诊断 LOG 每帧刷屏日志要爆；日志保留 365 天自动清除。
 
@@ -500,11 +500,11 @@
 - **[mpv] 订阅 mpv 日志事件（让你看到 BUFFERING 期间发生了什么）**：`mpv_request_log_messages(ctx, "info")` 订阅 INFO+；事件循环处理 `MPV_EVENT_LOG`，按 `[MPV/log] <prefix>: <msg>` 写日志。**WARN/ERROR 全程记；INFO 仅"加载窗口"（play→FILE_LOADED，`logging_load_` 原子标志）记**，避免刷屏。AO init / demuxer 探测建索引 / cache 填充等事件可见。
 - **[playback] play_current 时间戳 + BUFFERING 分解**：`[PLAY] start` → `get_local_file+fs::exists (Xms)` → `player.play` → has_media 时 `[PLAY] BUFFERING cleared: total Yms`（>2s 时还进 UI EVENT_LOG）。一眼看出 >5s 花在"同步 fs::exists/DB"还是"mpv 加载"。
 - **[subtitle] 视频字幕异步**：`probe_local_sidecar` 对视频改异步进 pool（原同步查 .vtt/.srt/.ass，/mnt/e 上累加延迟）。pool 探到 mpv-compat sidecar → `player.sub_add(url)`（新增 `MPVController::sub_add`，mpv `sub-add` select）异步加入；非 mpv 格式 → Method B。LOG 详细打印 `[Subtitle] video sidecar probe (async)` + 结果。`is_mpv_sub`/`basename` 提为文件级静态（pool 共用）。音频字幕本就异步。
-- **[logger] 日志保留 365 天自动清除**：改按日期分文件 `podradio-YYYYMMDD.log`（原单 `podradio.log`）；init 时按 mtime 删 >365 天的日志文件（含 legacy `podradio.log`）。`Utils::get_log_file()` 返回今日文件；main/?/README/INI 文档同步。mpv 订阅增加日志量，365 天滚动清除防爆。
+- **[logger] 日志保留 365 天自动清除**：改按日期分文件 `panicast-YYYYMMDD.log`（原单 `panicast.log`）；init 时按 mtime 删 >365 天的日志文件（含 legacy `panicast.log`）。`Utils::get_log_file()` 返回今日文件；main/?/README/INI 文档同步。mpv 订阅增加日志量，365 天滚动清除防爆。
 - **[mpv] cache 保留**（撤回 Y24.17 草稿的 cache=no）：本地文件 cache 填充极快（磁盘吞吐 >>实时），cache 不是 >5s 根因；保留 `cache=yes` + 音频快速起播，靠诊断日志定位真因。
 
 ### 验证
-本机 Linux 编译 0 warning。需用户 WSL2 实测：本地文件 BUFFERING 时看 `podradio-YYYYMMDD.log` 的 `[PLAY]`/`[MPV/log]` 事件定位 >5s 根因；视频字幕异步加载 + LOG；日志按天分文件 + 365 天清除；OSC8 日志不再刷屏。
+本机 Linux 编译 0 warning。需用户 WSL2 实测：本地文件 BUFFERING 时看 `panicast-YYYYMMDD.log` 的 `[PLAY]`/`[MPV/log]` 事件定位 >5s 根因；视频字幕异步加载 + LOG；日志按天分文件 + 365 天清除；OSC8 日志不再刷屏。
 
 ### 说明
 - T 模式到此为止（Y24.16 终态，不再动）。
@@ -512,7 +512,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.16 — 2026-07-26 — T 模式审计清理 + 直入替代搜索 + 抖音单视频 + 全文档
+## Panicast_V0.1-Y24.16 — 2026-07-26 — T 模式审计清理 + 直入替代搜索 + 抖音单视频 + 全文档
 
 > 先审计 Y24.10–Y24.15 的 T 模式/OSC8/搜索代码（UNIX 哲学：简明、复用、不重复、统一），再迭代。结论：搜索引擎兜底是假功能（Google/Bing 不索引 TikTok 内容页，0 结果）；抖音用户列表是死路（yt-dlp 无 DouyinUserIE）；多个 cookie getter 重复。
 
@@ -529,7 +529,7 @@
 - **[tiktok] `a` 视频订阅**：抽 `tiktok_subscribe(input)` 共享核心。TikTok 视频 URL（含 @user）→自动订阅创作者，展开列全部视频（yt-dlp `tiktok:user`）。抖音视频 URL→存为可播放视频叶节点（option A，`platform="douyin_video"`）；抖音用户 URL→拒绝并提示。
 
 ### 文档（全同步）
-- `?` 帮助、`man/podradio.1`（新增 TIKTOK/DOUYIN (T MODE) 章节）、`README.md`（新增 T 模式章节）全部记录：`a` 订阅 @user/视频URL、`/` 直入 @user/#tag/URL、抖音仅单视频、区域在状态栏、`#tag` 待上游、cookie/网络要求。
+- `?` 帮助、`man/panicast.1`（新增 TIKTOK/DOUYIN (T MODE) 章节）、`README.md`（新增 T 模式章节）全部记录：`a` 订阅 @user/视频URL、`/` 直入 @user/#tag/URL、抖音仅单视频、区域在状态栏、`#tag` 待上游、cookie/网络要求。
 
 ### 验证
 本机 Linux 编译 0 warning。TUI 全链路需用户 WSL2 实测：T 进入、`a` TikTok 视频 URL 订阅+展开、`a` 抖音视频 URL 叶节点播放、`/` `#tag` 休眠提示、`b` 切区状态栏更新根节点不变。
@@ -541,7 +541,7 @@
 
 ---
 
-## Podradio_V0.1-Y24.15 — 2026-07-26 — OSC 8 下划线同步 + 状态栏完整 URL + 撤回百度
+## Panicast_V0.1-Y24.15 — 2026-07-26 — OSC 8 下划线同步 + 状态栏完整 URL + 撤回百度
 
 > Y24.14 反馈：(1) 坚决不用百度/搜狗/360；(2) OSC8 续行能识别但悬停第一行只第一行有下划线，应同步；(3) 状态栏缩略 URL Ctrl+点击应打开完整 URL；(4) 'e' 花屏已自行消失。
 
@@ -558,9 +558,9 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.14 — 2026-07-26 — Ctrl+B T 模式 cookie + CN 百度搜索 + OSC 8 确认可用
+## Panicast_V0.1-Y24.14 — 2026-07-26 — Ctrl+B T 模式 cookie + CN 百度搜索 + OSC 8 确认可用
 
-> Y24.13 测试反馈：(1) OSC 8 全识别 URL + Ctrl+点击打开 IE ✓ 保留；(2) T 模式 Ctrl+B 弹的是 YouTube cookie，应导入 TikTok/Douyin cookie；(3) CN 区搜索结果少（"山泉浓茶" IE 有很多，PodRadio 无）——douyin cookie 没导入 + Google/Bing 对 douyin 索引差；(4) 左侧节点树偶现杂散 'e'，Ctrl+L 切主题上移一行（原因待定位）。
+> Y24.13 测试反馈：(1) OSC 8 全识别 URL + Ctrl+点击打开 IE ✓ 保留；(2) T 模式 Ctrl+B 弹的是 YouTube cookie，应导入 TikTok/Douyin cookie；(3) CN 区搜索结果少（"山泉浓茶" IE 有很多，PaniCast 无）——douyin cookie 没导入 + Google/Bing 对 douyin 索引差；(4) 左侧节点树偶现杂散 'e'，Ctrl+L 切主题上移一行（原因待定位）。
 
 ### 修复/增强
 - **[app] Ctrl+B T 模式导入对应 cookie（第2条）**：`configure_youtube_cookies` 加 T 模式分支——CN 区设 `[tiktok] douyin_cookies_file`（抖音 cookie），非 CN 设 `[tiktok] cookies_file`（TikTok cookie，可选）。新增 `get_tiktok_cookies_file()` INI 项 + 默认 `tiktok_cookie.txt`。`spawn_load_feed` 的 TIKTOK_USER 分支 + `add_tiktok_user`/`add_tiktok_user_from_node` 都接上 TikTok cookie（匿名仍可用，cookie 为空则跳过）。
@@ -577,7 +577,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.13 — 2026-07-26 — OSC 8 光标错位花屏修复 + T 模式 CN/抖音区
+## Panicast_V0.1-Y24.13 — 2026-07-26 — OSC 8 光标错位花屏修复 + T 模式 CN/抖音区
 
 > Y24.12 测试反馈：(a) 开 `url_hyperlink` 后花屏——左侧节点树区出现状态栏艺术字串；(b) OSC 8 未实现 URL 全部识别（仍只有 http 行被识别）；(c) T 模式需加中国抖音支持。
 
@@ -599,7 +599,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.12 — 2026-07-26 — T 模式区域标识 + 搜索扩视频/多引擎 + 音频快速起播 + URL OSC 8 超链接
+## Panicast_V0.1-Y24.12 — 2026-07-26 — T 模式区域标识 + 搜索扩视频/多引擎 + 音频快速起播 + URL OSC 8 超链接
 
 > Y24.11 测试反馈 4 条：(1) T 模式缺地区标识；(2) / 搜索只匹配用户名；(3) P 模式长节目缓冲过久；(4) INFO/LOG 区 URL 折行后鼠标只认第一行。
 
@@ -620,7 +620,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.11 — 2026-07-26 — T 模式 (TikTok/抖音) + 节点树默认常开
+## Panicast_V0.1-Y24.11 — 2026-07-26 — T 模式 (TikTok/抖音) + 节点树默认常开
 
 > 新增 T 模式：匿名订阅 TikTok/抖音创作者、列视频、播放，b 键循环 12 区域，/ 键搜索引擎兜底发现创作者。释放原 T 键（节点树连接线开关），节点树默认常开。
 
@@ -656,7 +656,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.10 — 2026-07-26 — Apple lookup 重试 + 真实错因透出
+## Panicast_V0.1-Y24.10 — 2026-07-26 — Apple lookup 重试 + 真实错因透出
 
 > Apple Podcast 链接（`podcasts.apple.com/.../id<N>`）解析间歇失败：WSL2 + 透明代理到 `itunes.apple.com/lookup` 的 TLS 握手瞬时断（"SSL connect error" / "Could not connect to server"），多试几次又成功。但失败时只说 "Apple lookup failed"，既不重试也不透出原因，用户无从判断是代理问题还是 URL 问题。
 
@@ -675,7 +675,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.9 — 2026-07-26 — 多 transcript URL 优先级选最佳 + TextWithTimestamps 解析器
+## Panicast_V0.1-Y24.9 — 2026-07-26 — 多 transcript URL 优先级选最佳 + TextWithTimestamps 解析器
 
 > omny 节目显示 📜 但加载 0 段：feed 每 episode 有 3 个 `<podcast:transcript>`（srt/vtt/TextWithTimestamps），旧代码盲目覆盖选了最后一个（TextWithTimestamps，自定义格式解析器不认）→ 0 段。实测 curl 3 种格式都抓到了（非 Agent/UA 问题），是选错 URL + 格式不认。
 
@@ -695,7 +695,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.8 — 2026-07-26 — mpv 码人话 + 字幕全异步 + 失败原因 + Method A/B 明确措辞
+## Panicast_V0.1-Y24.8 — 2026-07-26 — mpv 码人话 + 字幕全异步 + 失败原因 + Method A/B 明确措辞
 
 > 两项：(1) mpv 返回码（reason=4/error=-14 等）替换为人类可读表述；(2) 字幕处理完全异步，不阻塞音频播放——本地文件 BUFFERING 慢的根因是 play_current + load_async 在 player.play 前的 ~15 次同步 fs::exists（/mnt/e WSL2 慢）。
 
@@ -712,16 +712,16 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **timing LOG**：`[MPV] File loaded (X ms after loadfile)` 打 loadfile→File loaded 耗时，定位剩余延迟在 mpv 侧还是 app 侧。
 
 ### Method A/B 明确措辞 + 失败原因（你的要求）
-- **明确通路**：`[Subtitle] mpv resolves: x.vtt (Method A — mpv renders)` / `[Subtitle] podradio resolves: x.json (Method B — fetching online / local sidecar / audio async)` —— 一眼看出谁在处理。
+- **明确通路**：`[Subtitle] mpv resolves: x.vtt (Method A — mpv renders)` / `[Subtitle] panicast resolves: x.json (Method B — fetching online / local sidecar / audio async)` —— 一眼看出谁在处理。
 - **加载结果打 LOG 区（EVENT_LOG）**：`Subtitle loaded: N segments` / `No subtitle for this track` / `Subtitle load failed: <原因>`。
 - **失败原因**：字幕存在却加载失败时说明原因——`online fetch returned empty (network/HTTP/proxy?)` / `sidecar file not readable` / `empty content` / `parsed 0 segments (format unrecognized or empty transcript)`，方便用户决定重播/重试。
 
 ### 验证
-本机 Linux 编译 0 warning。Method A/B 分流：音频→B（podradio 解析 JSON/SRT/VTT/LRC），视频→A（mpv 渲染 VTT/SRT/ASS）。
+本机 Linux 编译 0 warning。Method A/B 分流：音频→B（panicast 解析 JSON/SRT/VTT/LRC），视频→A（mpv 渲染 VTT/SRT/ASS）。
 
 ---
 
-## Podradio_V0.1-Y24.7 — 2026-07-26 — 字幕模块 PARSER 架构重构 + 诊断 LOG + 下载格式保留
+## Panicast_V0.1-Y24.7 — 2026-07-26 — 字幕模块 PARSER 架构重构 + 诊断 LOG + 下载格式保留
 
 > 字幕处理此前散在 rss_parser / app_download / app_playback / app_input 4 处。重构为 PARSER 架构（仿 IFeedParser/ParserRegistry），集中到 `subtitle/` 模块。实测全链路功能不变（DOAC 真实字幕 detect→fetch→parse 311 段 仍通过）。
 
@@ -744,7 +744,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.6 — 2026-07-26 — 右侧 LYRIC 区复用 L 模式渲染（当前行居中 + 短文本居中）
+## Panicast_V0.1-Y24.6 — 2026-07-26 — 右侧 LYRIC 区复用 L 模式渲染（当前行居中 + 短文本居中）
 
 ### 优化
 - **[ui] 抽出共享 LYRIC 渲染函数 `draw_lyric_content`**：L 模式底部全宽条与右侧 INFO/LOG 间 LYRIC 区（L 关闭）共用同一渲染逻辑——当前行居中（上一条/当前/下一条）、短文本水平居中、长行 marquee、当前行加粗+绿、重叠多人各一行、z/Z 偏移。只是显示区域不同（全宽底部 vs 右侧窄区），由调用方传窗口/起始行/行数/内宽。
@@ -753,14 +753,14 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.5 — 2026-07-26 — 修复 pretty-printed JSON 字幕被误判为 LRC 不加载
+## Panicast_V0.1-Y24.5 — 2026-07-26 — 修复 pretty-printed JSON 字幕被误判为 LRC 不加载
 
 ### 修复（回归）
 - **[parser] JSON 数组字幕回归（Y24.1 引入）**：Y24.1 改 `parse()` 的 `[` 歧义判断（区分 JSON 数组 vs LRC）时，只看 `[` 紧跟的字符。**带换行/空白的 JSON 数组**（`[\n  {...}`，即 pretty-printed JSON，很多播客 transcript 如此）`[` 后是空白 → 被误判为 LRC → `parse_lrc` 返回 0 段 → 字幕 FAILED 不加载。修复：`[` 后跳过空白再判断下一个非空白字符（`{`/`"` → json，否则 lrc）。已测试：compact/pretty JSON、JSON object、LRC 均正确解析。
 
 ---
 
-## Podradio_V0.1-Y24.4 — 2026-07-25 — Ctrl+Y 改为复制光标对象的 URL
+## Panicast_V0.1-Y24.4 — 2026-07-25 — Ctrl+Y 改为复制光标对象的 URL
 
 ### 优化
 - **[app] Ctrl+Y 优先复制光标对象 URL**：此前优先复制正在播放项（`playback_node`）的 URL，浏览时无法复制想查验的节目。改为优先复制**光标所在对象**的 URL（feed / episode / local 文件夹 / online 项皆适用），光标无 URL 时才回退到播放项。便于核查"节目前有 📜 但无字幕加载"——直接复制该节目 URL 去查 RSS/transcript。
@@ -769,14 +769,14 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.3 — 2026-07-25 — LOG 文案修正
+## Panicast_V0.1-Y24.3 — 2026-07-25 — LOG 文案修正
 
 ### 修复
 - **[app] 精简无字幕 LOG**：`[LYRIC] No subtitle for this track (LYRIC bar is audio-only)` → 删除 `(LYRIC bar is audio-only)` 冗余后缀，改为 `[LYRIC] No subtitle for this track`。
 
 ---
 
-## Podradio_V0.1-Y24.2 — 2026-07-25 — 字幕偏移 z/Z 同步 + 重叠多人各一行 + 短文本居中 + 状态栏[]居中
+## Panicast_V0.1-Y24.2 — 2026-07-25 — 字幕偏移 z/Z 同步 + 重叠多人各一行 + 短文本居中 + 状态栏[]居中
 
 > 问题③剩余两项实现：① 字幕恒定偏移可用 z/Z 实时微调并持久化；② 重叠说话（多人同时）各显示一行。另：L 模式短字幕行水平居中；状态栏 `[]` 改为在左右内容块之间居中（等间隙）。
 
@@ -793,7 +793,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24.1 — 2026-07-25 — LRC 支持 + 本地 sidecar 探测 + feed 📜 改"任意"
+## Panicast_V0.1-Y24.1 — 2026-07-25 — LRC 支持 + 本地 sidecar 探测 + feed 📜 改"任意"
 
 > 三个问题修复：① F 模式本地文件同名 .lrc 字幕未识别/未加载；② DOAC 节目带 📜 但订阅根节点不带（feed 级 📜 判定过严）；③ JSON 字幕时间轴不准（待方案确认，本轮未实现，见下）。
 
@@ -810,7 +810,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y24 — 2026-07-25 — L 模式：底部全宽 LYRIC 显示条 + 字幕可用性门控
+## Panicast_V0.1-Y24 — 2026-07-25 — L 模式：底部全宽 LYRIC 显示条 + 字幕可用性门控
 
 > 新增 `L` 模式：音频播放时把字幕从右侧窄 LYRIC 区移到**底部全宽 LYRIC 条**（3 行字幕，自动滚动），状态栏在 L 激活时隐藏让出空间。仅当字幕就绪(READY)才激活；加载中/无字幕保留状态栏并打 LOG。
 
@@ -833,7 +833,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y23.10 — 2026-07-25 — 字幕缓存持久化 + feed 级 📜 标记 + 字幕处理全链路 LOG
+## Panicast_V0.1-Y23.10 — 2026-07-25 — 字幕缓存持久化 + feed 级 📜 标记 + 字幕处理全链路 LOG
 
 > Y23.9 的两个字幕问题：① `r` 重载节点信息后缓存到本地数据库，但再次打开节点时节目前的 📜 LYRIC EMOJI 消失；② 播放时字幕的识别/在线加载没有任何 LOG，用户无法掌握行为。新增需求：P 模式下若订阅的所有节目都有 transcript，在订阅 TITLE 前加 📜 便于快速选择。
 
@@ -859,7 +859,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y18 — 2026-07-24 — 修复 B 模式扫码登录(Set-Cookie 捕获) + QR 弹窗去 URL
+## Panicast_V0.1-Y18 — 2026-07-24 — 修复 B 模式扫码登录(Set-Cookie 捕获) + QR 弹窗去 URL
 
 > Y17 的 B 模式 QR 登录失败：Bilibili API 返回 SESSDATA 在 HTTP Set-Cookie 响应头(不在 JSON body)，Network::fetch() 只返回 body 所以读不到。QR 弹窗太宽因 URL 长度参与宽度计算。
 
@@ -867,7 +867,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **[net] poll_qrcode 捕获 Set-Cookie 头**：改为直接用 curl(CURLOPT_HEADERFUNCTION 回调)捕获响应头，从 `Set-Cookie: SESSDATA=xxx; ...` 解析 SESSDATA/bili_jct/DedeUserID。同时保留 body 的 cookie_info 作为 fallback。失败时 LOG 打印响应头前 500 字符便于排查。
 - **[app] QR 弹窗去掉 URL 显示**：B 模式 QR 弹窗不再显示长 URL 文本；弹窗宽度按 `max(60, qr_w + 4)` 计算(基于 QR 尺寸,不基于 URL 长度),与 Y 模式一致。QR 码全分辨率渲染不截断。
 
-## Podradio_V0.1-Y17 — 2026-07-24 — Y16 剩余 5 项全部完成 + Y16 已完成 3 项
+## Panicast_V0.1-Y17 — 2026-07-24 — Y16 剩余 5 项全部完成 + Y16 已完成 3 项
 
 > Y16 全 8 项功能完整交付（#2/#7/#8 在 Y16 已完成，#1/#3/#4/#5/#6 在 Y17 完成）。
 
@@ -884,7 +884,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - #8 INFO VO/AO 行加解码器（[hwdec] / [codec]）
 - Y15 编译告警修复
 
-## Podradio_V0.1-Y16 — 2026-07-24 — INFO VO/AO 解码器 + LOG 两行 codec + 字幕 emoji + Y15 告警修复（部分完成）
+## Panicast_V0.1-Y16 — 2026-07-24 — INFO VO/AO 解码器 + LOG 两行 codec + 字幕 emoji + Y15 告警修复（部分完成）
 
 > Y16 全 8 项功能中已完成 3 项 + 告警修复，剩余 5 项下一步。
 
@@ -901,7 +901,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - #5 统一 cookie/登录（Ctrl+B 上下文感知）
 - #6 episode_cache 缓存 has_subtitle
 
-## Podradio_V0.1-Y15 — 2026-07-23 — B 模式(Bilibili)基础架构：API 类 + QR 登录 + cookie 管理 + 模式/DB/INI
+## Panicast_V0.1-Y15 — 2026-07-23 — B 模式(Bilibili)基础架构：API 类 + QR 登录 + cookie 管理 + 模式/DB/INI
 
 > 用户需求：扩展 B 模式(Bilibili)，支持扫码登录 + Cookie 导入，浏览关注/搜索/播放/下载。
 
@@ -924,7 +924,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - 不需 OAuth2(QR→cookie 更简单)、不需 quickjs/deno(无 nsig)、无 Data API 配额。
 - yt-dlp 完整支持 Bilibili(13 个提取器，实测可用)。
 
-## Podradio_V0.1-Y14 — 2026-07-23 — layout_ratio 0.25 + mpv 字幕设置 INI 化 + 歌词当前行绿色高亮
+## Panicast_V0.1-Y14 — 2026-07-23 — layout_ratio 0.25 + mpv 字幕设置 INI 化 + 歌词当前行绿色高亮
 
 > 左面板缩小(0.25)右面板扩大(0.75)；mpv 字幕设置从硬编码改为 INI 可配；歌词当前行用主题绿色高亮。
 
@@ -935,7 +935,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y13 — 2026-07-23 — 歌词面板重设计(🎵 LYRIC 分隔线+空行) + 15 套主题(3 新增高对比交错分布)
+## Panicast_V0.1-Y13 — 2026-07-23 — 歌词面板重设计(🎵 LYRIC 分隔线+空行) + 15 套主题(3 新增高对比交错分布)
 
 > Y12 歌词条下方有横线残余；12 套主题太趋同。Y13 重设计歌词区为独立分区 + 扩展到 15 套主题。
 
@@ -947,7 +947,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y12 — 2026-07-23 — 歌词面板(C-1 右侧带,自动滚动) + audio-display=no
+## Panicast_V0.1-Y12 — 2026-07-23 — 歌词面板(C-1 右侧带,自动滚动) + audio-display=no
 
 > 用户需求：F 模式播本地 mp3(+.lrc) 时在 TUI 实时显示歌词；mpv 默认 `audio-display=no`（音频文件不弹专辑封面窗）。
 
@@ -959,7 +959,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y11 — 2026-07-23 — `:` mpv 热键扩展 + Network/Buffering + 统一定时器 + 12 套主题 + YouTube 软字幕 + 修自动播放 INFO 不更新
+## Panicast_V0.1-Y11 — 2026-07-23 — `:` mpv 热键扩展 + Network/Buffering + 统一定时器 + 12 套主题 + YouTube 软字幕 + 修自动播放 INFO 不更新
 
 > 用户需求：扩展 `:` 的 mpv 热键（加 zoom、对齐原生）；INFO 显示网络速率+缓冲；播放状态统一定时器 INI 可调；重设计主题（12 套 GitHub 流行配色、软前景、配色单独 cpp）；YouTube 软字幕（居中/缩放可用）；修自动播放下一首时 INFO 标题不更新。
 
@@ -967,7 +967,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **[app/ui] `:` 命令窗口 mpv 热键全面扩展（对齐 mpv 原生 input.conf）**：重排 `mpv_cmds` 表——保留 `f F G o O i I m`（原生）；`v` 由 cycle vid 改为 **cycle sub-visibility**（原生 v）、`a` 由 cycle aid 改为 **`#` cycle audio**（原生 #）、cycle vid 移除（无原生键）；新增 `z/Z` sub-delay、`r/R` sub-pos、`j/J` cycle sub、`d` deinterlace、`l` ab-loop、`s/S` screenshot(含/不含字幕)、`A` cycle video-aspect、`1-8` 视频 EQ(contrast/brightness/gamma/saturation)；新增 **zoom**：`+`/`-` video-zoom ±0.1、`=` 复位（mpv 原生 zoom 是 Alt++/Alt+-，单字符 `:` 窗口抓不到 Alt，故用裸 +/- 最近似）。`o` 改为 `show-progress`（原生，原 `osd` 非标准命令）。完整热键表写入 man/`?`/README。
 - **[ui/playback] INFO 区加 Network/Buffering 行**：`update_state()` 读 mpv `cache-speed`(下载速率 bytes/s)、`demuxer-cache-duration`(缓冲 ahead 秒)、`cache-buffering-state`(缓冲中 0-100)，存入 State；`draw_info` 在 AO 行下加一行 `Network: <速度> | Buffering: <秒或%>`（缓冲中显百分比）。纯文本标签（主题 fg 色，任意主题适配，**无 emoji 无 ⚠**），低缓冲不加标记（数值自明），标签 `Buffering:`（原 Buf）。无 latency 字段（mpv 无 rtt/latency 属性，demuxer-cache-duration 即最接近值）。
 - **[playback/config] 播放状态统一刷新定时器（INI 可调）**：`update_state()` 开头按 `[display] state_refresh_ms`（默认 100ms）节流——不到间隔直接 return（保留上次 state_），到点才读全部播放属性（codec/bitrate/network/VO/AO/position/...）。**一个定时器统管所有播放状态**，最简单。原 50ms 每轮全读改为 100ms 节流，降 mpv_get_property 频率；INI 可调。
-- **[theme] 重设计 12 套 GitHub 流行终端配色 + 配色单独 cpp**：移除原 9 套（含刺眼的纯 ANSI "Dark"，fg=纯白 #ffffff 致反光）。新增 12 套全深色 + **软前景**（无纯白，直接解决"白太亮"）：Solarized Dark(默认 index0)/Gruvbox Dark/Nord/Dracula/Catppuccin Mocha/Tokyo Night/Rose Pine/One Dark/Everforest/Kanagawa/Ayu Mirage/Monokai Pro。RGB 值取自各家官方仓库（hex→0-1000）。**配色表移到独立 `src/theme/themes.cpp`**（+ `include/podradio/theme/themes.h` 声明 `struct Theme`/`THEME_COUNT=12`/`themes()`），方便调整不动 UI 逻辑；ui.h 仅 include。CMakeLists 加 themes.cpp。Ctrl+L 循环 12 套。
+- **[theme] 重设计 12 套 GitHub 流行终端配色 + 配色单独 cpp**：移除原 9 套（含刺眼的纯 ANSI "Dark"，fg=纯白 #ffffff 致反光）。新增 12 套全深色 + **软前景**（无纯白，直接解决"白太亮"）：Solarized Dark(默认 index0)/Gruvbox Dark/Nord/Dracula/Catppuccin Mocha/Tokyo Night/Rose Pine/One Dark/Everforest/Kanagawa/Ayu Mirage/Monokai Pro。RGB 值取自各家官方仓库（hex→0-1000）。**配色表移到独立 `src/theme/themes.cpp`**（+ `include/panicast/theme/themes.h` 声明 `struct Theme`/`THEME_COUNT=12`/`themes()`），方便调整不动 UI 逻辑；ui.h 仅 include。CMakeLists 加 themes.cpp。Ctrl+L 循环 12 套。
 - **[playback] YouTube 软字幕加载（修字幕不居中/不能缩放）**：根因——`resolve_youtube_url` 用 `yt-dlp -g` 只取视频+音频流 URL，**不取字幕**→mpv 无软字幕轨→F/G(sub-scale)无目标；可见字幕是 burned-in 硬字幕（mpv 无法缩放/居中）。修复：resolve 后当 `[youtube] sub_lang` 非空时，追加一次 `yt-dlp --write-subs(--write-auto-sub) --sub-langs <lang> --sub-format vtt --skip-download -o <tmp>` 写出 .vtt，路径作为 `urls[2]` 返回；`play_video` 的 loadfile options 串加 `sub-file=<path>`（与 `audio-file=` 并列，per-file option）。mpv init 加 `sub-ass-override=auto`（让 ASS 字幕也响应 sub-scale/sub-pos）。vtt 软字幕→mpv 默认居中渲染、F/G 缩放、r/R 位移、z/Z 同步、v 显隐全可用。INI `[youtube] sub_lang`(默认空=不加载,opt-in) + `sub_auto=true`(无手动字幕用自动生成)。硬字幕无法处理（视频本身）。
 - **[app] 修自动播放下一首时 INFO 标题/信息不更新**：`on_playback_ended` 自动推进下一首时内联播放（不调 `play_current`），而 `playback_node` 只在 `play_current` 里被赋值→INFO 标题停在上一首。修复：`on_playback_ended` 在 `current_index = next` 后设 `playback_node = current_playlist[next].node`（与 current_index 同样的跨线程模式，TreeNode 由树持有故 shared_ptr 重赋值实际安全）。
 - **[app] 异步交互审计：所有网络/解析交互改为 pool 异步，UI 不阻塞**：审计发现 3 处同步网络调用阻塞 UI 线程，已全部改 pool_.submit：① `perform_youtube_search`（`GoogleOAuth::search` 原同步 ~1-2s）→ pool 异步搜+建树，新增 `pending_select_` 机制（pool 任务设该节点，UI 线程每帧 flatten 后消费、移动光标到搜索结果）让选中不丢；② `subscribe_youtube_channel`（`subscribe`+`fetch_subscriptions` 原同步）→ pool 异步；③ `start_account_login` 的 `fetch_identity`+建账号+sync（QR 扫码后原同步冻结）→ 全部并入一个 pool 任务，UI 扫码后立即返回。`r`(refresh_node/spawn_load_feed)、`l`/Enter(enter_node/spawn_load/resolve)、`d`/D(download)、Y-mode resync 本就 pool 异步。主循环每帧 flatten 在 tree_mutex 下，pool 任务改树安全。
@@ -980,7 +980,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y10 — 2026-07-23 — 修 Y09 DASH 播放无音频（audio-file 属性不存在）
+## Panicast_V0.1-Y10 — 2026-07-23 — 修 Y09 DASH 播放无音频（audio-file 属性不存在）
 
 > Y09 1A DASH 播放在 WSL2 上视频有画无声。根因：mpv 无 `audio-file`（单数）运行时属性。
 
@@ -989,7 +989,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y09 — 2026-07-23 — 1A DASH 1080p 播放 + client_secret 编译时自动检测 + P/Y 独立说明 + man/?/CLI 全面更新
+## Panicast_V0.1-Y09 — 2026-07-23 — 1A DASH 1080p 播放 + client_secret 编译时自动检测 + P/Y 独立说明 + man/?/CLI 全面更新
 
 > 用户确认 1A（yt-dlp 在 mpv 之前预解析 DASH 双流）并要求全面更新 man/?/CLI/GitHub 介绍。
 
@@ -1001,14 +1001,14 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **[docs] GitHub 介绍**：README 顶部 badge 升 Y09、加 quickjs-ng/OAuth badge、介绍行点出 P+Y 双模式 + 顶部导航加「P vs Y 模式」链接。
 
 ### 设计决策（记录）
-- **1A vs mpv ytdl_hook**：选 1A（podradio 预解析 yt-dlp 取双流 → mpv audio-file 合流），非 mpv ytdl_hook。理由：podradio 完全掌控 argv（cookies/player_client/js_runtime 单一路径）、异步不阻塞、错误透明可日志、与 Y05 单一 resolve 架构一致；mpv ytdl_hook 边角鲁棒（直播/HLS/重选）但对播客场景罕见，且 ytdl-raw-options 配置脆弱、错误不透明、与 Y05 冲突。
+- **1A vs mpv ytdl_hook**：选 1A（panicast 预解析 yt-dlp 取双流 → mpv audio-file 合流），非 mpv ytdl_hook。理由：panicast 完全掌控 argv（cookies/player_client/js_runtime 单一路径）、异步不阻塞、错误透明可日志、与 Y05 单一 resolve 架构一致；mpv ytdl_hook 边角鲁棒（直播/HLS/重选）但对播客场景罕见，且 ytdl-raw-options 配置脆弱、错误不透明、与 Y05 冲突。
 - **1080p 必须 DASH**：YouTube 无 1080p 单文件 muxed（最高 720p），1080p 需 `bestvideo+bestaudio` 双流 + ffmpeg 合流——这是现代流媒体主流（YouTube/Netflix/B站均 DASH）。
 
 
 
 ---
 
-## Podradio_V0.1-Y08 — 2026-07-22 — 默认 quickjs + DB schema 迁移修 YouTube 缓存 + EJS 预检可靠化
+## Panicast_V0.1-Y08 — 2026-07-22 — 默认 quickjs + DB schema 迁移修 YouTube 缓存 + EJS 预检可靠化
 
 > Arch 验证 quickjs-only 播放成功并删了 deno(省 106MB)；WSL2 Debian 装 quickjs-ng+ejs。本版按"现状(quickjs-only)"固化配置与 DB。
 
@@ -1026,7 +1026,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y07 — 2026-07-22 — Y 模式扫码登录后恢复 UI 焦点 + 启动依赖预检
+## Panicast_V0.1-Y07 — 2026-07-22 — Y 模式扫码登录后恢复 UI 焦点 + 启动依赖预检
 
 > 用户反馈：Y 模式扫码登录后 UI 失去光标焦点、j/k 不响应；且之前"no yt-dlp output"报错隐晦（实为 yt-dlp 未安装）。本版修 UI 焦点 + 启动即提示缺失依赖。
 
@@ -1040,7 +1040,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y06 — 2026-07-22 — 轻量 quickjs-ng + 内置 OAuth + cookies/播放单一流程 + quickjs 跨发行版检测
+## Panicast_V0.1-Y06 — 2026-07-22 — 轻量 quickjs-ng + 内置 OAuth + cookies/播放单一流程 + quickjs 跨发行版检测
 
 > 用户反馈：Y03 捆绑 106MB deno 二进制过重，且首次播放 YouTube 时有「初始化卡顿 + 屏幕输出不正常」；Y 模式登录被拒（回退用的 SmartTube 公共客户端已被 Google 封）。本版：① 调研后改用 yt-dlp 原生支持的 quickjs-ng（~2MB，冷启动快约 10×）替换 deno，INI 保留 deno 回退；② 把项目自有的 Desktop-app OAuth 客户端内置为默认，登录开箱即用；③ 修复 `-Wswitch` 编译告警。
 
@@ -1058,7 +1058,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **[ini/README] `[youtube]` 段新增 `js_runtime = quickjs`（默认）**及中英双语说明；README 依赖章节改写为「JS 运行时(推荐 quickjs，回退 deno)」。
 - **[build] 修复 `-Wswitch` 编译告警**：`app_subscriptions.cpp` 的 `add_favourites_batch`/`add_favourite` 两处 `switch(mode)` 未处理 `AppMode::ACCOUNT`，补 `case AppMode::ACCOUNT: source_mode_name = "ACCOUNT"; break;`。
 - **[net/oauth] 内置项目自有 Desktop-app OAuth 客户端为默认**：`google_oauth.cpp` 的 `client_id()`/`client_secret()` 回退值由**已被 Google 封禁的 SmartTube 公共客户端**（`861556708454-…`，实测 `invalid_client`）改为项目自有的 Desktop-app 客户端（`781435869525-…`）。Y 模式扫码登录不再依赖手动放置 `client_secret*.json`，开箱即用。运行时若数据目录存在 `client_secret*.json` 仍优先采用（向后兼容）。注：Desktop-app 客户端的 secret 按 Google 安装型应用模型本就随二进制分发、非真正机密。`google_oauth.h` 注释同步更新。
-- **[net/oauth] Data API 错误不再静默吞掉（诊断 Y04 登录后拉不到数据）**：原 `Network::fetch_auth`/`post`/`del` 不检查 HTTP 状态码，`fetch_subscriptions`/`fetch_identity`/`search` 见到 `{"error":...}` 也不记录——Data API 返回 403/401 时静默返回空，用户只看到"无数据"无从排查。现：① `fetch_auth`/`post` 捕获 `CURLINFO_RESPONSE_CODE`，≥400 时把 Google 错误体（前 400 字节）写入 `podradio.log` 并 EVENT_LOG 提示 HTTP 码；② 新增 `log_api_error()` 解析 Data API 错误信封（`error.code/errors[0].reason/message`），在 `fetch_identity`/`fetch_subscriptions`/`search` 中调用。常见 403 `accessNotConfigured`（GCP 项目未启用 YouTube Data API v3）、403 `quotaExceeded`、401 `invalid_token`、403 consent-screen Testing 模式 现均可见。
+- **[net/oauth] Data API 错误不再静默吞掉（诊断 Y04 登录后拉不到数据）**：原 `Network::fetch_auth`/`post`/`del` 不检查 HTTP 状态码，`fetch_subscriptions`/`fetch_identity`/`search` 见到 `{"error":...}` 也不记录——Data API 返回 403/401 时静默返回空，用户只看到"无数据"无从排查。现：① `fetch_auth`/`post` 捕获 `CURLINFO_RESPONSE_CODE`，≥400 时把 Google 错误体（前 400 字节）写入 `panicast.log` 并 EVENT_LOG 提示 HTTP 码；② 新增 `log_api_error()` 解析 Data API 错误信封（`error.code/errors[0].reason/message`），在 `fetch_identity`/`fetch_subscriptions`/`search` 中调用。常见 403 `accessNotConfigured`（GCP 项目未启用 YouTube Data API v3）、403 `quotaExceeded`、401 `invalid_token`、403 consent-screen Testing 模式 现均可见。
 - **[net/oauth/app] Y 模式节目列表改用 Data API（OAuth token）取，绕开 yt-dlp**：实测 Data API 10 请求 0 错误（订阅已拉到），但"看不到节目列表"卡在展开频道时的 yt-dlp 路径（需 cookies+代理+JS 运行时）。新增 `GoogleOAuth::fetch_channel_videos(access_token, channel_id)`：`channels.list?part=contentDetails` 取 uploads 播放列表 → `playlistItems.list` 分页取视频，**只用 OAuth token，不需 cookies/代理/JS 运行时**。`enter_account_node` 展开 `is_yt_channel` 时优先走 Data API，取不到再回退 `parse_video_list`（yt-dlp）。效果：Y 模式订阅频道的节目列表开箱即用（与订阅同源 token）。**播放仍需 yt-dlp**（Data API 不返回流地址，OAuth 不能用于播放，Y02 已知限制）——播放需 cookies(Ctrl+B)+代理(Ctrl+N)+JS 运行时(quickjs)。
 - **[net/parsers/playback] cookies 与播放统一为单一流程，移除所有 fallback（Y05）**：用户原则——唯一正确流程，不要 fallback。① `get_youtube_cookies_file()` 解析为唯一绝对路径：空/bare `youtube_cookie.txt`→`<数据目录>/youtube_cookie.txt`；`~/...`展开；`/abs`原样；其它相对→`<数据目录>/<输入>`。删除 `cookies_from_browser` + `detect_cookies_browser()` 浏览器自动检测链。`ytdlp_youtube_args_parse()` 单一 `--cookies <路径>`（仅当文件存在，前置条件非回退）。② 播放唯一解析点 `resolve_youtube_url`，失败返回 `""`（不再回退原 URL）、调用方跳过不播。③ 移除 mpv `-13` `yt-dlp -g` retry（YouTube URL 已被 resolve_youtube_url 预解析，mpv 不再收到 watch URL，-13 retry 成死代码；保留 `-15` VO 音频回退，无头主机必需）。④ 移除 `AccountsManager::ytdlp_oauth_args()`/`ytdlp_cache_dir()`（注入已被 yt-dlp 移除的 `--username oauth2`，会致错且已无调用方）。⑤ mpv initialize 不再注入 cookies/oauth 到 ytdl-raw-options，仅保留 `proxy`（mpv 取流用）。⑥ 删除死代码 `resolve_play_url`。
 - **[build/parsers] quickjs 跨发行版正确检测/调用（Y05）**：Arch 包名 `quickjs-ng`、Debian 包名 `quickjs`，二者功能相同但二进制名可能 `qjs` 或 `qjsng`。① `build.sh` 检测改为 `command -v qjs || qjsng || deno`，提示信息列两发行版包名 + pip + release。② 新增 `find_qjs_binary()`（搜 PATH 的 `qjs`/`qjsng`），`js_runtime_args()` 对 bare `quickjs` 解析出绝对路径并传 `--js-runtimes quickjs:<abspath>`——无论二进制名/是否在 PATH 都能调用；找不到则传 bare `quickjs`（yt-dlp 报清晰错误）。
@@ -1073,7 +1073,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **quickjs 需 EJS solver**：quickjs 不能从 npm 拉 EJS（deno 可自动拉），须 `pip install -U "yt-dlp[default]"`（带入 yt-dlp-ejs）或加 `--remote-components ejs:github`。装不了则 `[youtube] js_runtime = deno` 回退。
 - 只在 Linux x86_64 验证打包路径；ARM64/Windows 需放对应架构 `qjs`。
 
-## Podradio_V0.1-Y03 — 2026-07-20 — Y 模式三处修复（SSL/重复账号/nodejs 依赖）
+## Panicast_V0.1-Y03 — 2026-07-20 — Y 模式三处修复（SSL/重复账号/nodejs 依赖）
 
 > Y02 上线后实测 Y 模式仍有三个问题：拉取观看历史时报 `SSL connect error`；同一个 Google 帐号可被重复登录（DB 出现 #1/#3 同号）；yt-dlp 报 `Requested format is not available`。本版逐一修复。
 
@@ -1094,7 +1094,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y02 — 2026-07-20 — 恢复 P 模式 YouTube 解析 + Y 模式 YouTube 搜索/订阅
+## Panicast_V0.1-Y02 — 2026-07-20 — 恢复 P 模式 YouTube 解析 + Y 模式 YouTube 搜索/订阅
 
 > Y01 登录打通后：① Y01 引入的 oauth2 注入导致 P 模式无法刷新 YouTube 频道 TABS（回归）；② 需要在 Y 模式搜 YouTube 并订阅。本版先恢复 P 模式解析能力，并加 Y 模式搜索/订阅供体验。
 
@@ -1121,7 +1121,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-Y01 — 2026-07-19 — Y 模式：多 Google 帐号 + SmartTube 式扫码登录
+## Panicast_V0.1-Y01 — 2026-07-19 — Y 模式：多 Google 帐号 + SmartTube 式扫码登录
 
 > Y 线迭代（Y01-Y99）独立于 F 修正线（F01-F99），两条线并行。本条置于 F42 之上，F 线记录原样保留。
 
@@ -1131,7 +1131,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - 登录走 SmartTube 方案：Google OAuth 2.0 Device Authorization Grant（client_id `861556708454`），
   `verification_url` 渲染为终端 QR（libqrencode），手机扫码授权；无 libqrencode 时回退纯文本 user_code。
 - 既要 yt-dlp 登录态（播放/下载归属当前 Google 帐号），也要同步 YouTube 订阅列表 + 观看记录（一步到位）。
-- 全部数据缓存进同一个 `podradio.db`；token 加密存储（本机密钥 + ChaCha20）。
+- 全部数据缓存进同一个 `panicast.db`；token 加密存储（本机密钥 + ChaCha20）。
 - **不引入"本地帐号"**：现有 podcast/radio/收藏/历史/续播等数据保持全局（F42 行为零改动）；
   仅 YouTube 相关数据（`youtube_cache` / `youtube_subscriptions` / `youtube_history`）按 Google 帐号隔离。
 - 每个 Google 帐号作为 Y 模式左侧树的一个节点，"播放历史""订阅列表"为其子节点（融入现有递归树设计）。
@@ -1161,16 +1161,16 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
   cookie 作为无帐号时的兜底。token 用本机密钥（ChaCha20+HMAC，派生自 machine-id）加密存库。
 
 ### 修订（2026-07-19）
-- [net] OAuth 凭证改为**运行时**从 `~/.local/share/podradio/client_secret*.json` 加载（Google "Desktop
+- [net] OAuth 凭证改为**运行时**从 `~/.local/share/panicast/client_secret*.json` 加载（Google "Desktop
   app" 客户端，支持 device flow），不再硬编码进二进制/源码；文件缺失时回退公共 SmartTube device client。
   修复登录报 `invalid_client`：SmartTube 公共 client `861556708454` 已被 Google 收紧，改用本机自有 client。
 - [app] Y 模式 `a` 登录失败不再弹 `confirm_box`（"Login failed: invalid_client"）；错误统一写
-  `podradio.log`（`LOG`）并在右侧 LOG 区打印（`EVENT_LOG`）。仅 QR 二维码弹窗显示；登录成功的弹窗亦移除
+  `panicast.log`（`LOG`）并在右侧 LOG 区打印（`EVENT_LOG`）。仅 QR 二维码弹窗显示；登录成功的弹窗亦移除
   （成功信息已在 LOG 区输出）。
 
 ---
 
-## Podradio_V0.1-F42 — 2026-07-19 — add_local_files 改递归扫描 + 清除死代码
+## Panicast_V0.1-F42 — 2026-07-19 — add_local_files 改递归扫描 + 清除死代码
 
 ### [app] add_local_files 用 expand_local_folder 替代扁平扫描（递归一致）
 - **问题**：F 模式 `a` 收集本地文件夹时首次显示扁平列表（所有文件直接挂在 folder 下，无子文件夹），重启后展开才显示递归树——不一致。
@@ -1184,13 +1184,13 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 - 版本同步 4 处。
 
-## Podradio_V0.1-F41 — 2026-07-19 — 修 play_current 日志：file:// 误标 "online streaming"
+## Panicast_V0.1-F41 — 2026-07-19 — 修 play_current 日志：file:// 误标 "online streaming"
 
 ### [playback] file:// URL 日志修正
 - **问题**：`play_current` else 分支对所有非缓存/非 YouTube 的 URL 都打 `"Play online streaming"`，包括 `file:///mnt/e/...`（WSL2 挂载的本地文件）——明显是本地文件却标"online"。
 - **修复**：else 分支检查 `orig_url` 是否以 `file://` 开头 → 是则打 `"Play local file"`，否则 `"Play online streaming"`。
 
-## Podradio_V0.1-F40 — 2026-07-19 — 修 ao 空值覆盖默认（-14 AO init 失败）+ 本地文件缓存路径
+## Panicast_V0.1-F40 — 2026-07-19 — 修 ao 空值覆盖默认（-14 AO init 失败）+ 本地文件缓存路径
 
 ### [config][playback] Bug 2：旧 INI 空 `ao =` 覆盖 `pulse,alsa` 默认 → AO init 失败 (-14)
 - **现象**：需显式 `--ao=pulse`；不加则播放报错 `-14`（AO_INIT_FAILED）。
@@ -1209,18 +1209,18 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 - 版本同步 4 处。
 
-## Podradio_V0.1-F39 — 2026-07-18 — 清除死代码（legacy json 持久化助手）
+## Panicast_V0.1-F39 — 2026-07-18 — 清除死代码（legacy json 持久化助手）
 
 ### [storage] 删除 4 个 dead legacy json 方法
 - **清理**：`Persistence::save_tree` / `load_tree` / `save_node` / `load_node`（json 版，private static）——旧设计（F38 之前）播客树存嵌套 JSON 时用于 TreeNode↔JSON 转换。F38 改递归 `tree_nodes` 行存后无人调用（仅 save_tree/load_tree 自递归），属死代码。
 - 删 `persistence.h` 4 处声明 + `persistence.cpp` 4 处定义 + 未用的 `using json` 别名。
 - 保留 `persistence.h` 的 `nlohmann/json` include（app.h 等经它传递依赖，移除有风险）。
 - 同步清理过时注释（database.cpp "Persistence::save_node calls this method"、persistence.h 头注释 "migration from legacy data.json"）。
-- **DB 清理由用户手动**（不加自动清理功能，按用户确认）：F38 的 `SCHEMA_VERSION` 已自动处理 schema 升级；完全重置数据时用户自行删 `~/.local/share/podradio/podradio.db`。
+- **DB 清理由用户手动**（不加自动清理功能，按用户确认）：F38 的 `SCHEMA_VERSION` 已自动处理 schema 升级；完全重置数据时用户自行删 `~/.local/share/panicast/panicast.db`。
 - 原则：不保留偶尔才用一次的功能（dead/rarely-used 代码即删）。
 - 版本同步 4 处。验证：编译零告警。
 
-## Podradio_V0.1-F38 — 2026-07-18 — 数据库重构：统一树表 + history 去重 + 去 data_json 双存 + radio_cache 冗余清理
+## Panicast_V0.1-F38 — 2026-07-18 — 数据库重构：统一树表 + history 去重 + 去 data_json 双存 + radio_cache 冗余清理
 
 ### [storage] #2 统一 nodes + radio_cache → tree_nodes（递归 parent_id）
 - **根因**：`nodes`（播客树）存顶层行 + 子节点嵌在 `data_json.children[]`；`radio_cache`（电台树）用递归 `parent_id` 行。两套平行 schema + 两套 save/load。
@@ -1244,7 +1244,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 - 版本同步 4 处。验证：Ninja Release 编译零错误零告警。
 
-## Podradio_V0.1-F37 — 2026-07-18 — `:` 命令窗口转发 mpv 交互命令 + 默认 ao=pulse,alsa
+## Panicast_V0.1-F37 — 2026-07-18 — `:` 命令窗口转发 mpv 交互命令 + 默认 ao=pulse,alsa
 
 ### [input][playback] `:` 命令窗口新增 mpv 交互命令转发
 - **问题**：打开视频窗后 mpv 收不到 f/o/i 等热键。**根因**：F25 设 `terminal=no`（必须，否则 mpv 与 ncurses 抢终端）同时关了 mpv 终端输入；wlshm 视频窗在 Wayland 上要被点击才获键盘焦点，ncurses 又占着终端 → mpv 交互键到不了 mpv。
@@ -1263,7 +1263,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **改动**：`get_mpv_ao()` 默认 `""`→`"pulse,alsa"`；INI 模板 `ao =`→`ao = pulse,alsa` + 注释；man/`?`/`-?` 的 `--ao` 描述同步。
 - 版本同步 4 处。
 
-## Podradio_V0.1-F36 — 2026-07-18 — LOG 压缩阈值可配置（终端高度 23）+ 移除无意义的 min_w/min_h
+## Panicast_V0.1-F36 — 2026-07-18 — LOG 压缩阈值可配置（终端高度 23）+ 移除无意义的 min_w/min_h
 
 ### [ui][config] 窗口缩小时逐行压缩 LOG、优先 INFO；阈值可配置
 - **背景**：F31 在 `top_h < min_h(26)` 时把 LOG 钉 6 行地板，`top_h<13` 时 LOG>INFO，INFO（进度条）反被挤。LOG 多是 resize 噪音、INFO 更重要。
@@ -1274,7 +1274,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **改动**：`ini_config.h` 删 `get_min_w/get_min_h` 加 `get_log_compress_height`（默认 23）+ INI 模板替换；`layout_guard.h` `safe_split_y` 改写（可配置阈值 + 1:1 LOG 收缩 + <2 隐藏）；man LAYOUT 段"Minimum size"→"LOG compression"。
 - 版本同步 4 处。
 
-## Podradio_V0.1-F35 — 2026-07-18 — R模式电台TITLE显示电台名 + 三处跟随主题色 + 改名 Playlist Index
+## Panicast_V0.1-F35 — 2026-07-18 — R模式电台TITLE显示电台名 + 三处跟随主题色 + 改名 Playlist Index
 
 ### [playback] R 模式播放电台时 INFO Title 显示电台名称（根因：playback_node 从未赋值）
 - **现象**：R 模式播电台，INFO 区 Title 不显示电台名（显示 mpv media-title=流地址/ICY）。
@@ -1294,7 +1294,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **改名**：`Playing Context` → `Playlist Index`。`[%s]` 保持**动态**——反映当前播放模式（Repeat/Shuffle/Cycle），非硬编码。
 - 不动 `▶ Playing`/`⏸️ Paused`（状态对 11/14，经 init_color 已随主题）及其它非 A_BOLD 元素。
 
-## Podradio_V0.1-F34 — 2026-07-18 — 修复状态栏右下角时间不刷新
+## Panicast_V0.1-F34 — 2026-07-18 — 修复状态栏右下角时间不刷新
 
 ### [ui] 状态栏右下角系统时间停滞（秒不跳）
 - **现象**：状态栏右下角时间（`AUTHOR@<时间>`，格式 `%b %d %Y %H:%M:%S` 含秒）不更新。
@@ -1302,7 +1302,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **修复**：缓存粒度改为**秒**（`now_t`），格式不变。`strftime` 仍每秒只跑一次（非每帧 ~30ms），秒数每秒可见地跳动。
 - **改动**：`ui.h draw_status`：`cached_minute/current_minute` → `cached_second/now_t`。
 
-## Podradio_V0.1-F33 — 2026-07-18 — INI 模板注释改为中英双语（全局唯一双语处）
+## Panicast_V0.1-F33 — 2026-07-18 — INI 模板注释改为中英双语（全局唯一双语处）
 
 ### [config] config.ini 默认模板注释：中文 → 中英双语
 - **范围**：`ini_config.h` `create_default` 写入 `config.ini` 的默认模板注释（F32 留待本轮的 151 行中文）。
@@ -1310,7 +1310,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **改动**：分块编辑 `[display]`/`[colors]`(含颜色代码参考)/快捷键/`[network]`/`[storage]`/`[playback]`/`[mpv]` 段头/`[youtube]`/`[statusbar_color]`/`[search]`/艺术颜色参考；proxy 段与 mpv vo/vid/ao 段已是英文，保持不动。
 - **验证**：中文行数仍 151（未删，已双语）；所有 `key = value` 原样（layout_ratio/min_w/vo/ao/proxy/mode/custom_colors 等抽查无误）；无"纯中文无英文"残留行。版本同步 4 处。
 
-## Podradio_V0.1-F32 — 2026-07-18 — INFO 区 Title/URL 分组 + 进度条主题色 + 运行时中文转英文
+## Panicast_V0.1-F32 — 2026-07-18 — INFO 区 Title/URL 分组 + 进度条主题色 + 运行时中文转英文
 
 ### [ui] INFO 区 Title/URL 分组（播放节目与光标节目分离）
 - **问题**：播放节目的 Title 在上方播放块，但其 Streaming URL 却挤在下方光标块里（与光标节点自身 URL 混杂）。
@@ -1327,7 +1327,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **验证**：`grep -rlP '[\x{4e00}-\x{9fff}]' src/ include/` 排除 ini_config.h → **0**；ini_config.h 仍 151（F33）。
 - 版本同步 4 处。
 
-## Podradio_V0.1-F31 — 2026-07-18 — 布局比例/最小尺寸：修 init 硬编码 + 黄金比例最小尺寸阈值
+## Panicast_V0.1-F31 — 2026-07-18 — 布局比例/最小尺寸：修 init 硬编码 + 黄金比例最小尺寸阈值
 
 ### [ui][config] 缩放时三区比例不固定 + init 硬编码 40% + 最小尺寸阈值
 - **现象**：缩放主窗口时左:右不恒为 4:6、INFO:LOG 不恒为 70:30。
@@ -1344,7 +1344,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **改动**：`ini_config.h` 加 `get_min_w()/get_min_h()`（默认 42/26）+ INI 模板加 `min_w=42/min_h=26`（含黄金比例注释）；`layout_guard.h` `safe_split_y` 用 min_h 阈值；`ui.h init()` 用 `compute()`；man 加 LAYOUT 段（比例 + 最小尺寸 + 黄金 + 硬锁说明）+ config.ini `[display]` 描述补 min_w/min_h。
 - 版本同步 4 处。
 
-## Podradio_V0.1-F30 — 2026-07-18 — LOG 补全音频 codec（与 INFO 对称，V/A 双行）
+## Panicast_V0.1-F30 — 2026-07-18 — LOG 补全音频 codec（与 INFO 对称，V/A 双行）
 
 ### [playback] LOG 文件 + LOG 区只记视频 codec、缺音频 codec — 与 INFO 区不对称
 - **现象**：INFO 区同时显示 `Audio: AAC` 与 `Video: H.264 [software]`；但 LOG 文件与 LOG 区的一次性日志只有 `Video decode: ...`，无音频 codec。
@@ -1357,7 +1357,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
   - LOG 文件：`[MPV] Video decode: codec=H.264, hwdec=software` + `[MPV] Audio decode: codec=AAC`
   - LOG 区：`Video decode: H.264 [software]` + `Audio decode: AAC`
 
-## Podradio_V0.1-F29 — 2026-07-18 — 新增 --ao 选项 + 修正帮助面（a/A 键、--ao 文档）
+## Panicast_V0.1-F29 — 2026-07-18 — 新增 --ao 选项 + 修正帮助面（a/A 键、--ao 文档）
 
 ### [cli][playback] 新增 `--ao` 音频输出覆盖选项
 - **背景**：原支持 `--vo`/`--vid`/`--quiet` 覆盖，但 `ao` 根本不设（mpv 默认 auto），无 `--ao` 旋钮。vo/vid/ao 是 mpv 三大输出选择，缺一是不对称残缺。
@@ -1366,7 +1366,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
   - `mpv_controller.h`：`set_cli_overrides(vo,vid,ao)`；加 `cli_ao_override_`。
   - `mpv_controller.cpp`：initialize() 读 `get_mpv_ao()`，CLI 覆盖优先，**非空才设** `ao`（空=不设=mpv auto）；Init 日志加 `ao={}`。
   - `main.cpp`：getopt `{"ao",required_argument,0,'A'}` + `case 'A'`；传给 `set_cli_overrides`；`print_usage` 加 `--ao` 行。
-- **净效果**：`podradio --ao=pulse/alsa/pipewire` 可用；不传则行为完全不变。
+- **净效果**：`panicast --ao=pulse/alsa/pipewire` 可用；不传则行为完全不变。
 
 ### [ui][man][help] 修正 `?` 弹窗 `A` 键错误描述 + 补全 `a` 键 + 同步 `--ao` 文档
 - **问题**：`?` 帮助弹窗与 man 手册中 `A` 键描述为"Add local folder (FAVOURITE)"，但实参 `app_input.cpp` 中 **`A` 已 freed（未绑定）**；实际是 **`a`** 在 FAVOURITE 模式下递归扫描本地文件夹（`add_local_files()`），且 `a` 同时在 PODCAST=add feed、ONLINE=subscribe。原描述漏了 `a` 的 FAVOURITE 行为、且把功能错挂到 `A` 上。
@@ -1376,7 +1376,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **`--ao` 文档同步**：`?` 弹窗 Command Line 段、`--help`/`-?`（print_usage）、man 手册 OPTIONS 段均加 `--ao <value>` 说明（auto/pulse/alsa/pipewire，空=auto）。
 - 不改 vo/vid 相关注释（不在本次范围）。
 
-## Podradio_V0.1-F28 — 2026-07-18 — 修复 Video decode 日志双记（改绑 PLAYBACK_RESTART 事件）
+## Panicast_V0.1-F28 — 2026-07-18 — 修复 Video decode 日志双记（改绑 PLAYBACK_RESTART 事件）
 
 ### [playback] `Video decode:` 日志每曲记两次 — 一次性日志触发点错误
 - **现象**：F27 播放视频时 `Video decode: {codec} [{hwdec|software}]` 在 LOG/LOG区 每首曲目出现两次。
@@ -1387,7 +1387,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **改动**（`mpv_controller`）：删 `decode_info_logged_` 换 `restart_info_logged_`，`FILE_LOADED` 重置之；删 `update_state()` 一次性日志块（双记根源移除，但仍连续读 `hwdec-current` 写 `state_` 供 INFO 显示）；`MPV_EVENT_PLAYBACK_RESTART` 处理新增一次性日志（读 `video-codec`+`hwdec-current`，纯音频跳过）。
 - **解耦**：INFO 显示=连续轮询（永远准）；日志=离散事件（每曲一次、时机准、hwdec 不误报）。codec 格式不变。
 
-## Podradio_V0.1-F27 — 2026-07-18 — INFO/LOG/LOG区 显示视频 codec + hwdec-current（软/硬解）
+## Panicast_V0.1-F27 — 2026-07-18 — INFO/LOG/LOG区 显示视频 codec + hwdec-current（软/硬解）
 
 ### [ui][playback] 新增视频解码方法（hwdec-current）显示
 - **需求**：在 INFO 区、LOG 文件、屏幕 LOG 区三处显示视频 codec 与 hwdec-current（软解/硬解及方法）。
@@ -1401,11 +1401,11 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
   - `ui.h draw_info`：Video 行由 `Video: h264` 改为 `Video: h264 [vaapi-copy]`（硬解）或 `Video: h264 [software]`（软解）。Audio 行不动。
 - **显示格式**：
   - INFO：`Video:  {codec} [{hwdec|software}]`
-  - LOG 文件（podradio.log，每曲目一次）：`[MPV] Video decode: codec={codec}, hwdec={hwdec|software}`
+  - LOG 文件（panicast.log，每曲目一次）：`[MPV] Video decode: codec={codec}, hwdec={hwdec|software}`
   - LOG 区（EVENT_LOG，每曲目一次）：`Video decode: {codec} [{hwdec|software}]`
 - **时序说明**：一次性日志在 `video_codec` 首次非空（解码刚启动）时触发；hwdec-current 通常在解码器初始化时即定，若极端情况下稍晚就绪，INFO 区因连续轮询会自行刷新到最终值，仅那一行 LOG 取启动瞬间值——对日志可接受。
 
-## Podradio_V0.1-F26 — 2026-07-18 — INFO 区格式/码率识别不稳定修复（属性读取竞态）
+## Panicast_V0.1-F26 — 2026-07-18 — INFO 区格式/码率识别不稳定修复（属性读取竞态）
 
 ### [playback] INFO 区视频/音频格式与码率时有时无、重播偶尔能识别 — 属性读取竞态
 - **现象**：INFO 区的 VO/AO/尺寸/码率/采样率/声道 等识别不稳定，无规律可重现；重新播放有时能识别。
@@ -1416,23 +1416,23 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
   - `update_state()`：新增对 `current-vo/current-ao/width/height/video-bitrate/audio-bitrate/audio-params/samplerate/audio-params/channel-count` 的连续读取，last-known-good 写入 `state_`（vo/ao 取当前值——纯音频时 `"null"` 让 UI 隐藏 VO 行；尺寸/码率只在 `>0` 时覆盖；samplerate/channels 非空时覆盖）。
 - **边界**：码率用 last-known-good 意味着自适应流中途变码率不刷新显示——对播客播放器无所谓（标称码率即所需），切轨/重播会重置。
 
-## Podradio_V0.1-F25 — 2026-07-17 — VO/AO 初始化失效修复（删除 F23 的 stderr 劫持）
+## Panicast_V0.1-F25 — 2026-07-17 — VO/AO 初始化失效修复（删除 F23 的 stderr 劫持）
 
 ### [playback] VO/AO 设备不能正常初始化 — 删除 F23 的进程级 `dup2(stderr→/dev/null)`
 - **现象**：F24 编译测试发现 VO/AO 不能正常初始化。
 - **根因**：F23 在 `mpv_initialize()` 前后用 `dup2` 把进程级 fd 2 重定向到 `/dev/null`（整个 mpv 生命周期，`stop()` 里再 `dup2` 还原）。这次 fd/TTY 状态篡改**恰好落在 `mpv_initialize()` 内部 VO/AO 后端探测的窗口上**；在受限桌面会话（Wayland / 容器 / systemd 服务，无前台控制 TTY）里，进程级 fd 篡改落在探测窗口上会干扰图形/音频后端拿句柄 → VO/AO 初始化失败。这是一个为"压 ALSA/Pulse 库级 stderr 噪声"而引入的补丁，本质是用一个全局 fd 劫持去掩盖一个环境相关的库输出问题，副作用比收益大。
 - **必然选择此方案的原因（Unix 哲学：simple and right，找本质、不打补丁）**：
   1. mpv 自身的终端输出已由 `terminal=no` 完整关闭（状态行 + 日志 + 输入）。`terminal=no` 还同时关闭 mpv 的终端**输入**——这是刚需，否则 mpv 会抢 stdin、把终端设 raw 模式与 ncurses 争键盘。因此 `terminal=no` 是唯一正确且必要的那个选项；在其之下，原先的 `msg-level=all=error` 与 `quiet=yes` 都是纯冗余，一并删除。
-  2. `dup2` 真正吞掉的只有 ALSA/Pulse **C 库直接写 fd 2** 的噪声，而这类噪声只在 mpv 探测到**不可用**的后端时才产生。`ao` 维持不设（`auto`）时，mpv 先探 pulse——本机 `AO=pulse` 成功（见 `podradio.log`），ALSA 根本不被探测，所以该噪声在本机**不发生**。`dup2` 是在解一个不存在的问题，同时却在制造 VO/AO 失效。
+  2. `dup2` 真正吞掉的只有 ALSA/Pulse **C 库直接写 fd 2** 的噪声，而这类噪声只在 mpv 探测到**不可用**的后端时才产生。`ao` 维持不设（`auto`）时，mpv 先探 pulse——本机 `AO=pulse` 成功（见 `panicast.log`），ALSA 根本不被探测，所以该噪声在本机**不发生**。`dup2` 是在解一个不存在的问题，同时却在制造 VO/AO 失效。
   3. 在 PipeWire 系统上 `ao=pulse` 经 `pipewire-pulse` 兼容层透明运行在 PipeWire 之上，故"优先 pulse、不跳过 alsa"由 `ao=auto` 自然满足，无需任何额外配置或 fallback 代码。显式写 `ao=pipewire,...` 只会在无 PipeWire 的机器上多一次失败探测、反而可能吐 stderr 噪声，属于补丁打补丁，不采用。
   4. 综上，F25 是**纯减法**：删 `dup2` 全套、删冗余的 `msg-level`/`quiet`、`ao` 不动。无新增选项、无 fallback、无 fd/TTY 状态改动。
 - **改动**：
   - `src/playback/mpv_controller.cpp`：删除 `initialize()` 里 `dup2` 重定向块与 `stop()` 里还原块；mpv 终端选项只留 `terminal=no`，删 `msg-level`/`quiet`；移除仅此处使用的 `<fcntl.h>`/`<unistd.h>`。
-  - `include/podradio/playback/mpv_controller.h`：删除成员 `saved_stderr_fd_`。
+  - `include/panicast/playback/mpv_controller.h`：删除成员 `saved_stderr_fd_`。
   - 注释注明 `VO/AO=null`（init 后）是 `vo=auto`+`idle=yes` 懒初始化的**正常表现**，非故障。
 - **说明**：`--msg-level=all=no`（参考消息提议）在本方案中不采用——它要做到的"让 mpv 不写终端"已被 `terminal=no` 覆盖，属冗余；且它对 ALSA/Pulse 库级 stderr 同样无效，非本质杠杆。本质杠杆就是删掉 F23 的 `dup2`。
 
-## Podradio_V0.1-F19 — 2026-07-17 — 4 BUG 修复（连续播放/IME/YouTube下载/DSF卡顿）
+## Panicast_V0.1-F19 — 2026-07-17 — 4 BUG 修复（连续播放/IME/YouTube下载/DSF卡顿）
 
 ### [playback] BUG 1：播放完当前节目后自动 PAUSE → 修复为连续播放
 - 根因：mpv `keep-open=yes` → 曲目结束后 mpv 暂停在 EOF；`on_playback_ended` 加载下一首时未显式取消暂停。
@@ -1452,7 +1452,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-F18 — 2026-07-17 — 6 BUG 修复 + IME/本地文件/无peers 三项新功能
+## Panicast_V0.1-F18 — 2026-07-17 — 6 BUG 修复 + IME/本地文件/无peers 三项新功能
 
 ### [playback] BUG 1：parent 指针未重置 → peers 退化为单条（一行修复）
 - `app_run.cpp` spawn_load_feed 中 `node->children = result->children;` 后新增 `for (auto& c : node->children) c->parent = node;`。首次解析后播放不再"Built 1 peers"，CYCLE/SHUFFLE 可正常推进。
@@ -1487,10 +1487,10 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-F17 — 2026-07-17 — IME 修复 + import_feed 标题 + app.h 全量拆分 + 响应优化
+## Panicast_V0.1-F17 — 2026-07-17 — IME 修复 + import_feed 标题 + app.h 全量拆分 + 响应优化
 
 ### [arch] app.h 全量拆分为 9 个 .cpp（4361→415 行）
-- `include/podradio/app/app.h` 从 4361 行降至 **415 行**（仅类声明 + 成员 + 短方法 inline）。
+- `include/panicast/app/app.h` 从 4361 行降至 **415 行**（仅类声明 + 成员 + 短方法 inline）。
 - 9 个 out-of-line `.cpp`：`app_playback`(232) / `app_download`(360) / `app_search`(235) / `app_subscriptions`(604) / `app_navigation`(360) / `app_tree_expand`(559) / `app_input`(327) / `app_nodes`(494) / `app_run`(895)。
 - 纯机械搬迁（声明留头、定义移 cpp），行为不变；CMakeLists 已加入 9 个源文件。
 
@@ -1511,7 +1511,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-F16 — 2026-07-17 — media_cache 单status列 + 去cached冗余 + 输入/复制优化
+## Panicast_V0.1-F16 — 2026-07-17 — media_cache 单status列 + 去cached冗余 + 输入/复制优化
 
 ### [storage] media_cache 表简化为单 `status` 列
 - 表结构：`media_cache(url PK, status INT, local_file, updated_at)`，`status`：0=无缓存、1=完整缓存、2=部分缓存(.part)。取代 F15 的 `cached`+`downloaded` 双标志。
@@ -1543,7 +1543,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-F15 — 2026-07-17 — 清理/去迁移/统一DB/缓存颜色/对齐
+## Panicast_V0.1-F15 — 2026-07-17 — 清理/去迁移/统一DB/缓存颜色/对齐
 
 ### [storage] 清理 + 去迁移
 - 删死表 `url_cache`（被 `media_cache` 取代后仅剩 purge 里一行 DELETE）。
@@ -1567,7 +1567,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-F14 — 2026-07-17 — 下载缓存迁入数据库
+## Panicast_V0.1-F14 — 2026-07-17 — 下载缓存迁入数据库
 
 - **新增 `media_cache` 表**：URL 的 cached/downloaded 双标志 + 本地文件路径，替代 `cached_urls.json`。所有写入用 `INSERT OR IGNORE` + `UPDATE`（兼容老 SQLite，不用 `ON CONFLICT`），按位合并标志、互不覆盖。`media_cache_mark` / `media_cache_clear` / `media_cache_bulk_set` / `load_media_cache` / `clear_media_cache`。
 - **CacheManager 改为 DB 直写**：内存结构作为快速读路径，每次 `mark_cached`/`mark_downloaded`/`clear_cache`/`clear_download` 即时写库；移除 `save()`/`save_locked()` 及其两处调用（app 退出、清 feed 缓存后）。`load()` 从 DB 读入。
@@ -1577,7 +1577,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1-F13-wsl — 2026-07-17 — 播放模型重构为 peers 隐式列表
+## Panicast_V0.1-F13-wsl — 2026-07-17 — 播放模型重构为 peers 隐式列表
 
 - **取消持久化播放列表与 L 弹窗**：不再维护独立的播放列表，删除 L 弹窗及其全部管理代码（添加/删除/清空/移动/排序/去重/持久化），删除 DB `playlist` 表与相关方法、`SavedPlaylistItem` 类型、`AppState::LIST_MODE`、`get_playlist_fill_limit` 配置项。
 - **播放列表 = 当前节目的 peers**：按 `l`/Enter 播放一个节目时，其父节点（订阅博客/电台/收藏节点）下的兄弟 episode 快照为 `current_playlist`，`current_index` 指向当前节目。F 模式下直接收藏的节目以 `fav_root` 为父，peers 即全部收藏节目。指针驱动：mpv 单轨播放，`on_playback_ended` 按模式推进指针（REPEAT=loop_file、CYCLE=+1 回绕、SHUFFLE=取前瞻队列首元素）。
@@ -1587,15 +1587,15 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ---
 
-## Podradio_V0.1 — 2026-07-15 — 架构重构（单文件 → 多模块）
+## Panicast_V0.1 — 2026-07-15 — 架构重构（单文件 → 多模块）
 
 **作者**: Panic <Deadship2003@gmail.com>
 
-将原 ~15000 行单文件 `src/podradio.cpp` 按"一个源文件只做好一件事"拆分为 **34 个 .cpp + 39 个 .h** 的模块化工程，行为 100% 保留（man / `?` 帮助 / 所有交互热键与功能不变）。原 `podradio.cpp` 已删除。
+将原 ~15000 行单文件 `src/panicast.cpp` 按"一个源文件只做好一件事"拆分为 **34 个 .cpp + 39 个 .h** 的模块化工程，行为 100% 保留（man / `?` 帮助 / 所有交互热键与功能不变）。原 `panicast.cpp` 已删除。
 
 ### [build]
-- CMake 子目录 + `include/podradio/<mod>/` 与 `src/<mod>/` 对称布局；`add_executable(podradio src/main.cpp …)` 聚合 34 个源文件。
-- 版本号单一来源：CMake `PROJECT_VERSION 0.1` + `PODRADIO_FIX_SUFFIX`（空=基线，`F01`..`F99`=修正），经 `configure_file` 生成 `version.h`。
+- CMake 子目录 + `include/panicast/<mod>/` 与 `src/<mod>/` 对称布局；`add_executable(panicast src/main.cpp …)` 聚合 34 个源文件。
+- 版本号单一来源：CMake `PROJECT_VERSION 0.1` + `PANICAST_FIX_SUFFIX`（空=基线，`F01`..`F99`=修正），经 `configure_file` 生成 `version.h`。
 - Linux x86_64 全新编译零错误（仅 nlohmann/json 既有 `-Warray-bounds` 误报）。
 
 ### [core]
@@ -1636,15 +1636,15 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - 播放：MPV 经 ytdl hook 调 yt-dlp 解析真实流地址后播放，注入与解析一致的 proxy/cookies。
 
 ### 验证
-- `podradio -v` → `PODRADIO Podradio_V0.1`；`-h` 显示用法；`--purge` 正常。
-- `podradio -a @56BelowTV` → 枚举 3 tab(Videos 352/Live 53/Shorts 778)；playlist → 100 节目；RSS 播客(NPR)经注册表 → 4 items。
+- `panicast -v` → `PANICAST Panicast_V0.1`；`-h` 显示用法；`--purge` 正常。
+- `panicast -a @56BelowTV` → 枚举 3 tab(Videos 352/Live 53/Shorts 778)；playlist → 100 节目；RSS 播客(NPR)经注册表 → 4 items。
 
 ### 已知后续（拟 F01+）
 - App 内部深度拆分（tree_manager/playback_flow/modes/input）、UI 方法体由内联迁入 ui.cpp、theme 方法从 UI 抽出为独立 Theme 类、local_folder 独立文件、OnlineState 并入 mode_online。
 
 ---
 
-## Podradio_V0.1-F01 — 2026-07-15 — 播放与解析加固
+## Panicast_V0.1-F01 — 2026-07-15 — 播放与解析加固
 
 ### [playback]
 - **SSH 远程自动纯音频**：新增 `Utils::is_ssh_session()`（探测 `SSH_CONNECTION`/`SSH_TTY`/`SSH_CLIENT`，OpenSSH sshd 可靠设置）与 `Utils::has_local_display()`（= `has_gui() && !is_ssh_session()`，取代旧 `want_video_window`）。
@@ -1657,33 +1657,33 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **YouTube 解析对 null/非对象 -J 输出容错**：`parse_channel_tabs` 在 `json::parse` 后加 `is_object()` 守卫——yt-dlp 失败/被限流时 `-J` 可能输出 `null`，此前 `.value()` 抛 `type_error.306`（虽被 try/catch 接住但消息晦涩）；现给出清晰诊断"yt-dlp 返回非对象输出(null)，可能被限流/失败 + stderr"。`parse_video_list` 亦加 `is_object()` 跳过 null 行。
 
 ### [build]
-- 版本号 → `Podradio_V0.1-F01`（`PODRADIO_FIX_SUFFIX=F01`，CMake/vcpkg/constants/man/README 同步）。
+- 版本号 → `Panicast_V0.1-F01`（`PANICAST_FIX_SUFFIX=F01`，CMake/vcpkg/constants/man/README 同步）。
 
 ---
 
-## Podradio_V0.1-F02 — 2026-07-15 — 进度条占宽饱满
+## Panicast_V0.1-F02 — 2026-07-15 — 进度条占宽饱满
 
 ### [ui]
 - **下载进度条**：改为"速率+ETA 右对齐，进度条填满剩余宽度"（与播放进度条一致），不再封顶 30 格——整行占宽饱满美观。移除不再使用的 `MIN/MAX_PROGRESS_BAR_WIDTH`/`PROGRESS_BAR_RESERVED_SPACE` 常量。
 - 播放进度条本已"时间右对齐、bar 填满剩余"（无封顶），沿用。
 
 ### [build]
-- 版本号 → `Podradio_V0.1-F02`。
+- 版本号 → `Panicast_V0.1-F02`。
 
 ---
 
-## Podradio_V0.1-F03 — 2026-07-16 — 输入框回显与进度条时间对齐
+## Panicast_V0.1-F03 — 2026-07-16 — 输入框回显与进度条时间对齐
 
 ### [ui]
 - **input_box 回显修复**：`echo()`→`noecho()`。input_box 手动管理输入显示（update_input_display 全权重绘），不应让 ncurses 自动回显。此前 `echo()` 下 backspace 在 ncurses echo 层左移+擦除光标处字符，与手动重绘冲突——空输入 backspace 时光标漂移左移、字符嵌入边框、中心残留打印字符。改 noecho 后空输入 backspace 真正 no-op，光标固定居中。（`dialog()` 用 `mvwgetnstr` 需 echo，不动。）
 - **播放进度条时间右对齐**：时间按真实时长动态宽度右对齐到行末（`time_x = 2 + available - time_w`），进度条填左侧剩余；先清行再画。修复此前 `timeline+time` 左对齐 + 播放头(▶)宽度误差导致时间右侧留空。时间现贴右边框，无尾随空格。
 
 ### [build]
-- 版本号 → `Podradio_V0.1-F03`。
+- 版本号 → `Panicast_V0.1-F03`。
 
 ---
 
-## Podradio_V0.1-F04 — 2026-07-16 — 下载断点续传与重试
+## Panicast_V0.1-F04 — 2026-07-16 — 下载断点续传与重试
 
 ### [app]
 - **curl 下载断点续传**：若目标文件已存在部分内容，按其大小设 `CURLOPT_RESUME_FROM_LARGE`，以 `"ab"` 追加续写（不再 `"wb"` 从头）；失败时**保留半文件**供下次 D 继续续传（不再删除）。
@@ -1693,43 +1693,43 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 - **YouTube 下载**：yt-dlp 显式加 `--continue`(续 .part) + `--retries 20 --fragment-retries 20`(更持久，不轻易放弃)。
 
 ### [build]
-- 版本号 → `Podradio_V0.1-F04`。
+- 版本号 → `Panicast_V0.1-F04`。
 
 ---
 
-## Podradio_V0.1-F05 — 2026-07-16 — INFO 区占满宽度
+## Panicast_V0.1-F05 — 2026-07-16 — INFO 区占满宽度
 
 ### [ui]
 - **INFO 面板内容占满宽度**：各标签行截断宽度由 `safe_cw - (前缀+1)` 调为 `safe_cw - 前缀`（总宽=cw，填到右边框前 1 列 right_w-2，不留右余量），仍左对齐。涉及 Audio/Video/Error/Title(下载列表)/URL换行/Streaming URL/Podcast-Date subtext/[DOWNLOADED 路径]/播放列表标题共 9 处。N=前缀长度保证不溢出边框（总宽=cw，结束于 right_w-2，边框在 right_w-1）。
 
 ### [build]
-- 版本号 → `Podradio_V0.1-F05`。
+- 版本号 → `Panicast_V0.1-F05`。
 
 ---
 
-## Podradio_V0.1-F06 — 2026-07-16 — Ctrl+Y 复制真实 URL（OSC 52）
+## Panicast_V0.1-F06 — 2026-07-16 — Ctrl+Y 复制真实 URL（OSC 52）
 
 ### [core]
 - **Ctrl+Y 复制到系统剪贴板**：`copy_to_clipboard` 工具(wl-copy/xclip/xsel/pbcopy/clip.exe)失败时回退 **OSC 52 终端剪贴板协议**——发送 `\033]52;c;<base64>\007` 到 `/dev/tty`，由终端模拟器写入本地系统剪贴板(Ctrl+V 可粘贴)。经 SSH 透传，解决远程无 DISPLAY 时 xclip/xsel 不可用、复制不到剪贴板的问题。base64 编码 payload。OSC 52 无可见输出，写 /dev/tty 绕过 ncurses 屏幕缓冲，不花屏。
 - 弹窗(show_url_popup)仅作最后兜底（工具+OSC 52 均失败时），OSC 52 支持的终端下不再触发——消除"弹窗多行只能选第一行"问题。
 
 ### [build]
-- 版本号 → `Podradio_V0.1-F06`。
+- 版本号 → `Panicast_V0.1-F06`。
 
 ---
 
-## Podradio_V0.1-F07 — 2026-07-16 — 播放视频花屏修复
+## Panicast_V0.1-F07 — 2026-07-16 — 播放视频花屏修复
 
 ### [playback]
 - **播放视频(如 .mp4)终端花屏修复**：`MPVController::initialize` 显式设 `terminal=no`——禁止 mpv 向终端写任何输出(状态行/窗口标题/转义序列)，此前未设该选项，libmpv 在 TTY 环境下可能默认 terminal=yes，播放时输出污染 ncurses 缓冲致花屏。同时设 `input-terminal=no`(不读终端输入) + `input-default-bindings=no`(不绑定默认键)，避免与 ncurses 键派发冲突。
 - 终端尺寸变化已由 KEY_RESIZE→`resizeterm(0,0)`+`handle_resize`(清缓存+werase+wnoutrefresh) 处理，draw() 每帧 `clearok(stdscr,TRUE)`+`doupdate` 全量重绘，窗口移动/尺寸变化后自动恢复。
 
 ### [build]
-- 版本号 → `Podradio_V0.1-F07`。
+- 版本号 → `Panicast_V0.1-F07`。
 
 ---
 
-## Podradio_V0.1-F08 — 2026-07-16 — YouTube 解析日志英文化
+## Panicast_V0.1-F08 — 2026-07-16 — YouTube 解析日志英文化
 
 ### [parsers]
 - **YouTube 频道解析输出统一为英文**：`youtube_channel_parser.cpp` 中所有面向用户的输出（`EVENT_LOG` 事件日志、节点 `error_msg`、子节点 `subtext`）由中文改为英文，与同位置已有的英文 `LOG` 风格对齐。
@@ -1738,11 +1738,11 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
   - `diag_tail` 等本就英文的输出不变。
 
 ### [build]
-- 版本号 → `Podradio_V0.1-F08`（`PODRADIO_FIX_SUFFIX=F08`，CMake/vcpkg/constants/man/README 同步）。
+- 版本号 → `Panicast_V0.1-F08`（`PANICAST_FIX_SUFFIX=F08`，CMake/vcpkg/constants/man/README 同步）。
 
 ---
 
-## Podradio_V0.1-F09 — 2026-07-16 — 代码注释全面英文化
+## Panicast_V0.1-F09 — 2026-07-16 — 代码注释全面英文化
 
 ### [core]
 - **全代码库中文注释译为英文**：将 F08 仅 `youtube_channel_parser.cpp` 的注释英文化扩展到全部源码与构建文件——共 **73 个文件、约 2774 行中文注释**，覆盖 `app.h`/`ui.h`/`ini_config.h`/`mpv_controller.*`/`database.*`/`persistence.*`/`utils.*`/`network.*`/`ytdlp_runner.*`/`rss_parser.*`/`opml_parser.*`/`itunes_search.*`/`url_classifier.*`/`url_guard.*`/`cache.*`/`youtube_cache.*`/`feed_parser.*`/`xml_helpers.*`/`types.h`/`terminal.*`/`thread_pool.*`/`paths.*`/`logger.*`/`event_log.*`/`constants.h`/`platform.h`/`safe_tmp.*`/`win_raii.h`/`pairs.h`/`colors.*`/`icons.h`/`art.*`/`border.*`/`layout_metrics.h`/`layout_guard.*`/`progress.*`/`online_state.*`/`sleep_timer.*`/`main.cpp`/`youtube_channel_parser.h`/`CMakeLists.txt`/`build.sh`/`.github/workflows/build.yml`/`tests/test_units.cpp`/`version.h.in` 等。
@@ -1751,4 +1751,4 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
   - README.md / AUDIT_REPORT.md / CHANGELOG.md 为文档/历史记录，保持中文不动。
 
 ### [build]
-- 版本号 → `Podradio_V0.1-F09`（`PODRADIO_FIX_SUFFIX=F09`，CMake/vcpkg/constants/man/README 同步）。
+- 版本号 → `Panicast_V0.1-F09`（`PANICAST_FIX_SUFFIX=F09`，CMake/vcpkg/constants/man/README 同步）。

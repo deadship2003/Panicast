@@ -1,5 +1,5 @@
 // V0.05B9n3e5g3r P3-3: Unit test infrastructure
-// Tests PodRadio's pure-function modules
+// Tests PaniCast's pure-function modules
 // Build: see the BUILD_TESTING option in CMakeLists.txt
 //   cmake -DBUILD_TESTING=ON -B build && cmake --build build && ctest --test-dir build
 
@@ -8,10 +8,10 @@
 #include <vector>
 #include <cstring>
 
-// ─── Since podradio.cpp is a single file, we mirror the pure-function logic for independent testing ───
+// ─── Since panicast.cpp is a single file, we mirror the pure-function logic for independent testing ───
 // Real integration tests require splitting the modules (v0.6 work)
 
-namespace podradio_test {
+namespace panicast_test {
 
 enum class URLType {
     UNKNOWN, OPML, RSS_PODCAST, YOUTUBE_RSS, YOUTUBE_CHANNEL,
@@ -61,9 +61,9 @@ URLType classify(const std::string& url) {
     return URLType::UNKNOWN;
 }
 
-}  // namespace podradio_test
+}  // namespace panicast_test
 
-using namespace podradio_test;
+using namespace panicast_test;
 
 // ─── URLClassifier test cases ───
 
@@ -223,11 +223,11 @@ TEST(EscapeSql, SqlInjectionAttempt) {
 }
 
 // ─── Y01: crypto primitives (token at-rest encryption) ───────────────────────
-#include "podradio/core/crypto.h"
+#include "panicast/core/crypto.h"
 #include <string>
 
 namespace {
-std::string hex(const podradio::bytes& b) {
+std::string hex(const panicast::bytes& b) {
     static const char* d = "0123456789abcdef";
     std::string s;
     s.reserve(b.size() * 2);
@@ -238,46 +238,46 @@ std::string hex(const podradio::bytes& b) {
 
 TEST(Y01Crypto, Sha256KnownVector) {
     // NIST: SHA-256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
-    auto h = podradio::sha256(std::string("abc"));
+    auto h = panicast::sha256(std::string("abc"));
     EXPECT_EQ(hex(h), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 }
 
 TEST(Y01Crypto, Base64RoundTrip) {
     std::string msg = "Google OAuth refresh_token #861556708454";
-    podradio::bytes b(msg.begin(), msg.end());
-    std::string enc = podradio::base64_encode(b.data(), b.size());
-    podradio::bytes dec;
-    ASSERT_TRUE(podradio::base64_decode(enc, dec));
+    panicast::bytes b(msg.begin(), msg.end());
+    std::string enc = panicast::base64_encode(b.data(), b.size());
+    panicast::bytes dec;
+    ASSERT_TRUE(panicast::base64_decode(enc, dec));
     std::string back(dec.begin(), dec.end());
     EXPECT_EQ(back, msg);
 }
 
 TEST(Y01Crypto, TokenSealOpenRoundTrip) {
-    podradio::Key32 k = podradio::machine_key();
+    panicast::Key32 k = panicast::machine_key();
     std::string plaintext = "{\"refresh_token\":\"ya29.secret\"}";
-    std::string sealed = podradio::token_seal(k, plaintext);
+    std::string sealed = panicast::token_seal(k, plaintext);
     std::string back;
-    ASSERT_TRUE(podradio::token_open(k, sealed, back));
+    ASSERT_TRUE(panicast::token_open(k, sealed, back));
     EXPECT_EQ(back, plaintext);
 }
 
 TEST(Y01Crypto, TokenTamperRejected) {
-    podradio::Key32 k = podradio::machine_key();
-    std::string sealed = podradio::token_seal(k, "secret");
+    panicast::Key32 k = panicast::machine_key();
+    std::string sealed = panicast::token_seal(k, "secret");
     // Flip one character → HMAC tag must fail verification.
     std::string tampered = sealed;
     tampered[0] = (tampered[0] == 'A') ? 'B' : 'A';
     std::string back;
-    EXPECT_FALSE(podradio::token_open(k, tampered, back));
+    EXPECT_FALSE(panicast::token_open(k, tampered, back));
 }
 
 TEST(Y01Crypto, WrongMachineKeyRejected) {
     // A different key cannot decrypt what machine_key() sealed.
-    podradio::Key32 k0 = podradio::machine_key();
-    podradio::Key32 k1 = k0; k1[0] ^= 0xff;
-    std::string sealed = podradio::token_seal(k0, "secret");
+    panicast::Key32 k0 = panicast::machine_key();
+    panicast::Key32 k1 = k0; k1[0] ^= 0xff;
+    std::string sealed = panicast::token_seal(k0, "secret");
     std::string back;
-    EXPECT_FALSE(podradio::token_open(k1, sealed, back));
+    EXPECT_FALSE(panicast::token_open(k1, sealed, back));
 }
 
 int main(int argc, char** argv) {

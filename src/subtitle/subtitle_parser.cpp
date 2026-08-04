@@ -1,6 +1,6 @@
 // Y24.7: Subtitle parser implementations — JSON (Podcasting 2.0 / Whisper) / SRT / VTT / LRC.
 //   Each format is an ISubtitleParser subclass; SubtitleParserRegistry dispatches + auto-detects.
-#include "podradio/subtitle/subtitle_parser.h"
+#include "panicast/subtitle/subtitle_parser.h"
 
 #include <algorithm>
 #include <cctype>
@@ -10,9 +10,9 @@
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
+#include "panicast/core/logger.h"
 
-namespace podradio
+namespace panicast
 {
 using json = nlohmann::json;
 
@@ -306,4 +306,4 @@ std::vector<int> find_active(const std::vector<TranscriptSegment>& segs, double 
     return out;
 }
 
-}  // namespace podradio
+}  // namespace panicast

@@ -1,15 +1,15 @@
 // Y24.7: TranscriptParser facade — only load() (fetch + parse via the registry) remains here.
 //   All per-format parsing moved to src/subtitle/subtitle_parser.cpp.
-#include "podradio/parsers/transcript_parser.h"
+#include "panicast/parsers/transcript_parser.h"
 
 #include <fstream>
 
 #include <fmt/format.h>
 
-#include "podradio/core/logger.h"
-#include "podradio/net/network.h"
+#include "panicast/core/logger.h"
+#include "panicast/net/network.h"
 
-namespace podradio
+namespace panicast
 {
 
 std::vector<TranscriptSegment> TranscriptParser::load(const std::string& url_or_path) {
@@ -32,4 +32,4 @@ std::vector<TranscriptSegment> TranscriptParser::load(const std::string& url_or_
     return segs;
 }
 
-}  // namespace podradio
+}  // namespace panicast

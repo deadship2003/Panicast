@@ -2,7 +2,7 @@
 // Y24.37: domain split out of database.cpp. Methods remain DatabaseManager members
 //   (they use db_/mtx_ and the infra helpers declared in database.h); only their
 //   implementations live here. Declarations stay in database.h.
-#include "podradio/storage/database.h"
+#include "panicast/storage/database.h"
 
 #include <cmath>
 #include <cstring>
@@ -11,13 +11,13 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
-#include "podradio/net/url_classifier.h"   // N06: classifyMediaType for media_type
+#include "panicast/net/url_classifier.h"   // N06: classifyMediaType for media_type
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/paths.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/paths.h"
 
-namespace podradio
+namespace panicast
 {
 
 namespace fs = std::filesystem;
@@ -164,4 +164,4 @@ void DatabaseManager::delete_history(const std::string& url) {
     }
     LOG(fmt::format("[DB] Deleted history: {}", url));
 }
-} // namespace podradio
+} // namespace panicast

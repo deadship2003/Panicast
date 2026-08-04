@@ -1,4 +1,4 @@
-#include "podradio/storage/database.h"
+#include "panicast/storage/database.h"
 
 #include <cmath>
 #include <cstring>
@@ -8,12 +8,12 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/paths.h"
-#include "podradio/net/url_classifier.h"   // N06: classifyMediaType for media_type backfill
+#include "panicast/config/ini_config.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/paths.h"
+#include "panicast/net/url_classifier.h"   // N06: classifyMediaType for media_type backfill
 
-namespace podradio
+namespace panicast
 {
 
 namespace fs = std::filesystem;
@@ -325,7 +325,7 @@ bool DatabaseManager::init() {
             channel_name TEXT,
             duration    INTEGER DEFAULT 0,
             watched_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            source      TEXT NOT NULL DEFAULT 'youtube',  -- 'youtube' (pulled) | 'local' (played in podradio)
+            source      TEXT NOT NULL DEFAULT 'youtube',  -- 'youtube' (pulled) | 'local' (played in panicast)
             PRIMARY KEY (account_id, video_id)
         );
         CREATE INDEX IF NOT EXISTS idx_yt_hist_account_time ON youtube_history(account_id, watched_at);
@@ -478,4 +478,4 @@ void DatabaseManager::run_locked(const std::function<void()>& fn) {
     std::lock_guard<std::recursive_mutex> lk(mtx_);
     fn();
 }
-} // namespace podradio
+} // namespace panicast

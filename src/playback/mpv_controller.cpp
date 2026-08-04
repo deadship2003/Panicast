@@ -1,5 +1,5 @@
 // MPV playback controller implementation.
-#include "podradio/playback/mpv_controller.h"
+#include "panicast/playback/mpv_controller.h"
 
 #include <clocale>    // setlocale
 #include <chrono>    // steady_clock (bounded join in stop())
@@ -13,18 +13,18 @@
 
 #include <fmt/format.h>
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/constants.h"
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/core/safe_tmp.h"
-#include "podradio/core/utils.h"
-#include "podradio/net/url_classifier.h"
-#include "podradio/net/ytdlp_runner.h"
-#include "podradio/storage/accounts.h"
-#include "podradio/parsers/youtube_channel_parser.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/core/constants.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/core/safe_tmp.h"
+#include "panicast/core/utils.h"
+#include "panicast/net/url_classifier.h"
+#include "panicast/net/ytdlp_runner.h"
+#include "panicast/storage/accounts.h"
+#include "panicast/parsers/youtube_channel_parser.h"
 
-namespace podradio
+namespace panicast
 {
 
 std::string MPVController::cli_vo_override_;
@@ -312,7 +312,7 @@ bool MPVController::initialize() {
     // Y24.55: permanently redirect stderr → /dev/null AFTER mpv_initialize. PULSE/ALSA libraries
     //   (libpulse/libasound) write errors directly to stderr, bypassing mpv's terminal=no → garbles
     //   the ncurses TUI in WSL2. mpv's own AO errors are captured via the log-message callback
-    //   (line 233) → shown in the LOG area. PodRadio's LOG uses a file, not stderr. Post-init
+    //   (line 233) → shown in the LOG area. PaniCast's LOG uses a file, not stderr. Post-init
     //   redirect is safe: VO/AO probing inside mpv_initialize is already done (F25 showed during-init
     //   dup2 broke VO probing; this runs after).
     {
@@ -872,7 +872,7 @@ void MPVController::event_loop() {
 
                     // Y24.55: IPTV context message — emitted AFTER the MPV: behavior message(s) above
                     //   so the same event prints both in time order (MPV: cause → IPTV: explanation).
-                    //   Both reach the on-screen LOG area and podradio.log via EVENT_LOG. Only when the
+                    //   Both reach the on-screen LOG area and panicast.log via EVENT_LOG. Only when the
                     //   app flagged this load as IPTV context. -13 is sub-classified via last_log_text_.
                     if (iptv_context_.load()) {
                         // Y24.55: if playback had actually started (PLAYBACK_RESTART fired), this
@@ -1146,4 +1146,4 @@ void MPVController::update_state() {
     if (hwdec) mpv_free(hwdec);
 }
 
-} // namespace podradio
+} // namespace panicast

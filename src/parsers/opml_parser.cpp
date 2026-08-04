@@ -1,5 +1,5 @@
 // OPML parser implementation.
-#include "podradio/parsers/opml_parser.h"
+#include "panicast/parsers/opml_parser.h"
 
 #include <filesystem>
 #include <fstream>
@@ -10,11 +10,11 @@
 
 #include <fmt/format.h>
 
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/parsers/xml_helpers.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/parsers/xml_helpers.h"
 
-namespace podradio
+namespace panicast
 {
 
 namespace fs = std::filesystem;
@@ -180,4 +180,4 @@ void OPMLParser::extract_feeds(const std::string& xml, std::vector<TreeNodePtr>&
 // -- ParserRegistry self-registration --
 REGISTER_PARSER(OPMLParser)
 
-} // namespace podradio
+} // namespace panicast

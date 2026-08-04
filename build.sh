@@ -9,15 +9,15 @@ cd "$(dirname "$0")"
 
 # Memory-aware parallel job count: ~1 GiB per compile job (cc1plus on heavy files can exceed
 #   800 MiB), leave 1 GiB headroom for the OS, cap at nproc. Prevents OOM kills on low-RAM hosts
-#   (e.g. 4 GiB → 2 jobs instead of $(nproc)=16). Override with PODRADIO_BUILD_JOBS.
-if [ -z "${PODRADIO_BUILD_JOBS:-}" ]; then
+#   (e.g. 4 GiB → 2 jobs instead of $(nproc)=16). Override with PANICAST_BUILD_JOBS.
+if [ -z "${PANICAST_BUILD_JOBS:-}" ]; then
     _NJ=$(nproc 2>/dev/null || echo 4)
     _GB=$(awk '/MemTotal/{printf "%d", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 8)
     # ~1 GiB per job, leave ~2 GiB headroom (OS + editor + running panicast). min 1.
     JOBS=$(( _GB > 2 ? _GB - 2 : 1 ))
     [ "$JOBS" -gt "$_NJ" ] && JOBS=$_NJ
 else
-    JOBS="$PODRADIO_BUILD_JOBS"
+    JOBS="$PANICAST_BUILD_JOBS"
 fi
 export JOBS
 

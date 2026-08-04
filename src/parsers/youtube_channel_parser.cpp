@@ -1,5 +1,5 @@
 // YouTube channel parser implementation.
-#include "podradio/parsers/youtube_channel_parser.h"
+#include "panicast/parsers/youtube_channel_parser.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -7,19 +7,19 @@
 #include <algorithm>
 #include <unistd.h>   // access/X_OK for find_qjs_binary
 
-#include "podradio/storage/accounts.h"
+#include "panicast/storage/accounts.h"
 
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
-#include "podradio/config/ini_config.h"
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/net/url_classifier.h"
-#include "podradio/net/url_guard.h"
-#include "podradio/net/ytdlp_runner.h"
+#include "panicast/config/ini_config.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/net/url_classifier.h"
+#include "panicast/net/url_guard.h"
+#include "panicast/net/ytdlp_runner.h"
 
-namespace podradio
+namespace panicast
 {
 
 namespace fs = std::filesystem;
@@ -311,8 +311,8 @@ TreeNodePtr YouTubeChannelParser::parse(const std::string& channel_url) {
 // ── ParserRegistry self-registration ──
 REGISTER_PARSER(YouTubeChannelParser)
 // YOUTUBE_PLAYLIST is also handled by YouTubeChannelParser (dispatched internally by URL shape); registered separately.
-static ::podradio::ParserRegistrar _reg_yt_playlist(
-    ::podradio::URLType::YOUTUBE_PLAYLIST,
-    []()->std::unique_ptr<::podradio::IFeedParser>{ return std::make_unique<YouTubeChannelParser>(); });
+static ::panicast::ParserRegistrar _reg_yt_playlist(
+    ::panicast::URLType::YOUTUBE_PLAYLIST,
+    []()->std::unique_ptr<::panicast::IFeedParser>{ return std::make_unique<YouTubeChannelParser>(); });
 
-} // namespace podradio
+} // namespace panicast

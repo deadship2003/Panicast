@@ -1,7 +1,7 @@
 // Feed parser registry implementation.
-#include "podradio/parsers/feed_parser.h"
+#include "panicast/parsers/feed_parser.h"
 
-namespace podradio
+namespace panicast
 {
 
 ParserRegistry& ParserRegistry::instance() {
@@ -24,4 +24,4 @@ ParserRegistrar::ParserRegistrar(URLType t, std::unique_ptr<IFeedParser> (*f)())
     ParserRegistry::instance().reg(t, f);
 }
 
-} // namespace podradio
+} // namespace panicast

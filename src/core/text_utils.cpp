@@ -1,7 +1,7 @@
 // Text utilities: UTF-8 width, truncate/wrap/scroll, format_duration, http_to_https, url_encode, to_lower.
 // Y24.38: split out of utils.cpp. Methods remain Utils:: static members
 //   (declarations stay in utils.h); only implementations live here.
-#include "podradio/core/utils.h"
+#include "panicast/core/utils.h"
 
 #include <algorithm>
 #include <cctype>
@@ -22,12 +22,12 @@
 
 #include <fmt/format.h>
 
-#include "podradio/core/paths.h"
-#include "podradio/core/terminal.h"
+#include "panicast/core/paths.h"
+#include "panicast/core/terminal.h"
 
 extern char** environ;  // Required by posix_spawnp
 
-namespace podradio
+namespace panicast
 {
 
 std::string Utils::to_lower(const std::string& s) {
@@ -617,4 +617,4 @@ std::string Utils::format_duration(int seconds) {
     if (m > 0) return fmt::format("{}m", m);
     return fmt::format("{}s", s);
 }
-} // namespace podradio
+} // namespace panicast

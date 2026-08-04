@@ -1,5 +1,5 @@
 // Sleep timer implementation.
-#include "podradio/playback/sleep_timer.h"
+#include "panicast/playback/sleep_timer.h"
 
 #include <cctype>
 #include <sstream>
@@ -7,10 +7,10 @@
 
 #include <fmt/format.h>
 
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
 
-namespace podradio
+namespace panicast
 {
 
 SleepTimer& SleepTimer::instance() { static SleepTimer st; return st; }
@@ -109,4 +109,4 @@ int SleepTimer::parse_time_string(const std::string& time_str) {
     return clamp_ret(seconds);
 }
 
-} // namespace podradio
+} // namespace panicast

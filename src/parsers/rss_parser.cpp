@@ -1,18 +1,18 @@
 // RSS/Atom parser implementation.
 #include <filesystem>
-#include "podradio/parsers/rss_parser.h"
+#include "panicast/parsers/rss_parser.h"
 
 #include <cstring>
 
 #include <fmt/format.h>
 
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/net/url_classifier.h"
-#include "podradio/parsers/xml_helpers.h"
-#include "podradio/subtitle/subtitle_manager.h"  // Y24.7: centralized transcript detection
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/net/url_classifier.h"
+#include "panicast/parsers/xml_helpers.h"
+#include "panicast/subtitle/subtitle_manager.h"  // Y24.7: centralized transcript detection
 
-namespace podradio
+namespace panicast
 {
 
 TreeNodePtr RSSParser::parse(std::string xml, const std::string& feed_url) {
@@ -439,8 +439,8 @@ TreeNodePtr RSSParser::parse_youtube_entry(xmlNodePtr entry) {
 // ── ParserRegistry self-registration ──
 REGISTER_PARSER(RSSParser)
 // YOUTUBE_RSS (YouTube Atom feed) is also parsed by RSSParser; registered separately.
-static ::podradio::ParserRegistrar _reg_rss_youtube(
-    ::podradio::URLType::YOUTUBE_RSS,
-    []()->std::unique_ptr<::podradio::IFeedParser>{ return std::make_unique<RSSParser>(); });
+static ::panicast::ParserRegistrar _reg_rss_youtube(
+    ::panicast::URLType::YOUTUBE_RSS,
+    []()->std::unique_ptr<::panicast::IFeedParser>{ return std::make_unique<RSSParser>(); });
 
-} // namespace podradio
+} // namespace panicast

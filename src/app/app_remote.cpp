@@ -12,12 +12,12 @@
 //     speed / seek / play-mode / sleep / mode-switch / navigation / mpv passthrough, plus (N04-fix)
 //     search / mark / visual / favourite / edit / download / refresh / subtitle / ASR / playlist-clear.
 //     add_node/delete remain TUI-only (context-dependent inline flows).
-#include "podradio/app/app.h"
+#include "panicast/app/app.h"
 
-#include "podradio/core/constants.h"
-#include "podradio/core/event_log.h"
-#include "podradio/core/logger.h"
-#include "podradio/playback/sleep_timer.h"
+#include "panicast/core/constants.h"
+#include "panicast/core/event_log.h"
+#include "panicast/core/logger.h"
+#include "panicast/playback/sleep_timer.h"
 
 #include <mpv/client.h>
 
@@ -29,7 +29,7 @@
 #include <string>
 #include <vector>
 
-namespace podradio
+namespace panicast
 {
 
 namespace {
@@ -334,4 +334,4 @@ void App::dispatch_remote(const RemoteCommand& cmd)
     EVENT_LOG(fmt::format("Remote: '{}' not mapped (add/delete are TUI-only context flows)", a));
 }
 
-} // namespace podradio
+} // namespace panicast
