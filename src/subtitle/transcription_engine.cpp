@@ -326,88 +326,140 @@ void TranscriptionEngine::stop_realtime() {
     EVENT_LOG("Transcribe: real-time stopped");
 }
 
+// Y24.20 / ASR-fix: real-time transcription. The OLD design decoded the ENTIRE source via a single
+//   blocking, non-killable `ffmpeg -i <url>` call BEFORE invoking whisper-cli. For live radio streams
+//   that ffmpeg call never returns (infinite capture) → whisper-cli was never reached; for finite
+//   remote podcasts it downloaded the whole file first (long stall). It also had no stop hook, so
+//   stop_realtime()/track-change/shutdown could not interrupt ffmpeg → the worker thread leaked and
+//   start_realtime()'s realtime_thread_.join() (and shutdown()) blocked the UI thread.
+//
+// NEW design: capture the source in short BOUNDED chunks and transcribe each progressively.
+//   - Each chunk is captured with `ffmpeg -ss <start> -t <chunk_sec>` (finite/seekable media) or just
+//     `-t <chunk_sec>` (live streams, no seek), so ffmpeg SELF-TERMINATES per chunk instead of
+//     capturing forever.
+//   - ffmpeg is made interruptible by writing its progress to stdout (`-progress pipe:1
+//     -stats_period 1`): run_process_streaming() polls its stop_pred once per stdout line (≈1/s),
+//     so stop_realtime() (which bumps realtime_gen_) kills the in-flight ffmpeg within ~1s. The UI
+//     thread never blocks on the join again.
+//   - Each chunk is transcribed with whisper-cli (which already prints segment lines to stdout, so it
+//     is killable the same way); segment timestamps are offset by the chunk start so they map onto the
+//     source timeline, accumulated, and fed to the LYRIC panel progressively (audio) / OSD (video).
+//   - Finite media: loop until chunk start ≥ duration. Live media: loop until stopped.
 void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, bool is_streaming, bool is_video, unsigned gen) {
     std::string whisper_bin = resolve_whisper_bin();
     std::string model = resolve_model();
     if (whisper_bin.empty()) { EVENT_LOG("Transcribe: whisper-cli not found — install whisper-cpp"); realtime_active_ = false; return; }
     if (model.empty()) { EVENT_LOG("Transcribe: model not found — set [transcription] model"); realtime_active_ = false; return; }
 
-    // Y24.22: skip/resume check (same logic as offline transcribe_one).
+    // Y24.22: skip/resume check — load any existing partial/complete SRT and resume from its end.
     std::string srt_path = compute_srt_path(url, is_streaming, node);
-    std::vector<TranscriptSegment> existing_segs;
-    int offset_ms = 0;
+    std::vector<TranscriptSegment> segs;  // accumulated (pre-filled with existing partial, then grown)
+    double start = 0.0;                    // chunk start offset on the source timeline (seconds)
+    double duration = get_audio_duration(url);  // <0 = unknown (live stream → no stop condition, no seek)
+    bool seekable = (duration > 0.0);
     if (fs::exists(srt_path)) {
-        existing_segs = parse_srt_file(srt_path);
-        if (!existing_segs.empty()) {
-            double last_end = existing_segs.back().end;
-            double duration = get_audio_duration(url);
+        segs = parse_srt_file(srt_path);
+        if (!segs.empty()) {
+            double last_end = segs.back().end;
             if (duration > 0 && last_end >= duration - 5.0) {
                 // Complete — just load, don't transcribe.
                 EVENT_LOG(fmt::format("Transcribe skip (realtime): already has {} segs ({:.0f}s/{:.0f}s)",
-                                      existing_segs.size(), last_end, duration));
-                if (sm_) sm_->set_pending(existing_segs, url);
+                                      segs.size(), last_end, duration));
+                if (sm_) sm_->set_pending(segs, url);
                 if (node) { node->has_asr_srt = true; node->subtitle_url = srt_path; node->subtitle_type = "srt"; node->asr_srt_path = srt_path; }
                 persist_subtitle_marker(node);
                 realtime_active_ = false;
                 return;
             }
-            offset_ms = static_cast<int>(last_end * 1000);
+            start = last_end;
             EVENT_LOG(fmt::format("Transcribe resume (realtime): {} segs to {:.0f}s, resuming",
-                                  existing_segs.size(), last_end));
-            // Load existing segments immediately so LYRIC shows them while new ones transcribe.
-            if (sm_) sm_->set_pending(existing_segs, url);
+                                  segs.size(), last_end));
+            // Show existing segments immediately while new chunks transcribe.
+            if (sm_) sm_->set_pending(segs, url);
         }
     }
 
-    std::string tmp_wav = temp_basename() + ".wav";
-    LOG(fmt::format("[Transcribe] realtime: decode '{}' → wav", url));
-    auto r1 = Utils::run_process("ffmpeg", {"-y", "-i", url, "-ar", "16000", "-ac", "1", "-f", "wav", tmp_wav});
-    if (realtime_gen_.load() != gen) { fs::remove(tmp_wav); return; }  // stopped during decode
-    if (!r1.launched || r1.exit_code != 0) {
-        LOG(fmt::format("[Transcribe] realtime ffmpeg failed (exit={}): {}", r1.exit_code, r1.stderr_out.substr(0, 200)));
-        EVENT_LOG("Transcribe: real-time failed (ffmpeg decode)");
-        fs::remove(tmp_wav); realtime_active_ = false; return;
-    }
-
     unsigned threads = std::thread::hardware_concurrency(); if (threads == 0) threads = 4;
-    std::vector<std::string> wargs = {"-m", model, "-f", tmp_wav, "-t", std::to_string(threads)};
-    if (offset_ms > 0) { wargs.push_back("-ot"); wargs.push_back(std::to_string(offset_ms)); }
-    // Start with existing segments (from partial SRT) + append new ones.
-    std::vector<TranscriptSegment> segs = existing_segs;  // Y24.22: pre-fill with existing partial
-    LOG(fmt::format("[Transcribe] realtime: whisper-cli streaming (model={}, offset_ms={})", model, offset_ms));
-    int rc = Utils::run_process_streaming(
-        whisper_bin, wargs,
-        [this, &segs, &url, gen, is_video](const std::string& line) {
-            if (realtime_gen_.load() != gen) return;
-            TranscriptSegment seg;
-            if (parse_whisper_line(line, seg)) {
-                segs.push_back(seg);
-                if (!is_video && sm_) sm_->set_pending(segs, url);  // audio: LYRIC feed
-                if (is_video && mpv_ && (segs.size() % 5 == 0))
-                    mpv_->show_osd(fmt::format("Transcribing... {} segments", segs.size()), 1500);
-            }
-        },
-        [this, gen]() { return realtime_gen_.load() != gen; }  // stop_pred → kill on stop
-    );
-    fs::remove(tmp_wav);
+    int chunk_sec = IniConfig::instance().get_int("transcription", "realtime_chunk_sec", 30);
+    if (chunk_sec < 5) chunk_sec = 5;
+    if (chunk_sec > 120) chunk_sec = 120;
+    auto stop_pred = [this, gen]() { return realtime_gen_.load() != gen; };
 
-    if (realtime_gen_.load() != gen) { realtime_active_ = false; return; }  // stopped — don't save
-    realtime_active_ = false;
-    if (rc != 0) {
-        LOG(fmt::format("[Transcribe] realtime whisper-cli exit={}", rc));
-        if (segs.empty()) { EVENT_LOG("Transcribe: real-time failed (whisper-cli)"); return; }
+    EVENT_LOG(fmt::format("Transcribe (realtime): chunked {}s from {:.0f}s{}",
+                          chunk_sec, start, seekable ? "" : " (live stream)"));
+    LOG(fmt::format("[Transcribe] realtime chunked: chunk={}s start={:.1f}s dur={} url='{}'",
+                    chunk_sec, start, seekable ? fmt::format("{:.0f}s", duration) : std::string("live"), url));
+
+    bool stopped = false;
+    while (realtime_gen_.load() == gen) {
+        // Finite media stop condition.
+        if (seekable && start >= duration - 0.5) break;
+
+        // ── capture one bounded chunk → wav (killable via -progress pipe:1) ──
+        std::string tmp_wav = temp_basename() + ".wav";
+        std::vector<std::string> fargs = {"-y"};
+        if (seekable && start > 0.5) { fargs.push_back("-ss"); fargs.push_back(fmt::format("{:.3f}", start)); }
+        fargs.push_back("-i"); fargs.push_back(url);
+        fargs.push_back("-t"); fargs.push_back(std::to_string(chunk_sec));
+        fargs.push_back("-ar"); fargs.push_back("16000");
+        fargs.push_back("-ac"); fargs.push_back("1");
+        fargs.push_back("-f"); fargs.push_back("wav");
+        fargs.push_back(tmp_wav);
+        fargs.push_back("-progress"); fargs.push_back("pipe:1");  // progress→stdout so stop_pred is polled ~1/s
+        fargs.push_back("-stats_period"); fargs.push_back("1");
+        LOG(fmt::format("[Transcribe] realtime: capture chunk [{:.1f},{:.1f}]s", start, start + chunk_sec));
+        int frc = Utils::run_process_streaming("ffmpeg", fargs, nullptr, stop_pred);
+        if (realtime_gen_.load() != gen) { stopped = true; fs::remove(tmp_wav); break; }
+        // ffmpeg returns non-zero at end-of-media for the last partial chunk, or on a decode error;
+        // either way we stop after saving whatever segments we have. A too-small/missing wav also means
+        // nothing useful was captured for this chunk.
+        std::error_code ec;
+        if (frc != 0 || !fs::exists(tmp_wav, ec) || fs::file_size(tmp_wav, ec) < 1000) {
+            LOG(fmt::format("[Transcribe] realtime capture end/failed (rc={}, start={:.1f}s)", frc, start));
+            fs::remove(tmp_wav, ec);
+            break;
+        }
+
+        // ── transcribe the chunk; offset segment times onto the source timeline ──
+        std::vector<std::string> wargs = {"-m", model, "-f", tmp_wav, "-t", std::to_string(threads)};
+        size_t before = segs.size();
+        Utils::run_process_streaming(
+            whisper_bin, wargs,
+            [this, &segs, &url, &start, gen, is_video](const std::string& line) {
+                if (realtime_gen_.load() != gen) return;
+                TranscriptSegment seg;
+                if (parse_whisper_line(line, seg)) {
+                    seg.start += start; seg.end += start;  // map chunk-local times → source timeline
+                    segs.push_back(seg);
+                    if (!is_video && sm_) sm_->set_pending(segs, url);  // audio: progressive LYRIC feed
+                    if (is_video && mpv_ && (segs.size() % 5 == 0))
+                        mpv_->show_osd(fmt::format("Transcribing... {} segments", segs.size()), 1500);
+                }
+            },
+            stop_pred  // whisper-cli prints segment lines to stdout → killable on stop
+        );
+        fs::remove(tmp_wav, ec);
+        if (realtime_gen_.load() != gen) { stopped = true; break; }
+        if (segs.size() == before)
+            LOG(fmt::format("[Transcribe] realtime: chunk at {:.1f}s produced no segments (silence?)", start));
+
+        start += chunk_sec;  // advance to the next window
     }
-    if (segs.empty()) { EVENT_LOG("Transcribe: real-time produced no segments"); return; }
+
+    realtime_active_ = false;
+    if (segs.empty()) {
+        if (!stopped) EVENT_LOG("Transcribe: real-time produced no segments");
+        return;
+    }
     save_srt(segs, node, url, is_streaming);
     if (node && !is_streaming) SubtitleManager::probe_sidecar(node);
     // Y24.28: video → load the SRT into mpv (renders in video window, bottom center).
     if (is_video && mpv_) {
-        std::string srt_path = compute_srt_path(url, is_streaming, node);
-        mpv_->sub_add(srt_path);
-        mpv_->show_osd(fmt::format("Transcription complete: {} segments", segs.size()), 3000);
+        mpv_->sub_add(compute_srt_path(url, is_streaming, node));
+        if (!stopped) mpv_->show_osd(fmt::format("Transcription complete: {} segments", segs.size()), 3000);
     }
     persist_subtitle_marker(node);
-    EVENT_LOG(fmt::format("Transcribe done (real-time): {} segments → saved", segs.size()));
+    EVENT_LOG(fmt::format("Transcribe done (real-time): {} segments → saved{}", segs.size(), stopped ? " (stopped)" : ""));
 }
 
 void TranscriptionEngine::save_srt(const std::vector<TranscriptSegment>& segs, TreeNodePtr node,
