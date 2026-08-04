@@ -1,0 +1,337 @@
+// Network control: state snapshot + command dispatch (N line, N02).
+//
+//   update_remote_state_cache() — runs on the UI thread once per frame; copies player + app state
+//     into remote_state_cache_ under remote_state_mtx_. This is the thread-safe READ path for
+//     remote query commands (status / currentsong / playlistinfo).
+//
+//   snapshot_state() — RemoteControlInterface; server threads call this to get a copy.
+//
+//   dispatch_remote() — runs on the UI thread (drained from the bus each frame); maps a remote
+//     command to the EXISTING local control methods (player.* / nav_* / switch_mode / ...). This is
+//     the 1:1 "remote terminal replicates the local keyboard" mapping. N04 covers playback / volume /
+//     speed / seek / play-mode / sleep / mode-switch / navigation / mpv passthrough, plus (N04-fix)
+//     search / mark / visual / favourite / edit / download / refresh / subtitle / ASR / playlist-clear.
+//     add_node/delete remain TUI-only (context-dependent inline flows).
+#include "podradio/app/app.h"
+
+#include "podradio/core/constants.h"
+#include "podradio/core/event_log.h"
+#include "podradio/core/logger.h"
+#include "podradio/playback/sleep_timer.h"
+
+#include <mpv/client.h>
+
+#include <fmt/core.h>
+
+#include <algorithm>
+#include <cstdlib>
+#include <mutex>
+#include <string>
+#include <vector>
+
+namespace podradio
+{
+
+namespace {
+
+const char* mode_str(AppMode m)
+{
+    switch (m) {
+        case AppMode::RADIO:      return "RADIO";
+        case AppMode::PODCAST:    return "PODCAST";
+        case AppMode::FAVOURITE:  return "FAVOURITE";
+        case AppMode::HISTORY:    return "HISTORY";
+        case AppMode::ONLINE:     return "ONLINE";
+        case AppMode::ACCOUNT:    return "ACCOUNT";
+        case AppMode::BILIBILI:   return "BILIBILI";
+        case AppMode::TIKTOK:     return "TIKTOK";
+        case AppMode::IPTV:       return "IPTV";
+    }
+    return "UNKNOWN";
+}
+
+bool parse_mode(const std::string& s, AppMode& out)
+{
+    std::string u = s;
+    std::transform(u.begin(), u.end(), u.begin(), [](unsigned char c){ return (char)std::toupper(c); });
+    if (u == "RADIO")      { out = AppMode::RADIO;     return true; }
+    if (u == "PODCAST")    { out = AppMode::PODCAST;   return true; }
+    if (u == "FAVOURITE")  { out = AppMode::FAVOURITE; return true; }
+    if (u == "HISTORY")    { out = AppMode::HISTORY;   return true; }
+    if (u == "ONLINE")     { out = AppMode::ONLINE;    return true; }
+    if (u == "ACCOUNT")    { out = AppMode::ACCOUNT;   return true; }
+    if (u == "BILIBILI")   { out = AppMode::BILIBILI;  return true; }
+    if (u == "TIKTOK")     { out = AppMode::TIKTOK;    return true; }
+    if (u == "IPTV")       { out = AppMode::IPTV;      return true; }
+    return false;
+}
+
+const char* play_mode_str(PlayMode m)
+{
+    switch (m) {
+        case PlayMode::REPEAT:  return "repeat";
+        case PlayMode::SHUFFLE: return "shuffle";
+        case PlayMode::CYCLE:   return "cycle";
+    }
+    return "cycle";
+}
+
+// Apply a play-mode change the same way the `:` command window does: set the global + persist.
+void apply_play_mode(App& app, PlayMode m, PlayMode& cur)
+{
+    cur = m;
+    IniConfig::instance().set_play_mode(cur);
+    EVENT_LOG(fmt::format("Remote: play_mode={}", play_mode_str(cur)));
+    (void)app;
+}
+
+} // namespace
+
+// ── State snapshot ───────────────────────────────────────────────────────────
+
+void App::update_remote_state_cache()
+{
+    MPVController::State ps = player.get_state();
+
+    RemoteStateSnapshot s;
+    s.paused = ps.paused;
+    s.has_media = ps.has_media;
+    s.volume = ps.volume;
+    s.speed = ps.speed;
+    s.elapsed = ps.time_pos;
+    s.duration = ps.media_duration;
+    s.title = ps.title;
+    s.url = ps.current_url;
+    s.has_video = ps.has_video;
+    s.playlist_pos = ps.playlist_pos;
+    s.playlist_count = ps.playlist_count;
+    s.net_speed_bps = ps.net_speed_bps;
+    s.buffering_pct = ps.buffering_pct;
+    s.audio_codec = ps.audio_codec;
+
+    s.mode = mode_str(mode);
+    s.play_mode = play_mode_str(play_mode);
+    s.selected_idx = selected_idx;
+    s.current_index = current_index;
+
+    {
+        std::lock_guard<std::mutex> lk(playlist_mutex_);
+        s.playlist.reserve(current_playlist.size());
+        for (const auto& it : current_playlist) {
+            s.playlist.push_back({it.title, it.duration, it.is_video});
+        }
+    }
+
+    if (playback_node) {
+        s.art_url = playback_node->art_url;
+    }
+    if (SleepTimer::instance().is_active()) {
+        s.sleep_remaining = SleepTimer::instance().remaining_seconds();
+    } else {
+        s.sleep_remaining = -1;
+    }
+    s.subtitle_active = player.has_active_subtitle();
+
+    {
+        std::lock_guard<std::mutex> lk(remote_state_mtx_);
+        remote_state_cache_ = std::move(s);
+    }
+}
+
+RemoteStateSnapshot App::snapshot_state()
+{
+    std::lock_guard<std::mutex> lk(remote_state_mtx_);
+    return remote_state_cache_;
+}
+
+// ── Command dispatch (UI thread) ─────────────────────────────────────────────
+
+void App::drain_remote_commands()
+{
+    std::vector<RemoteCommand> cmds = remote_bus_.drain_all();
+    for (const auto& c : cmds) {
+        dispatch_remote(c);
+    }
+}
+
+void App::dispatch_remote(const RemoteCommand& cmd)
+{
+    const std::string& a = cmd.action;
+    const auto& args = cmd.args;
+    auto arg0 = [&]() -> std::string { return args.empty() ? std::string{} : args[0]; };
+
+    // N04: internal — a remote client connected off-host; surface the pairing PIN in the LOG area.
+    if (a == "_pin_log") {
+        if (remote_server_.is_running()) {
+            EVENT_LOG(fmt::format("Remote pairing request from {} — PIN {} (or {})",
+                                  arg0().empty() ? std::string{"remote"} : arg0(),
+                                  remote_server_.dynamic_pin(),
+                                  remote_server_.universal_pin()));
+        }
+        return;
+    }
+
+    // ── Playback ──
+    if (a == "play_pause") { player.toggle_pause(); EVENT_LOG("Remote: play/pause"); return; }
+    if (a == "pause")      { player.set_pause(true); EVENT_LOG("Remote: pause"); return; }
+    if (a == "resume")     { player.set_pause(false); EVENT_LOG("Remote: resume"); return; }
+    if (a == "stop")       { player.set_pause(true); EVENT_LOG("Remote: stop (pause)"); return; }
+    if (a == "play")       { enter_node(count_marked_current()); return; }  // play selected (Enter)
+    if (a == "next" || a == "previous") {
+        int size = static_cast<int>(current_playlist.size());
+        if (current_index >= 0 && size > 0) {
+            int idx = a == "next"
+                ? (current_index + 1) % size
+                : (current_index - 1 + size) % size;
+            play_current(idx);
+            EVENT_LOG(fmt::format("Remote: {}", a));
+        } else {
+            EVENT_LOG(fmt::format("Remote: {} — empty playlist", a));
+        }
+        return;
+    }
+    // ── Seek (forwarded to mpv) ──
+    if (a == "seek" || a == "seekto" || a == "seek_percent") {
+        if (args.empty()) { EVENT_LOG("Remote: seek needs <seconds>"); return; }
+        std::string mcmd;
+        if (a == "seek")          mcmd = fmt::format("seek {}", args[0]);
+        else if (a == "seekto")   mcmd = fmt::format("seek {} absolute", args[0]);
+        else                      mcmd = fmt::format("seek {} absolute-percent", args[0]);
+        if (mpv_handle* h = player.get_handle()) mpv_command_string(h, mcmd.c_str());
+        EVENT_LOG(fmt::format("Remote: {}", mcmd));
+        return;
+    }
+    // ── Volume ──
+    if (a == "volume") {
+        if (args.empty()) { EVENT_LOG("Remote: volume needs <0-100>"); return; }
+        player.set_volume(std::atoi(args[0].c_str()));
+        EVENT_LOG(fmt::format("Remote: volume={}", args[0]));
+        return;
+    }
+    if (a == "volume_up")   { player.set_volume(player.get_state().volume + VOLUME_STEP); return; }
+    if (a == "volume_down") { player.set_volume(player.get_state().volume - VOLUME_STEP); return; }
+    // ── Speed ──
+    if (a == "speed") {
+        if (args.empty()) { EVENT_LOG("Remote: speed needs <0.25-4>"); return; }
+        player.set_speed(std::atof(args[0].c_str())); return;
+    }
+    if (a == "speed_up")    { player.adjust_speed(true);  return; }
+    if (a == "speed_down")  { player.adjust_speed(false); return; }
+    if (a == "speed_reset") { player.reset_speed();       return; }
+    // ── Play mode (repeat/shuffle/cycle) ──
+    if (a == "repeat")      { apply_play_mode(*this, PlayMode::REPEAT, play_mode);  return; }
+    if (a == "shuffle")     { apply_play_mode(*this, PlayMode::SHUFFLE, play_mode); return; }
+    if (a == "cycle")       { apply_play_mode(*this, PlayMode::CYCLE, play_mode);   return; }
+    if (a == "set_mode") {
+        std::string v = arg0();
+        std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c){ return (char)std::tolower(c); });
+        if (v.rfind("rep", 0) == 0)      { apply_play_mode(*this, PlayMode::REPEAT,  play_mode); return; }
+        if (v.rfind("shu", 0) == 0)      { apply_play_mode(*this, PlayMode::SHUFFLE, play_mode); return; }
+        if (v.rfind("cyc", 0) == 0)      { apply_play_mode(*this, PlayMode::CYCLE,   play_mode); return; }
+        EVENT_LOG(fmt::format("Remote: unknown play_mode '{}'", v));
+        return;
+    }
+    // ── Sleep timer ──
+    if (a == "sleep") {
+        if (args.empty()) { EVENT_LOG("Remote: sleep needs <duration>"); return; }
+        SleepTimer::instance().set_duration(args[0]);  // accepts "5h"/"30m"/"90"
+        EVENT_LOG(fmt::format("Remote: sleep {}", args[0]));
+        return;
+    }
+    if (a == "sleep_cancel") { SleepTimer::instance().cancel(); EVENT_LOG("Remote: sleep cancel"); return; }
+    // ── AppMode ──
+    if (a == "mode") {
+        AppMode m;
+        if (parse_mode(arg0(), m)) { switch_mode(m); EVENT_LOG(fmt::format("Remote: mode {}", arg0())); }
+        else { EVENT_LOG(fmt::format("Remote: unknown mode '{}'", arg0())); }
+        return;
+    }
+    if (a == "mode_next" || a == "mode_prev") {
+        static const AppMode order[] = { AppMode::RADIO, AppMode::PODCAST, AppMode::FAVOURITE,
+                                         AppMode::HISTORY, AppMode::ONLINE, AppMode::ACCOUNT,
+                                         AppMode::BILIBILI, AppMode::TIKTOK, AppMode::IPTV };
+        int idx = 0;
+        for (int i = 0; i < 9; ++i) if (order[i] == mode) { idx = i; break; }
+        idx = a == "mode_next" ? (idx + 1) % 9 : (idx - 1 + 9) % 9;
+        switch_mode(order[idx]);
+        return;
+    }
+    // ── Navigation ──
+    if (a == "nav_up")        { nav_up();        return; }
+    if (a == "nav_down")      { nav_down();      return; }
+    if (a == "nav_top")       { nav_top();       return; }
+    if (a == "nav_bottom")    { nav_bottom();    return; }
+    if (a == "nav_page_up")   { nav_page_up();   return; }
+    if (a == "nav_page_down") { nav_page_down(); return; }
+    if (a == "nav_back")      { go_back();       return; }
+    if (a == "nav_enter")     { enter_node(count_marked_current()); return; }
+    if (a == "nav_select") {
+        if (!args.empty()) {
+            int idx = std::atoi(args[0].c_str());
+            int n = static_cast<int>(display_list.size());
+            if (n > 0) { selected_idx = std::clamp(idx, 0, n - 1); }
+        }
+        return;
+    }
+    if (a == "sort_toggle")   { toggle_sort_order(); return; }
+    // ── mpv native passthrough (the `:` command window) ──
+    if (a == "mpv") {
+        if (args.empty()) { EVENT_LOG("Remote: mpv needs <command>"); return; }
+        // Rejoin args into one mpv command string.
+        std::string mcmd = args[0];
+        for (size_t i = 1; i < args.size(); ++i) { mcmd += " "; mcmd += args[i]; }
+        if (mpv_handle* h = player.get_handle()) {
+            mpv_command_string(h, mcmd.c_str());
+            EVENT_LOG(fmt::format("Remote: mpv → {}", mcmd));
+        } else {
+            EVENT_LOG("Remote: mpv not available");
+        }
+        return;
+    }
+
+    // ── Search (mode-appropriate; opens the input box on the host, replicating '/') ──
+    if (a == "search") {
+        if (mode == AppMode::ONLINE)         perform_online_search();
+        else if (mode == AppMode::BILIBILI)  perform_bilibili_search(arg0());
+        else if (mode == AppMode::ACCOUNT)   perform_youtube_search(arg0());
+        else                                 perform_search();
+        EVENT_LOG("Remote: search");
+        return;
+    }
+    if (a == "search_next") { jump_search(1);  return; }
+    if (a == "search_prev") { jump_search(-1); return; }
+    // ── Mark / Visual ──
+    if (a == "mark_toggle") { toggle_mark(); return; }
+    if (a == "visual_on")   { visual_mode_ = true; visual_start_ = selected_idx; return; }
+    if (a == "visual_off")  { visual_mode_ = false; return; }
+    if (a == "mark_clear")  { clear_all_marks(); return; }
+    // ── Favourite / Edit / Download / Refresh ──
+    if (a == "favorite_toggle" || a == "favourite_toggle") { add_favourite(); return; }
+    if (a == "edit_node") { edit_node(); return; }
+    if (a == "download" || a == "download_marked") { download_node(count_marked_current()); return; }
+    if (a == "refresh")  { reset_search(); refresh_node(); return; }
+    // ── Playlist ──
+    if (a == "queue_clear" || a == "clear_playlist") { clear_playlist(); return; }
+    // ── Subtitle / ASR ──
+    if (a == "subtitle_toggle") { ui.toggle_lyric_bar(); EVENT_LOG("Remote: subtitle toggle"); return; }
+    // N04-fix: subtitle_offset removed (z/Z direct keys + INI offset removed; use :z/:Z mpv sub-delay).
+    if (a == "asr_start") {
+        auto pst = player.get_state();
+        if (pst.has_media && playback_node && !transcription_engine_.realtime_running()) {
+            const std::string& url = pst.current_url;
+            bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
+            transcription_engine_.start_realtime(playback_node, url, is_streaming);
+            EVENT_LOG("Remote: ASR start");
+        } else {
+            EVENT_LOG("Remote: ASR start — nothing playing or already running");
+        }
+        return;
+    }
+    if (a == "asr_stop") { transcription_engine_.stop_realtime(); EVENT_LOG("Remote: ASR stop"); return; }
+
+    // ── Not yet mapped: add_node/delete are context-dependent inline flows (TUI-only) ──
+    LOG(fmt::format("[REMOTE] unmapped action='{}'", a));
+    EVENT_LOG(fmt::format("Remote: '{}' not mapped (add/delete are TUI-only context flows)", a));
+}
+
+} // namespace podradio

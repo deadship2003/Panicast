@@ -1,0 +1,174 @@
+
+## N07 — titlebar-as-root data-model refactor (root nodes → vectors) + exit typeahead fix
+
+**User goal:** eliminate the vestigial per-mode root NODE from the data model (option E, "最优雅"). Display redundancy (5-mode border + root row) was already fixed by Step 1 (display iterates items). N07 completes the data-model cleanup.
+
+**Approach (E = vectors, not D's display-only):** the 8 per-mode roots (`radio_root`...`iptv_root`) were `TreeNodePtr` container nodes whose `->children` held the items. Converted to `std::vector<TreeNodePtr>` — items live directly in the vector, no container node. `current_root` (TreeNodePtr) eliminated → `items_for_mode(mode)`/`cur_items()`. Container functions (`clear_marks`/`collect_marked`/`count_marked_safe`/`remove_node`) gained `_current` helpers that loop `cur_items()`. `sort_target` reworked (top-level sort = sort `cur_items()`; reverse state in new `cur_sort_reversed` member, was on the root node). `flatten` simplified to pure recursion (removed `title=="Root"` magic). `Persistence::save_cache/load_cache` → vector signatures. `get_root_by_mode_string` → `vector*`. Parent pointers for top-level items → `reset()`. `*_root_loaded` (root node's `children_loaded`) → App member bools.
+
+**`online_root` stays TreeNode (key finding):** audit revealed it's a cross-mode LINK TARGET — the favourited "Online Search" is a LINK node pointing to `online_root` (`fn->linked_node = online_root`, pointer-identity check, LINK expand resolves `"online_root"` URL). Vectorizing it would break the LINK feature. It's already invisible (display iterates its children). Conclusion: online_root is a functional LINK-target node, NOT a vestigial container → stays. So E applies to the 8 per-mode display containers; online_root is a documented exception.
+
+**Exit typeahead fix (separate bug):** keys typed during shutdown (after the main loop stops reading) sat in the terminal input queue and carried to the shell (e.g. "kjkkj" at the prompt). Fix: `tcflush(STDIN, TCIFLUSH)` in `restore_terminal_state()` + `restore_termios_async()` drains the input queue on exit.
+
+**Verification:** compiles 0-warning; 9-mode smoke (display+nav) + deeper regression (sort/expand/search/go_back-parent/mark/delete — DB history 62→59 confirms `remove_from_current`) all pass, no crash. Bilibili search now requires a logged-in account (no root to attach anonymous results to — aligns with Y mode).
+
+**Followups:** download/play/remote need user's real-resource testing (same `_current` helper pattern, low risk). Bilibili anonymous search removed (was attaching to the now-gone root).
+
+## N06 — MediaType: DB-stored display category (platform-specific before generic)
+
+**User goal:** history/favourites icons must respect platform specificity — YouTube never "OnlineVideo", radio never "OnlineAudio", and m3u8 must be IPTV (not radio). Store a `media_type` column so the icon comes from the DB instead of being re-inferred from the URL every render.
+
+**Key design correction to the initial proposal:** classifyMediaType is NOT a pure URLType→MediaType switch. URLClassifier IS platform-priority for platform-vs-generic (YouTube matched before .mp4), BUT URLType conflates two distinctions the user needs:
+- `.m3u8` → URLType::RADIO_STREAM (so pure mapping would make m3u8 = Radio — wrong);
+- local `file://.mp4` and online `.mp4` both → VIDEO_FILE; local non-video and online radio both → RADIO_STREAM (so URLType can't tell local from online).
+
+Fix: classifyMediaType layers two pre-checks on top of classify(): (1) `file://`/absolute-path → LocalVideo/LocalAudio by extension (reuse classify()'s VIDEO_FILE split); (2) `iptv:` scheme or `.m3u`/`.m3u8` extension → Iptv. THEN switch on URLType for the rest.
+
+**Confirmed decisions:** 9 categories + emoji; DOUYIN_* → Tiktok (CN counterpart, placeholder); m3u8 empirically = IPTV (user's DB: 39/39 m3u8 are IPTV channels, zero radio uses m3u8); emoji de-duped + all glibc wcwidth=2 (▶ U+25B6 is wcwidth=1 → use 📹 for YouTube; 🎶/🎥 for local audio/video to avoid clashing with Tiktok🎵/OnlineVideo🎬).
+
+**Display scope:** only history + favourites DB-driven LEAF nodes use media_type_icon (gated on NodeType::PODCAST_EPISODE/RADIO_STREAM). Folder/feed/link favourites keep the folder icon; live tree (radio/podcast browsing) unchanged — its flag-based icons are already accurate.
+
+**Schema:** SCHEMA_VERSION 46→47; history + favourites gain `media_type INTEGER`; one-time backfill (guarded by stored_version<47) recomputes from url. Write path computes media_type inside add_history/save_favourite (zero caller changes).
+
+## N05 — 'r' key unified per-node refresh (Y/B/T fix)
+
+**User goal:** Y mode's dedicated "resync" on 'r' was not a user-designed feature — diagnose & fix; extend the same mechanism to B and T; then package as N05.
+
+**Diagnosis:** The resync *capability* is legitimate & required (account data only syncs at login + manual 'r'; lazy-expand reads local DB; no periodic sync — deleting it would freeze data). The *wiring* was wrong:
+- Y: 'r' on ANY node triggered whole-account resync (heavy + collapsed the tree).
+- B: 'r' was a silent no-op (man/help falsely said "Refresh node"; a comment claimed re-fetches, never implemented).
+- T: 'r' couldn't refresh stale local cache at all.
+
+**Fix (app_input.cpp 'r' dispatch unified by node type; account nodes disambiguated by AppMode — is_account is reused by T creators):**
+- Y account → `resync_account_node`; Y Subs/History → new `refresh_account_subs/history` (subtree-only, preserves expansion).
+- B account → `refresh_bilibili_account`; B followings/history → `refresh_bili_followings/history` (force re-fetch).
+- T creator (FOLDER) → new `refresh_node` T branch → `spawn_load_feed`(TIKTOK_USER) online re-fetch → `commit_feed_result` replaces children + `episode_cache` (DEL+INS).
+
+**Followups (not in N05):** T single-video leaf 'r' stays a no-op hint (consistent with episodes everywhere). Y channels (`is_yt_channel`) / B UP masters (`is_bili_up`) still no-op on 'r' — their loaders are inline lambdas; extracting them is a later refactor.
+
+## N04 — PIN auth + UDP discovery + WebSocket + embedded BS client + APK source
+
+**User goals:** (1) latest tarball; (2) open the backend address in any IE → control directly; (3) APK: install on modern Android with no dependency issues, auto-scan network for players, PIN pairing (dynamic PIN shown in PodRadio popup + universal 6696 for headless), full control + view.
+
+**Auth model (resolves BS-direct vs APK-PIN tension):**
+- PIN-based auth replaces `auth_token`. Dynamic 4-digit PIN (`regenerate_pin()`), shown via `:pin` popup, rotatable via `:newpin`. Universal `6696` always valid (headless pairing).
+- **Localhost connections are open** (no PIN) → "open http://127.0.0.1:port/ in IE on the PodRadio host → control directly". Non-localhost → PIN required. The BS HTML shows a PIN overlay only when the server returns ACK auth-required.
+- `password <pin>` valid iff pin == dynamic || pin == "6696".
+
+**UDP discovery (N05):** APK broadcasts `PODRADIO_DISCOVER` to udp 18430; PodRadio's `discovery_loop` responds `PODRADIO 1 tcp=<port> ws=<port+1>`. APK uses the response source IP. Avoids mDNS/ZeroConf complexity + dependencies — plain UDP broadcast (Android `DatagramSocket` + `WifiManager.MulticastLock`).
+
+**WebSocket (N06):** self-written RFC6455 (handshake SHA1+base64 via OpenSSL `SHA1`; frame codec with mask/ping-pong). One HTTP listener on port+1 serves the embedded BS client (GET /) AND upgrades to WS. **socketpair bridge**: RemoteSession was refactored to separate `read_fd_`/`write_fd_`; the WS bridge runs RemoteSession on one end of a socketpair and shuttles WS frames ↔ PRP lines on the other — the PRP engine is unchanged. This keeps ONE protocol (DRY) across raw-TCP and WS transports.
+
+**Embedded BS client:** a single self-contained HTML (inline CSS+JS, IE11-compatible) baked into the binary via `podradio_web_index.h` raw-string include → "open address and control" with zero external files. GitHub Dark, PIN overlay, now-playing + controls + idle live status + progress interpolation + auto-reconnect.
+
+**APK:** native Kotlin + Compose + Material3 (minSdk 24), no runtime deps (Gradle-bundled Compose). UDP scan → PIN → TCP PRP. Source project under `apk/`; this environment has no Android SDK so the APK is built in Android Studio (instructions in `apk/README.md`).
+
+**Verification:** 0-warning build; pin_test (LAN: no-pin ACK / wrong ACK / 6696 OK / status OK), discovery_test (probe→beacon), ws_test (101 handshake + greeting frame + ping/status/volume 60 end-to-end over WS) all PASS; HTTP GET / → 200 + embedded client.
+
+**Open:** APK on-device build (Android Studio); explicit `notify("log"|"tree")`; remaining command coverage (search/mark/edit/download/subtitle/asr/queue); BS/APK UI polish.
+
+---
+
+## N03 — idle event subscription + state sync push
+
+**Goal (user emphasis: "遥控和状态同步"):** let remote clients subscribe to state changes and receive pushed `changed: <subsystem>` events (MPD `idle` semantics), so a remote UI stays live without polling.
+
+**Design:**
+- `RemoteSession::handle_idle`: enters subscription mode; multiplexes with `poll(fd, 100ms)` so it simultaneously (a) waits for server-side `notify_change` to populate `idle_pending_`, and (b) watches the socket for `noidle` / a queued command / close. On change → emit `changed: <subsys>` lines + `OK`. This avoids a second thread per session — the single worker thread handles both directions via poll.
+- `notify_change(subsys)` is the cross-thread entry (called by `RemoteServer::notify` from the diff thread or App): guards with `idle_mtx_`, dedups, only if subscribed.
+- `RemoteServer` keeps a `sessions_` registry; `notify(subsys)` snapshots the set under `sessions_mtx_` then delivers outside the lock (avoids holding the registry lock during per-session idle_mtx_ acquisition — no lock-ordering hazard).
+- **Diff poller** (`diff_loop`, 10Hz): the only source of state-change detection for mpv-internal events (seek/pause/track-end). Compares `snapshot_state()` fields → `notify(player|mixer|options|mode|subtitle|art)`. The 100ms cadence IS the coalesce window (no separate debounce needed). `elapsed` is intentionally NOT diffed (would fire every frame) — clients interpolate elapsed; only state/song/title/url changes fire `player`.
+- `recv_buf_` became a member + `poll_line(out, timeout_ms)` shared by `run()` (blocking read) and `handle_idle` (multiplexed read) — single buffer, single code path.
+
+**Roadmap condensation:** N02 already absorbed the plan's N03–N06 command-coverage milestones (core controls shipped in N02). So this idle release is sequentially **N03** (was the plan's "N07" milestone). Future plan updates will renumber sequentially.
+
+**Verification:** `idle_test.py` — A `idle mixer`, B `volume 42` → A receives `changed: mixer`+`OK`. Diff→notify→push chain proven. 0-warning build.
+
+**Open:** N04 WebSocket frontend (self-written RFC6455) + static asset hosting → enables browsers; N05 BS web client; deferred explicit `notify("log"|"tree")` hooks + remaining command coverage (search/mark/edit/download/subtitle/asr/queue).
+
+---
+
+## N02 — PRP protocol engine, state snapshot, control command end-to-end
+
+**Goal:** make the remote terminal actually control PodRadio — query state AND issue commands that take effect — over the MPD-style line protocol defined in `PODRADIO_N_LINE_PROTOCOL_DESIGN.md`.
+
+**Protocol (PRP — PodRadio Protocol):** MPD-style text line protocol. Greeting `OK PodRadio N02`; request `COMMAND [ARG...]\n` (double-quoted args for spaces); response `key: value` lines ending `OK` or `ACK [code@0] {cmd} msg`. Query commands (`status`/`currentsong`/`playlistinfo`/`ping`/`password`) answered inline; control commands forwarded to the UI thread via the bus. `password <token>` auth gate (MPD semantics). `idle`/`noidle` accepted as no-ops (N07 implements real subscription).
+
+**Threading contract (the two sanctioned crossing points):**
+1. WRITE path — `RemoteCommandBus` (N01): server `push()`es control commands; UI thread `drain_remote_commands()` each frame; `dispatch_remote()` maps to existing App methods. UI never touched off-thread.
+2. READ path — `RemoteStateSnapshot`: built once per frame on the UI thread (`update_remote_state_cache`) under a dedicated `remote_state_mtx_`; server threads read copies via `snapshot_state()`. This **deliberately avoids cross-locking `tree_mutex`/`playlist_mutex_` from server threads** — only `playlist_mutex_` is taken on the UI thread (same thread that already takes it) to copy playlist titles. Player state uses `MPVController::get_state()` which is already mutex-protected.
+
+**Decoupling:** `RemoteControlInterface` (abstract) — App implements it; `RemoteServer`/`RemoteSession` depend on the interface, not App. Composable + testable.
+
+**Control coverage (N02):** playback / seek / volume / speed / play-mode / sleep / mode-switch / navigation / mpv-passthrough — the demonstrable core. `mpv <cmd>` reuses the `:`-window forwarding. Search/mark/edit/download/subtitle/asr/queue deferred to N03–N05 (some are coupled to TUI input boxes — need non-interactive variants).
+
+**Verification:** 0-warning build; Python PRP client proves end-to-end: `volume 55` → subsequent `status` echoes `volume: 55` (server→bus→UI→player→snapshot). Default `enable=false` leaves local TUI unaffected.
+
+**Open:** N03 full command coverage; N07 idle subscription (notify + 10Hz diff + debounce); N08 WebSocket frontend (self-written RFC6455); N09 BS web client.
+
+---
+
+## N01 — Network control line: foundation skeleton (command bus + TCP server)
+
+**Context:** User requested a network-control feature line (N01–N99) branched from `Podradio_V0.1-Y24.56`, so a remote terminal — first an IE browser (BS), later an Android APK — can exercise **all** local-terminal control functions plus live monitoring. Development must follow `/mnt/e/AI/DEVELOPMENT_PRINCIPLES.md` (i18n / UNIX philosophy / plan-first / async-non-blocking / concurrency-safe / data-layer收敛).
+
+**Key user decisions (confirmed):**
+- HTTP/server implementation: **self-written full C++ socket server** (no external lib). Chose POSIX `socket/bind/listen/accept` over adding cpp-httplib — zero new dependency, full control, matches "统一封装" philosophy extended to the server side.
+- Real-time state/LOG push: **MPD / ncmpcpp-style technique** — *protocol design deferred*. User will explain the MPD/ncmpcpp approach in detail before N02 protocol is finalized. (MPD uses a persistent TCP line protocol with an `idle` event-subscription command; ncmpcpp is an MPD client. This signals a move away from HTTP/REST toward a daemon TCP protocol + thin clients.)
+- Source tree: `/mnt/e/AI/PodRadio/Podradio_V0.1-N01/` (parallel to existing Y/F lines).
+
+**Architecture (this version):**
+- The UI (ncurses) is single-threaded and not thread-safe. Therefore the network server NEVER calls App/MPVController methods directly. Two sanctioned crossing points:
+  1. **`RemoteCommandBus`** — server thread `push()`es a `RemoteCommand{action,args,client_id}`; the TUI main loop `drain_all()`s once per frame and dispatches on the UI thread. Mutex-protected vector, non-blocking swap, `shutdown()` atomic flag. Minimal lock scope.
+  2. **state snapshot** (N02) — server thread reads a mutex-guarded snapshot; `MPVController::get_state()` is already thread-safe; App members need a new `snapshot_remote_state()`.
+- **`RemoteServer`** threading (concurrency rules): one accept thread; each connection on a tracked worker thread (`struct Worker{ std::thread t; std::atomic<bool> done; }`), reaped each accept iteration so the worker list stays bounded. **No `detach()`** — `stop()` closes the listen socket to unblock `accept()`, then joins the accept thread AND every worker. SIGPIPE avoided via `MSG_NOSIGNAL`.
+- Platform scope: POSIX (Linux/macOS). Windows compiles to stubs (`start()` returns false). Mirrors the `mpv` vcpkg dependency which is `linux|osx` only. Keeps the cross-platform build green.
+- Config: opt-in `[remote]` section, **default `enable=false`** so the local TUI is byte-for-byte unaffected unless the user opts in. `bind=127.0.0.1` default (localhost-only; `0.0.0.0` for LAN).
+
+**Scope of N01 (deliberately minimal):** version bump, `[remote]` config, command bus, TCP accept-loop skeleton (banner-only handler), App wiring (start/stop/drain), `dispatch_remote()` log-only. The command **protocol** is intentionally NOT implemented — it depends on the pending MPD/ncmpcpp decision.
+
+**Verification:** 0-warning build (`-Wall -Wextra -Wpedantic`); `--version` = N01; smoke test with `enable=true port=18421` → `bash /dev/tcp` connection receives the banner; `timeout` exit joins cleanly (no orphan/hung threads); default `enable=false` → no server started.
+
+**Open for N02 (needs user input):** finalize the command protocol (MPD-style line protocol? `idle`-style event subscription? how does the BS/IE browser fit a non-HTTP protocol — a small WS/TCP bridge, or a separate HTTP endpoint set?). Map `dispatch_remote()` actions to local control methods (playback/navigation/modes/management/`:`-commands).
+
+---
+
+## Y24.56 — IPTV playback LOG-area event messages (off-air / no-video diagnosis)
+
+**Bug (user trial):** playing an IPTV channel whose address is correct but the station is not currently broadcasting → no video stream → mpv does not open a video window, and the user has no idea WHY. The 30s pending timeout only says "stream may have failed", indistinguishable from a wrong address.
+
+**Design (confirmed by user):** enumerate every situation where IPTV playback does not visibly start / no video window, and emit a concise English event message to the on-screen LOG area (EventLog, which double-writes to podradio.log). Two prefixes:
+- `MPV:` = mpv-level behavior (the cause) — existing mpv_error_str / fallback messages, kept as-is.
+- `IPTV:` = IPTV-context explanation (the user-facing meaning) — new.
+- Same event causing both → print BOTH, in time order (MPV: first, IPTV: second); both reach screen + log file via EVENT_LOG.
+
+**The 13 messages (approved):**
+1. `IPTV: server unreachable — network, DNS, or timeout; check connection or switch source`  (END_FILE -13, conn keywords)
+2. `IPTV: channel not found — 404, address invalid or removed`  (-13 + "404"/"not found")
+3. `IPTV: access denied — 403, region-restricted or authorization required`  (-13 + "403"/"forbidden")
+4. `IPTV: server error — 5xx, source unavailable; retry later`  (-13 + "500"/"502"/"503"/"504")
+5. `IPTV: connected, no stream data — channel may be off-air; retry later`  (polling: FILE_LOADED + core-idle + no codec + no download, held ≥ offair_detect_secs)
+6. `IPTV: empty playlist — no playable stream for this channel`  (END_FILE -16)
+7. `IPTV: audio-only channel — no video track, playing as audio`  (polling: audio codec + playing + no video track ≥ 8s)
+8. `IPTV: audio output init failed — no audio device; check [mpv] ao, PulseAudio, WSLg`  (END_FILE -14)
+9. `IPTV: video output init failed — no display, falling back to audio`  (END_FILE -15)
+10. `IPTV: cannot decode stream — missing decoder; ensure ffmpeg is installed`  (END_FILE -17)
+11. `IPTV: network too slow — sustained buffering, bandwidth insufficient or unstable`  (polling: core-idle + buffering>0 + <1s ahead ≥ 20s)
+12. `IPTV: stream dropped mid-playback — source interrupted; switch channel or retry`  (END_FILE r=4 when PLAYBACK_RESTART already fired = had_playback_started_)
+13. `Playback pending timeout 30s — stream may have failed`  (existing, parens removed; only fires when FILE_LOADED never came — naturally disjoint from #5 which requires FILE_LOADED)
+
+**Implementation:**
+- `ini_config.h`: `get_iptv_offair_detect_secs()` → `[iptv] offair_detect_secs` (default 12).
+- `mpv_controller.h/.cpp`: `set_iptv_context(bool)` (atomic, set by app when mode==IPTV). Detection lives in the controller because it has the mpv error code AND the warn/error log text (needed to sub-classify -13 into 404/403/5xx/unreachable).
+  - `MPV_EVENT_LOG_MESSAGE`: remember `last_log_text_` for warn/error (INFO still gated to load window).
+  - `FILE_LOADED`: stamp `file_loaded_time_`, re-arm one-shots.
+  - END_FILE r=4: after the existing `MPV:` message(s), if `iptv_context_`, emit the matching `IPTV:` message. If `had_playback_started_` (PLAYBACK_RESTART fired) → #12 (mid-playback drop); else `iptv_message_for_error_()` (-13 → `classify_iptv_load_error_()` keyword match; -14/-15/-16/-17 fixed).
+  - `update_state()`: #5/#7/#11 polling detection, one-shot per track, gated by `iptv_context_`. #5 timer cancels on any data/codec arrival (no false positive on slow initial fill).
+  - `reset_iptv_detection_()` (incl. `had_playback_started_`) called at play()/play_list()/play_list_from() entry points and re-armed on FILE_LOADED.
+- `app_playback.cpp`: `player.set_iptv_context(mode == AppMode::IPTV)` in play_current + on_playback_ended (auto-advance).
+- #5 and #13 are disjoint (#5 needs has_media/FILE_LOADED; #13 fires only when has_media never appears) → no double-fire, no cross-layer pending clear needed.
+
+**Scope notes:**
+- mpv warn/error log lines still go ONLY to podradio.log (not routed to the on-screen LOG area) — avoids noise; the IPTV: messages are the curated screen-side diagnostics.
+- `mpv_error_str` (the MPV: behavior text) left untouched per "MPV:的行为就用MPV:".
+
+Build: 0 warnings, 74/74, binary runs.

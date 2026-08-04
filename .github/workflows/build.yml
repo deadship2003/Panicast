@@ -1,0 +1,198 @@
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║                    PodRadio CI/CD Pipeline                                ║
+# ║              Multi-platform Build & Release Automation                    ║
+# ║   Supports: Linux x64/ARM64, macOS x64/ARM64, Windows x64                  ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+name: PodRadio Build Pipeline
+
+on:
+  push:
+    branches: [ main, master, develop, 'release/**' ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  # ===========================================================================
+  # Linux x86_64 Build
+  # ===========================================================================
+  build-linux-x64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config \
+            libmpv-dev libncurses5-dev libncursesw5-dev \
+            libcurl4-openssl-dev libsqlite3-dev libxml2-dev \
+            libfmt-dev nlohmann-json3-dev
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Package
+        run: |
+          cd build
+          cpack -G TGZ
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: podradio-linux-x64
+          path: build/*.tar.gz
+
+  # ===========================================================================
+  # Linux ARM64 Build (via cross-compilation)
+  # ===========================================================================
+  build-linux-arm64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install cross-compilation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            libncurses5-dev:arm64 libncursesw5-dev:arm64 || true
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-aarch64-linux.cmake
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Package
+        run: cd build && cpack -G TGZ
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: podradio-linux-arm64
+          path: build/*.tar.gz
+
+  # ===========================================================================
+  # macOS x86_64 / ARM64 Build
+  # ===========================================================================
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: macos-13
+          - arch: arm64
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja pkg-config mpv ncurses curl sqlite libxml2 fmt nlohmann-json
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+      - name: Build
+        run: cmake --build build --parallel $(sysctl -n hw.ncpu)
+
+      - name: Package
+        run: cd build && cpack -G TGZ
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: podradio-macos-${{ matrix.arch }}
+          path: build/*.tar.gz
+
+  # ===========================================================================
+  # Windows x64 Build
+  # ===========================================================================
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 'a34c873a9717a888f58dc05268dea15592c2f0ff'
+
+      - name: Configure
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Package
+        run: cd build && cpack -G ZIP
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: podradio-windows-x64
+          path: build/*.zip
+
+  # ===========================================================================
+  # Release
+  # ===========================================================================
+  release:
+    needs: [build-linux-x64, build-linux-arm64, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release
+        run: |
+          mkdir -p release
+          find artifacts -name "*.tar.gz" -exec cp {} release/ \;
+          find artifacts -name "*.zip" -exec cp {} release/ \;
+          ls -la release/
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          name: PodRadio ${{ github.ref_name }}
+          body: |
+            ## PodRadio ${{ github.ref_name }}
+            
+            ### 🎵 Features
+            - Terminal-based podcast and radio player
+            - TuneIn radio streaming support
+            - RSS podcast subscription
+            - YouTube channel/video playback
+            - Local file playback
+            
+            ### 📥 Downloads
+            | Platform | Architecture | Download |
+            |----------|-------------|----------|
+            | Linux | x64 | `podradio-linux-x64.tar.gz` |
+            | Linux | ARM64 | `podradio-linux-arm64.tar.gz` |
+            | macOS | x64 | `podradio-macos-x64.tar.gz` |
+            | macOS | ARM64 | `podradio-macos-arm64.tar.gz` |
+            | Windows | x64 | `podradio-windows-x64.zip` |
+          files: release/*
+          draft: false

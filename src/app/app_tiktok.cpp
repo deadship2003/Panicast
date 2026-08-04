@@ -1,0 +1,338 @@
+// Y24.11: T-mode (TikTok/Douyin) controller — anonymous creator subscription + video listing.
+//   No login: TikTok user listings work anonymously via yt-dlp (--geo-bypass-country for region).
+//   Douyin usually needs a cookies.txt + a CN network exit. Search is a best-effort search-engine
+//   fallback (site:tiktok.com/@) because yt-dlp has no TikTok search extractor.
+#include "podradio/app/app.h"
+
+#include <chrono>
+#include <filesystem>
+#include <regex>
+#include <thread>
+
+#include <fmt/format.h>
+#include <nlohmann/json.hpp>
+
+#include "podradio/config/ini_config.h"
+#include "podradio/core/event_log.h"
+#include "podradio/core/logger.h"
+#include "podradio/net/tiktok_region.h"
+#include "podradio/net/ytdlp_runner.h"
+#include "podradio/storage/database.h"
+
+namespace podradio
+{
+using json = nlohmann::json;
+
+// ── tiktok_accounts DB ops (mirror bilibili_accounts style; no credentials to encrypt) ──
+// Y24.27: TiktokAccount struct moved to database.h
+
+
+static std::vector<TiktokAccount> load_tiktok_accounts() {
+    return DatabaseManager::instance().list_tiktok_accounts();
+}
+
+static int save_tiktok_account(const TiktokAccount& a) {
+    return DatabaseManager::instance().upsert_tiktok_account(a);
+}
+
+static bool delete_tiktok_account(int id) {
+    return DatabaseManager::instance().delete_tiktok_account(id);
+}
+
+// Normalize user input into (platform, handle, url). Accepts:
+//   "@user" / "user"                  → tiktok, "@user", https://www.tiktok.com/@user
+//   "tiktok.com/@user[.../video/<id>]" → tiktok, "@user", https://www.tiktok.com/@user  (video URL → its @user)
+//   "douyin.com/video/<id>"           → douyin, <video-id>, https://www.douyin.com/video/<id>
+//   "douyin.com/user/<sec_uid>"       → douyin, <sec_uid>, https://www.douyin.com/user/<sec_uid>  (NOT listable — caller warns)
+// Returns false if no handle could be extracted.
+static bool normalize_tiktok_input(const std::string& raw, std::string& platform,
+                                   std::string& handle, std::string& url) {
+    std::string s = raw;
+    while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.erase(s.begin());
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '/' || s.back() == '\n')) s.pop_back();
+    if (s.empty()) return false;
+
+    if (s.find("douyin.com") != std::string::npos) {
+        platform = "douyin";
+        url = (s.rfind("http", 0) == 0) ? s : ("https://www." + s);
+        std::smatch m;
+        if (std::regex_search(url, m, std::regex("/video/([^/?#]+)"))) handle = m[1].str();        // video id
+        else if (std::regex_search(url, m, std::regex("/user/([^/?#]+)"))) handle = m[1].str();   // sec_uid
+        else handle = url;
+        return true;
+    }
+    // TikTok: extract @username (present in both profile and video URLs).
+    std::smatch m;
+    if (std::regex_search(s, m, std::regex("@([A-Za-z0-9._\\-]{2,24})"))) {
+        platform = "tiktok";
+        handle = "@" + m[1].str();
+        url = "https://www.tiktok.com/" + handle;  // profile URL (video URL → subscribe the creator)
+        return true;
+    }
+    // Bare username (no @, no domain) → TikTok handle.
+    if (s.find('/') == std::string::npos && s.find('.') == std::string::npos) {
+        platform = "tiktok";
+        handle = "@" + s;
+        url = "https://www.tiktok.com/" + handle;
+        return true;
+    }
+    return false;
+}
+
+// Does a normalized douyin URL point to a (playable) video?
+static bool douyin_is_video_url(const std::string& url) {
+    return url.find("/video/") != std::string::npos;
+}
+
+// Build the yt-dlp arg vector for a creator listing (shared by probe + parse).
+static std::vector<std::string> tiktok_listing_args(const std::string& url, const std::string& region,
+                                                    const std::string& cookies_file) {
+    std::vector<std::string> args;
+    args.push_back("--flat-playlist");
+    args.push_back("--dump-json");
+    args.push_back("--no-warnings");
+    if (!region.empty()) {
+        args.push_back("--geo-bypass-country");
+        args.push_back(region);
+    }
+    if (!cookies_file.empty() && std::filesystem::exists(cookies_file)) {
+        args.push_back("--cookies");
+        args.push_back(cookies_file);
+    }
+    args.push_back(url);
+    return args;
+}
+
+// Probe a TikTok creator's display name from the first listed video's "channel"/"uploader" field.
+//   (Douyin user URLs are unsupported by yt-dlp — no DouyinUserIE — so this is TikTok-only.)
+static std::string probe_tiktok_uname(const std::string& url, const std::string& region,
+                                      const std::string& cookies_file) {
+    auto args = tiktok_listing_args(url, region, cookies_file);
+    args.push_back("--playlist-items");
+    args.push_back("1:1");
+    std::string uname;
+    YtdlpRunner::run(args, [&](const std::string& line) {
+        if (!uname.empty()) return;
+        try {
+            auto j = json::parse(line);
+            std::string ch = j.value("channel", "");
+            if (!ch.empty()) { uname = ch; return; }
+            std::string up = j.value("uploader", "");
+            if (!up.empty()) uname = up;
+        } catch (...) {}
+    }, 60);
+    return uname;
+}
+
+// Y24.11: list a creator's videos via yt-dlp --flat-playlist. Retries on transient empty/failed
+//   output (TikTok's JS challenge cookie sometimes blanks the first attempt). region is the
+//   geo-bypass country code (TikTok: current region; Douyin: "CN"). cookies_file is optional.
+//   TikTok-only in practice — yt-dlp has no DouyinUserIE, so douyin.com/user/ URLs fail here.
+TreeNodePtr App::parse_tiktok_user_videos(const std::string& url, const std::string& region,
+                                          const std::string& cookies_file, const std::string& title) {
+    auto args = tiktok_listing_args(url, region, cookies_file);
+    std::vector<std::string> lines;
+    constexpr int MAX_ATTEMPTS = 3;
+    for (int attempt = 1; attempt <= MAX_ATTEMPTS; ++attempt) {
+        lines.clear();
+        auto r = YtdlpRunner::run(args, [&](const std::string& line) { lines.push_back(line); }, 30);
+        if (!lines.empty()) break;
+        // Empty output — retry once more after backoff (challenge cookie / transient block).
+        if (attempt < MAX_ATTEMPTS) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(800 * attempt));
+        } else {
+            LOG(fmt::format("[TikTok] listing empty for {} (exit={}, region={}) stderr: {}",
+                            url.substr(0, 80), r.exit_code, region, r.stderr_output.substr(0, 200)));
+        }
+    }
+
+    auto result = std::make_shared<TreeNode>();
+    result->url = url;
+    result->type = NodeType::PODCAST_FEED;
+    result->title = title;
+    result->is_youtube = false;
+    for (const auto& line : lines) {
+        try {
+            auto j = json::parse(line);
+            if (!j.is_object()) continue;
+            auto ep = std::make_shared<TreeNode>();
+            ep->type = NodeType::PODCAST_EPISODE;
+            std::string id = j.value("id", "");
+            ep->url = j.value("url", id);
+            ep->title = j.value("title", id.empty() ? "Untitled" : id);
+            ep->duration = j.value("duration", 0);
+            ep->children_loaded = true;
+            ep->parent = result;
+            result->children.push_back(ep);
+        } catch (...) {}
+    }
+    result->children_loaded = true;
+    return result;
+}
+
+// ── Build tiktok_root from DB ──
+void App::load_tiktok_root() {
+    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    tiktok_root.clear();
+    // Y24.16: root title is static — the region is shown only in the status-bar border
+    //   (🎵 TIKTOK [US] / 🎵 Douyin [CN]), so 'b' switching region can't desync the root label.
+    auto accounts = load_tiktok_accounts();
+    if (accounts.empty()) {
+        auto hint = std::make_shared<TreeNode>();
+        hint->title = "(no TikTok/Douyin items — press 'a' to add @user/video URL, '/' to open @user/#tag/URL)";
+        hint->type = NodeType::FOLDER;
+        hint->children_loaded = true;
+        hint->parent.reset();
+        tiktok_root.push_back(hint);
+    } else {
+        for (const auto& a : accounts) {
+            auto node = std::make_shared<TreeNode>();
+            node->is_account = true;  // reuse is_account flag so 'd' can delete it
+            node->account_id = a.id;
+            node->url = a.url;
+            node->parent.reset();
+            if (a.platform == "douyin_video") {
+                // Y24.16: Douyin single video (option A) — playable leaf. yt-dlp has no DouyinUserIE,
+                //   so Douyin can't list a creator's videos; we subscribe individual videos instead.
+                node->title = (a.uname.empty() ? std::string("Douyin Video") : a.uname);
+                node->type = NodeType::PODCAST_EPISODE;
+                node->children_loaded = true;  // playable leaf: Enter plays (peers = siblings)
+            } else {
+                std::string tag = (a.platform == "douyin") ? " Douyin" : " TikTok";
+                node->title = (a.uname.empty() ? a.handle : a.uname) + " <" + tag + ">";
+                node->type = NodeType::FOLDER;
+                node->expanded = false;
+                node->children_loaded = false;  // spawn_load_feed classifies → TIKTOK_USER / DOUYIN_USER
+            }
+            tiktok_root.push_back(node);
+        }
+    }
+    tiktok_loaded = true;
+}
+
+// Y24.16: shared subscribe core used by 'a' (add) and '/' (direct input) — no duplication.
+//   TikTok @user/profile/video URL → creator (listable via yt-dlp tiktok:user).
+//   Douyin video URL → playable video leaf (option A; yt-dlp has no DouyinUserIE so no user list).
+//   Douyin user URL → rejected with a clear message.
+void App::tiktok_subscribe(const std::string& input) {
+    std::string platform, handle, url;
+    if (!normalize_tiktok_input(input, platform, handle, url)) {
+        EVENT_LOG("T: could not parse a @user or URL from input");
+        return;
+    }
+    if (platform == "douyin") {
+        if (douyin_is_video_url(url)) {
+            EVENT_LOG(fmt::format("T: adding Douyin video {}", handle));
+            pool_.submit([this, handle, url]() {
+                TiktokAccount a{0, "douyin_video", handle, url, ""};
+                int id = save_tiktok_account(a);
+                EVENT_LOG(fmt::format("T: saved Douyin video {} ({})", handle, id ? "ok" : "failed"));
+                load_tiktok_root();
+            });
+        } else {
+            EVENT_LOG("T: Douyin user video list unsupported (yt-dlp has no DouyinUserIE), paste a Douyin video URL");
+        }
+        return;
+    }
+    // TikTok creator (normalize built the profile URL from @user or a video URL).
+    EVENT_LOG(fmt::format("T: adding TikTok {} ({})", handle, url));
+    std::string region = tiktok_region_;
+    std::string cookies = IniConfig::instance().get_tiktok_cookies_file();
+    pool_.submit([this, handle, url, region, cookies]() {
+        std::string uname = probe_tiktok_uname(url, region, cookies);
+        TiktokAccount a{0, "tiktok", handle, url, uname};
+        int id = save_tiktok_account(a);
+        EVENT_LOG(fmt::format("T: saved TikTok {}{} ({})", handle,
+                              uname.empty() ? "" : (" (" + uname + ")"), id ? "ok" : "failed"));
+        load_tiktok_root();
+    });
+}
+
+// 'a' in T mode: prompt for @user/video URL, then subscribe.
+void App::add_tiktok_user() {
+    std::string input = ui.input_box("Add TikTok/Douyin (@user or video URL)");
+    if (UI::is_input_cancelled(input)) { EVENT_LOG("T: add cancelled"); return; }
+    tiktok_subscribe(input);
+}
+
+// 'b' in T mode: cycle the TikTok region (persisted).
+void App::cycle_tiktok_region() {
+    tiktok_region_ = TikTokRegion::next(tiktok_region_);
+    TikTokRegion::set_current(tiktok_region_);
+    IniConfig::instance().set("tiktok", "region", tiktok_region_);
+    EVENT_LOG(fmt::format("TikTok region: {} ({})", tiktok_region_, TikTokRegion::name(tiktok_region_)));
+}
+
+// 'd' in T mode: delete the creator under the cursor.
+void App::delete_tiktok_user_node(TreeNodePtr node) {
+    if (!node || !node->is_account || node->account_id <= 0) {
+        EVENT_LOG("T: select a creator node to delete");
+        return;
+    }
+    if (!ui.confirm_box("Delete this creator?")) return;
+    int id = node->account_id;
+    if (delete_tiktok_account(id)) {
+        EVENT_LOG(fmt::format("T: deleted creator #{}", id));
+    } else {
+        EVENT_LOG(fmt::format("T: failed to delete creator #{}", id));
+    }
+    load_tiktok_root();
+}
+
+// Y24.16: '/' in T mode — direct input (no full-text search; that's infeasible anonymously:
+//   search engines don't index tiktok.com/douyin.com content pages, and yt-dlp has no search
+//   extractor). Accepts @user / #tag / URL; a bare keyword gets a clear "no keyword search" prompt.
+
+// tag_browse: list a tag's videos via yt-dlp --flat-playlist (reuses parse_tiktok_user_videos,
+//   generic over any yt-dlp list URL). tiktok:tag is currently _WORKING=False upstream → fails
+//   gracefully; auto-works if yt-dlp re-enables it. Result shown under a transient folder (not saved).
+void App::tag_browse(const std::string& tag) {
+    bool cn = (tiktok_region_ == "CN");
+    std::string domain = cn ? "douyin.com" : "tiktok.com";
+    std::string tag_url = "https://www." + domain + "/tag/" + tag;
+    std::string region = cn ? std::string("CN") : tiktok_region_;
+    std::string cookies = cn ? IniConfig::instance().get_tiktok_douyin_cookies_file()
+                             : IniConfig::instance().get_tiktok_cookies_file();
+    std::string label = "#" + tag;
+    EVENT_LOG(fmt::format("T: browsing {} (yt-dlp tag extractor disabled upstream — may be empty)", tag_url));
+    pool_.submit([this, tag_url, region, cookies, label]() {
+        auto result = parse_tiktok_user_videos(tag_url, region, cookies, label);
+        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        for (auto it = tiktok_root.begin(); it != tiktok_root.end(); ) {
+            if ((*it)->is_yt_search) it = tiktok_root.erase(it); else ++it;
+        }
+        auto folder = std::make_shared<TreeNode>();
+        folder->title = fmt::format("\U0001F50D {} ({} videos)", label, result->children.size());
+        folder->type = NodeType::FOLDER; folder->is_yt_search = true; folder->expanded = true;
+        folder->children_loaded = true; folder->parent.reset();
+        for (auto& c : result->children) { c->parent = folder; folder->children.push_back(c); }
+        tiktok_root.push_back(folder);
+        if (result->children.empty())
+            EVENT_LOG(fmt::format("T: {} — no videos (yt-dlp tag extractor disabled upstream; try @user or a video URL)", label));
+        else
+            EVENT_LOG(fmt::format("T: {} — {} videos", label, result->children.size()));
+    });
+}
+
+void App::tiktok_direct_input() {
+    std::string input = ui.input_box("Open (@user / #tag / URL)");
+    if (UI::is_input_cancelled(input)) { EVENT_LOG("T: open cancelled"); return; }
+    while (!input.empty() && (input.front() == ' ' || input.front() == '\t')) input.erase(input.begin());
+    if (input.empty()) return;
+    if (input[0] == '#') {
+        std::string tag = input.substr(1);
+        while (!tag.empty() && tag.front() == ' ') tag.erase(tag.begin());
+        if (tag.empty()) { EVENT_LOG("T: empty #tag"); return; }
+        tag_browse(tag);
+        return;
+    }
+    if (input[0] == '@' || input.find("tiktok.com") != std::string::npos ||
+        input.find("douyin.com") != std::string::npos || input.find("vm.tiktok.com") != std::string::npos) {
+        tiktok_subscribe(input);  // shared with 'a'
+        return;
+    }
+    EVENT_LOG("T: anonymous keyword search unavailable TikTok/Douyin, enter @user / #tag / URL (or use 'a' add)");
+}
+
+
+}  // namespace podradio
