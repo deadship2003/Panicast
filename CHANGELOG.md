@@ -4,6 +4,21 @@
 
 ---
 
+## PaniCast-V0.01-F01 — 2026-08-04 — ASR 实时转写修复 + YouTube 播放/下载可靠性
+
+> 修复用户反馈的两个 BUG：①ASR 非异步、播放时卡等 ASR、且未正常唤起 whisper-cli；②YouTube 不能正常播放/下载。
+
+### 修复
+- **[ASR] 实时转写重写为「分块 + 可中断」**（`src/subtitle/transcription_engine.cpp` `realtime_worker`）。旧设计在调 whisper-cli **之前**用一次阻塞、不可中断的 `ffmpeg -i <url>` 解码**整段源**：直播流（Bloomberg/FOX 等 tunein 直播）该 ffmpeg 永不返回 → whisper-cli 根本没被唤起；远程播客要先整段下载（长卡顿）。且无停止钩子，`stop_realtime()`（仅 bump gen）杀不掉 ffmpeg → worker 线程泄漏 → `start_realtime()`/`shutdown()` 的 `realtime_thread_.join()` **阻塞 UI 线程**（即"播放时卡等 ASR"）。
+  - 新设计按短块捕获：有限/可 seek 媒体用 `ffmpeg -ss <start> -t <chunk>`，直播流用 `-t <chunk>`（不 seek），每块 ffmpeg **自终止**而非无限捕获；chunk 默认 30s，`[transcription] realtime_chunk_sec` 可调（5–120）。
+  - ffmpeg 经 `-progress pipe:1 -stats_period 1` 把进度写 stdout，`run_process_streaming` 的 stop_pred 每秒轮询 → `stop_realtime()`/换轨/关停在 ~1s 内杀掉在途 ffmpeg，UI 线程不再阻塞、线程不再泄漏。whisper-cli 本就按行输出 segment，同样可中断。
+  - 每块 whisper 转写后，segment 时间戳 **+块起点偏移**映射回源时间线，累加并渐进喂给 LYRIC（音频）/OSD（视频）。有限媒体循环到 ≥duration，直播循环到被停止。
+  - 验证：分块模拟（jfk.wav [0,6]s/[6,12]s 两块）→ 段时间戳连续正确（第二块 +6s 后 06.000–11.000）；编译 0-warning。
+- **[YouTube] 播放解析超时可配 + 重试**（`src/app/app_playback.cpp` `resolve_youtube_url`、`include/podradio/config/ini_config.h`）。播放解析用固定 **30s** yt-dlp `-g` 超时——经 SOCKS 代理 + quickjs/ejs 解 nsig，单次解析合理耗时 30–60s，30s 上限导致间歇性"YouTube resolve failed"（日志里精确 30s 的 YtdlpRunner timeout；而下载路径正确用了 3600s）。
+  - 已核实 nsig solver 本身可用：app 注入 `--js-runtimes quickjs:<qjs>` 后 yt-dlp 报 `JS runtimes: quickjs-ng-0.15.1` 且 `yt_dlp_ejs-0.8.0` 在场（不注入则为 none）；日志 08-01 亦显示解析多次成功。故失败为延迟/抖动，超时+重试是对症修复。
+  - 新增 `[youtube] resolve_timeout_sec`（默认 90）、`resolve_retries`（默认 3，含首次）；失败/超时按重试循环再解析，并在 LOG/EVENT_LOG 记录每次尝试。
+- 二进制 `build/panicast` 全量编译通过（45/45，-j2，0-warning）。
+
 ## Podradio_V0.1-N07 — 2026-08-01 — titlebar-as-root 数据模型重构 + 退出 typeahead 修复
 
 > 消除 per-mode 根节点（数据模型 E 化）：8 个模式根 `TreeNodePtr` → `std::vector<TreeNodePtr>`（根节点不再存在，一级条目直接在 vector 里），`current_root` 移除。`online_root` 作为跨模式 LINK 目标保留。另修退出时 typeahead 残留。
