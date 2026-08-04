@@ -374,7 +374,16 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
     std::string srt_path = compute_srt_path(url, is_streaming, node);
     std::vector<TranscriptSegment> segs;  // accumulated (pre-filled with existing partial, then grown)
     double start = 0.0;                    // chunk start offset on the source timeline (seconds)
-    double duration = get_audio_duration(url);  // <0 = unknown (live stream → no stop condition, no seek)
+    // ASR-fix: read the duration from mpv (already loaded) — NOT via `ffmpeg -i <url>`. That probe has
+    //   no timeout and HANGS on throttled/slow streaming URLs (YouTube googlevideo via a proxy, slow
+    //   podcasts), blocking the worker before the chunk loop ever starts — the "Shift+L does nothing"
+    //   regression (log showed "real-time start" then silence). mpv reports media_duration once the
+    //   file is loaded; 0/unavailable ⇒ treat as a live stream (no seek, rolling capture).
+    double duration = -1.0;
+    if (mpv_) {
+        auto s = mpv_->get_state();
+        duration = s.has_media ? s.media_duration : -1.0;
+    }
     bool seekable = (duration > 0.0);
     if (fs::exists(srt_path)) {
         segs = parse_srt_file(srt_path);
