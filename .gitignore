@@ -7,3 +7,4 @@ build*/
 build-*/
 compile_commands.json
 *.o
+include/panicast/net/client_secret_builtin.h
