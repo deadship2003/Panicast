@@ -360,6 +360,19 @@ namespace fs = std::filesystem;
         std::string get_youtube_play_format_audio() const {
             return get("youtube", "play_format_audio", "bestaudio");
         }
+        // resolve_timeout_sec: per-attempt yt-dlp `-g` timeout for playback resolution. The old fixed
+        //   30s was too short: through a SOCKS proxy + quickjs/ejs nsig solving, a single resolve can
+        //   legitimately take 30-60s, and the 30s cap caused intermittent "YouTube resolve failed"
+        //   (seen as exact-30s YtdlpRunner timeouts in the log). Default 90s.
+        int get_youtube_resolve_timeout_sec() const {
+            return get_int("youtube", "resolve_timeout_sec", 90);
+        }
+        // resolve_retries: how many times playback resolution is retried on timeout/failure before
+        //   giving up. yt-dlp YouTube resolution is flaky (nsig + bot check); a retry usually
+        //   succeeds. Default 3 (1 initial + 2 retries).
+        int get_youtube_resolve_retries() const {
+            return get_int("youtube", "resolve_retries", 3);
+        }
         // sub_lang: YouTube subtitle language code to load for playback (Y11). Empty = no subtitles
         //   (opt-in; soft subs are not loaded unless this is set). e.g. "en", "zh-Hans", "ja".
         //   When set, resolve_youtube_url fetches the .vtt via yt-dlp and mpv loads it as sub-file
@@ -792,6 +805,13 @@ play_format_video = bestvideo[height<=1080]+bestaudio
 #   bestaudio = 最高音质 [默认] / highest audio quality [default]
 #   best           = 最佳单文件(已弃用)(含视频,较低) / best single file (incl. video, lower)
 play_format_audio = bestaudio
+# resolve_timeout_sec: 播放解析(yt-dlp -g)每次尝试超时(秒) / per-attempt yt-dlp -g resolve timeout (seconds)
+#   旧版固定 30s 过短：经 SOCKS 代理 + quickjs/ejs 解 nsig，单次解析常需 30-60s，30s 上限导致间歇性“YouTube resolve failed”
+#   the old fixed 30s was too short through a proxy + nsig solving (legit 30-60s), causing intermittent resolve failures
+resolve_timeout_sec = 90
+# resolve_retries: 播放解析失败/超时后的重试次数(含首次) / playback resolve attempts on failure/timeout (incl. first)
+#   YouTube 解析不稳(nsig + 机器人校验)，重试通常即可成功 / YouTube resolve is flaky; a retry usually succeeds
+resolve_retries = 3
 # sub_lang: YouTube 字幕语言码(加载软字幕, Y11)。空=不加载(默认, opt-in) / subtitle language; empty=off (default)
 #   设后 resolve 用 yt-dlp 取 .vtt 字幕, mpv 以 sub-file 加载 → F/G 缩放、z/Z 同步、r/R 位移、v 显隐均可用, 默认居中
 #   例: en / zh-Hans / ja 。无手动字幕时 sub_auto=true 用自动生成 / e.g. en/zh-Hans/ja; sub_auto=true falls back to auto-captions

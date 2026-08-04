@@ -178,27 +178,47 @@ static std::string basename_of(const std::string& p) {
     //   (saves bandwidth). Played via play_video with vo=null (no window) so sub_file (lyrics) still
     //   loads. For direct muxed URLs (non-YouTube) this can't apply — see mpv/container limitation.
     std::vector<std::string> App::resolve_youtube_url(const std::string& url, bool has_video) const {
-        std::vector<std::string> args = YouTubeChannelParser::ytdlp_youtube_args();
+        std::vector<std::string> base_args = YouTubeChannelParser::ytdlp_youtube_args();
         bool audio_only = MPVController::is_audio_only_mode();
         bool want_video = has_video && !audio_only;
         std::string fmt = want_video
             ? IniConfig::instance().get_youtube_play_format_video()
             : IniConfig::instance().get_youtube_play_format_audio();
-        args.push_back("-f"); args.push_back(fmt);
-        args.push_back("-g");
-        args.push_back("--no-warnings");
-        args.push_back(url);
-        auto result = YtdlpRunner::run(args, nullptr, 30);
+
+        // YT-fix: retry loop with a generous, configurable timeout. yt-dlp YouTube resolution is flaky
+        //   — through a SOCKS proxy + quickjs/ejs nsig solving a single `-g` can take 30-60s, and the
+        //   old fixed 30s cap caused intermittent "YouTube resolve failed" (exact-30s YtdlpRunner
+        //   timeouts in the log). Re-resolving is cheap and usually succeeds on retry.
+        int timeout_sec = IniConfig::instance().get_youtube_resolve_timeout_sec();
+        int attempts = IniConfig::instance().get_youtube_resolve_retries();
+        if (attempts < 1) attempts = 1;
         std::vector<std::string> urls;
-        if (result.launched && result.exit_code == 0 && !result.stdout_output.empty()) {
-            std::istringstream ss(result.stdout_output);
-            std::string line;
-            while (std::getline(ss, line)) {
-                while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' '))
-                    line.pop_back();
-                if (!line.empty() && line.rfind("http", 0) == 0) {
-                    urls.push_back(line);
+        YtdlpRunner::Result result;
+        int attempt = 0;
+        for (attempt = 1; attempt <= attempts && urls.empty(); ++attempt) {
+            std::vector<std::string> args = base_args;
+            args.push_back("-f"); args.push_back(fmt);
+            args.push_back("-g");
+            args.push_back("--no-warnings");
+            args.push_back(url);
+            result = YtdlpRunner::run(args, nullptr, timeout_sec);
+            urls.clear();
+            if (result.launched && result.exit_code == 0 && !result.stdout_output.empty()) {
+                std::istringstream ss(result.stdout_output);
+                std::string line;
+                while (std::getline(ss, line)) {
+                    while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' '))
+                        line.pop_back();
+                    if (!line.empty() && line.rfind("http", 0) == 0) {
+                        urls.push_back(line);
+                    }
                 }
+            }
+            if (urls.empty()) {
+                LOG(fmt::format("[YouTube] resolve attempt {}/{} failed (launched={}, exit={}, timeout={}s)",
+                                attempt, attempts, result.launched, result.exit_code, timeout_sec));
+                if (attempt < attempts)
+                    EVENT_LOG(fmt::format("YouTube resolve retry {}/{} (nsig/proxy can be slow)...", attempt, attempts));
             }
         }
         // Y11: fetch soft subtitle (.vtt) when [youtube] sub_lang is set; append its path as urls[2].
@@ -233,11 +253,13 @@ static std::string basename_of(const std::string& p) {
             }
         }
         if (!urls.empty()) {
-            LOG(fmt::format("[YouTube] Resolved {} stream URL(s) (fmt={}, has_video={}, audio_only={}): {}",
-                            urls.size(), fmt, has_video, audio_only, urls[0].substr(0, 70)));
+            LOG(fmt::format("[YouTube] Resolved {} stream URL(s) (fmt={}, has_video={}, audio_only={}, attempts={}): {}",
+                            urls.size(), fmt, has_video, audio_only, attempt > attempts ? attempts : attempt,
+                            urls[0].substr(0, 70)));
             return urls;
         }
-        LOG(fmt::format("[YouTube] yt-dlp -g failed (launched={}, exit={}, fmt={})", result.launched, result.exit_code, fmt));
+        LOG(fmt::format("[YouTube] yt-dlp -g failed after {} attempt(s) (launched={}, exit={}, fmt={})",
+                        attempt > attempts ? attempts : attempt, result.launched, result.exit_code, fmt));
         if (!result.stderr_output.empty()) {
             std::string err = result.stderr_output;
             size_t pos = err.find_last_of('\n');
@@ -249,7 +271,8 @@ static std::string basename_of(const std::string& p) {
             LOG(fmt::format("[YouTube] yt-dlp error: {}", err));
             EVENT_LOG(fmt::format("YouTube resolve failed: {}", err));
         } else {
-            EVENT_LOG("YouTube resolve failed (no yt-dlp output) — cookies/proxy/JS-runtime?");
+            EVENT_LOG(fmt::format("YouTube resolve failed after {} attempt(s) (no yt-dlp output) — cookies/proxy/JS-runtime?",
+                                  attempt > attempts ? attempts : attempt));
         }
         return {};  // empty → caller skips playback (single resolve path, no fallback)
     }
