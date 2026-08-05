@@ -8,3 +8,15 @@ build-*/
 compile_commands.json
 *.o
 include/panicast/net/client_secret_builtin.h
+
+# Claude Code local config — NEVER push
+.claude/
+
+# Editor / OS cruft
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
