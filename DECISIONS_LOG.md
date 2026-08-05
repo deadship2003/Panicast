@@ -1,4 +1,20 @@
 
+## fix — "看视频/暂停时 TUI 输入无响应" = mpv 视频窗口抢键盘焦点（非死锁）
+
+**Context:** 用户报告"暂停后 TUI 不响应"，看 IPTV 时复现。D4（end_file 入队）+ D5（watchdog）按"死锁"方向未根治。用户提供 panicast.log。
+
+**Root cause（日志确认）：**
+- 日志 `input: No key binding found for key 'l'/'a'/SPACE/','/MBTN_LEFT'` —— mpv 的视频窗口（vo=gpu/wlshm）**抢了键盘焦点**，用户按键被该窗口接收、因无绑定被丢弃，ncurses TUI 收不到。看视频即发生，与暂停无关。
+- 排除死锁：ncurses 只在 ui/app（无跨线程破坏）、`stop_realtime` 非阻塞、END_FILE 已 D4 迁 UI 线程；watchdog 也未触发慢帧 → 不是 freeze。
+
+**Fix（卫生）：** `mpv_set_option_string(ctx, "input-default-bindings", "no")` —— TUI 拥有输入，mpv 窗口不解释键（消除吃键日志、防绑定冲突）。
+
+**Limitation：** 视频窗口抢焦点是 WSLg/Wayland 窗口行为，应用内无法强制终端保持焦点。绕过：点终端窗口恢复 TUI 控制。根治需 WSLg/WM 层（focus-new-windows 规则）。
+
+**Also（日志）：** WSL 音频坏（PulseAudio timeout / ALSA refused → AO init failed），独立问题。
+
+---
+
 ## D5 — M0 收尾 + UI 帧时间 watchdog（新架构 M0 第 5 人日）
 
 **Context:** M0 收尾。D1–D4 已落地 EventBus、IProxyManager（全消费者经 Connectivity）、Media/MediaID。用户报告"暂停后 TUI 输入无响应"在 D4 修复后仍存——静态分析已穷尽明显原因（D4 修了 END_FILE 跨线程 `playlist_mutex_` 争用；排除 ncurses 跨线程破坏[只在 ui/app]、ASR join 阻塞[`stop_realtime` 非阻塞]）。剩余卡点需运行时数据。

@@ -4,6 +4,23 @@
 
 ---
 
+## fix — 2026-08-05 — 定位"看视频/暂停时 TUI 输入无响应"= mpv 视频窗口抢键盘焦点
+
+> 用户 panicast.log（看 IPTV 时复现）揭示真正根因，纠正 D4/D5 的"死锁"误判。
+
+### 根因（确认，非死锁）
+- 日志 `input: No key binding found for key 'l'/'a'/SPACE/','/MBTN_LEFT'`：mpv 视频窗口（vo=gpu/wlshm）打开时**抢了键盘焦点** → 按键被它接收、丢弃 → ncurses TUI 收不到。看视频即发生（与暂停无关，暂停只是更易察觉）。
+- 排除死锁：watchdog 未触发慢帧、ncurses 无跨线程破坏、END_FILE 已 D4 迁 UI 线程。
+
+### 修复（卫生）
+- `mpv_set_option_string(ctx, "input-default-bindings", "no")`：TUI 拥有全部输入，mpv 视频窗口不解释键（消除 "No key binding" 吃键日志 + 防 mpv 自带绑定与 TUI 冲突）。
+
+### 限制 + 绕过
+- **抢焦点本身是 WSLg/Wayland 窗口行为**，应用内无法强制终端保持焦点。**绕过**：视频窗口打开后点一下终端窗口即恢复 TUI 键盘控制。根治需 WSLg/WM 层（如 focus-new-windows=off）。
+
+### 另（日志独立问题）
+- WSL 音频坏（`ao/pulse Init failed: Timeout` / `ao/alsa Connection refused` → AO init failed → 播放失败），与 focus 无关，需修 WSL 音频（PulseAudio/PipeWire）。
+
 ## 新架构 D5 — 2026-08-05 — M0 收尾 + UI 帧时间 watchdog（定位"暂停后输入无响应"）
 
 > 新架构增量迁移 M0 第 5 人日（收尾）。D1–D4 已把 EventBus/Connectivity/Media 串通（app 本身即端到端集成）。

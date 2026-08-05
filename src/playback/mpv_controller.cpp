@@ -228,6 +228,10 @@ bool MPVController::initialize() {
     //   terminal writes, the former msg-level / quiet options were pure redundancy and are removed.
     //   terminal=no does NOT affect vo=gpu/vo=auto video windows.
     mpv_set_option_string(ctx_, "terminal", "no");
+    // The TUI (ncurses) owns all keyboard/mouse input. Disable mpv's own key bindings so its
+    //   video window never interprets keys (prevents conflicts / the "No key binding found for
+    //   key X" key-eating seen in logs when the video window has focus).
+    mpv_set_option_string(ctx_, "input-default-bindings", "no");
 
     mpv_set_option_string(ctx_, "ytdl", "yes");
     if (ytdl_available_) {
