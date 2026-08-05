@@ -50,7 +50,7 @@
 
 ## 📥 安装
 
-### 🚀 一键部署（Y05 自包含发布包，推荐）
+### 🚀 一键部署
 
 Y24.30 发布包自带 **quickjs-ng** JS 运行时（`vendor/quickjs/`，~2MB）与部署脚本，解压后一条命令搞定依赖+运行时+编译+安装：
 
@@ -519,7 +519,7 @@ panicast -v                 # 显示版本
 | `?` | 帮助 |
 | `q` | 退出 |
 
-### `:` 命令窗口 — mpv 热键（Y11）
+### `:` 命令窗口 — mpv 热键
 
 播放时按 `:` 打开命令窗口，输入一个字符：`r`/`s`/`c` 切播放模式（repeat/shuffle/cycle），其余字符转发给 mpv。键值对齐 mpv 原生 `input.conf`（原生绑定标注 ✅）：
 
@@ -542,7 +542,7 @@ panicast -v                 # 显示版本
 | | `s` / `S` ✅ | `screenshot` / `screenshot video` | 截图（含/不含字幕） |
 | **视频 EQ** | `1`/`2` `3`/`4` `5`/`6` `7`/`8` ✅ | contrast/brightness/gamma/saturation ∓1 | 对比度/亮度/伽马/饱和度 |
 
-> INFO 区还显示一行 `Network: <下载速率> | Buffering: <缓冲秒数或%>`（Y11），随 `[display] state_refresh_ms`（默认 100ms）刷新。
+> INFO 区还显示一行 `Network: <下载速率> | Buffering: <缓冲秒数或%>`（默认 100ms）刷新。
 
 ### 模式切换
 

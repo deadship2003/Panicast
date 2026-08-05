@@ -334,7 +334,7 @@ bool App::start_one_download(TreeNodePtr n) {
                                      CURLPROTO_HTTP | CURLPROTO_HTTPS);
 #endif
                     curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
-                    apply_network_proxy(curl);
+                    apply_network_proxy(curl, url);
                     if (resume_from > 0) {
                         curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, resume_from);
                     }

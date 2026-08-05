@@ -11,9 +11,9 @@
 - [x] **D2 — IProxyManager 接口 + resolveProxy 规则链** ✅ 2026-08-05
   - `include/panicast/net/proxy_manager.h`（`ProxyConfig` + `IProxyManager::resolveProxy(url,platform)` 平台→域名→全局→直连，线程安全）+ `src/net/proxy_manager.cpp` + 单测。全局源**可注入**（`setGlobalSource`，不耦合 IniConfig → 测试可干净链入）；`network.cpp` 把 `[network] proxy` 注入 → Ctrl+N 实时生效。`apply_network_proxy` 已走 ProxyManager（首个消费者，行为零变化）。
   - **验收**：单测 5 例过、app 运行、Ctrl+N 代理仍生效。
-- [ ] **D3 — 调用点切换到 IProxyManager（含 Downloader）**
-  - 把 `apply_network_proxy` 的 3 处（`network.cpp`/`bilibili_api.cpp`/`itunes_search.cpp`）+ `ytdlp_runner`(`--proxy`) 改走 `resolveProxy`；核对 `app_download` 所有下载路径均经 Connectivity。
-  - **验收**：编译绿、解析/下载带代理冒烟正常、无回归。
+- [x] **D3 — 调用点切到带 url 的 resolveProxy + Downloader** ✅ 2026-08-05
+  - `apply_network_proxy(curl, url, platform)` 改 url-aware；4 个 curl 调用点（`network.cpp` configure_curl / `bilibili_api` / `itunes_search` / `app_download`）传真实 url+platform；`ytdlp_runner` 的 `--proxy` 改走 `ProxyManager::resolveProxy`。所有网络消费者现均经 Connectivity（mpv 播放仍直连）。
+  - **验收**：编译 0-warning、ctest 35/35、冒烟正常；代理路径无回归。（yt-dlp 的 url/platform 感知路由为后续精化项。）
 - [ ] **D4 — Media/MediaID 骨架（不改 TreeNode）**
   - `include/panicast/domain/media.h`（`MediaID` + Media 视图/adapter，复用 `TreeNodePtr` 作底层）+ 单测。
   - **验收**：编译绿、app 行为零变化。

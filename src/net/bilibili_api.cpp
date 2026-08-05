@@ -87,7 +87,7 @@ BilibiliAPI::LoginResult BilibiliAPI::poll_qrcode(const std::string &qrcode_key)
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_cb);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headers);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (X11; Linux x86_64) PaniCast");
-    apply_network_proxy(curl);
+    apply_network_proxy(curl, url, "bilibili");
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);

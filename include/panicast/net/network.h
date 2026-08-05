@@ -38,7 +38,10 @@ public:
 
 // Apply [network] proxy to a curl handle (empty string = do not set, use direct connection / transparent proxy).
 // curl natively supports http/https/socks4/socks4a/socks5/socks5h.
-void apply_network_proxy(CURL *curl);
+// Apply the Connectivity-layer proxy to a curl handle. `url` enables domain rules (the
+// request host is matched against domain overrides); `platform` enables platform rules.
+// Empty platform / unrouted host falls through to the global [network] proxy.
+void apply_network_proxy(CURL *curl, const std::string &url, const std::string &platform = "");
 
 class Network {
 public:

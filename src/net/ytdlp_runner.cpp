@@ -1,4 +1,5 @@
 #include "panicast/net/ytdlp_runner.h"
+#include "panicast/net/proxy_manager.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -39,8 +40,10 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string> &args,
     std::vector<std::string> storage;
     storage.reserve(args.size() + 3);
     storage.push_back(ytdlp);
-    // [network] proxy: if non-empty, inject --proxy <url> (yt-dlp supports http/socks5/socks5h etc.)
-    std::string proxy = IniConfig::instance().get_proxy();
+    // D3: resolve proxy via the Connectivity layer (IProxyManager). yt-dlp is used for
+    // youtube/bilibili; the global [network] proxy applies (url/platform-aware routing for
+    // yt-dlp is a future refinement).
+    std::string proxy = ProxyManager::instance().resolveProxy("").url;
     if (!proxy.empty()) {
         storage.push_back("--proxy");
         storage.push_back(proxy);

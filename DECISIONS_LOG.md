@@ -1,4 +1,20 @@
 
+## D3 — 全部网络消费者接入 Connectivity（url-aware resolveProxy + Downloader）（新架构 M0 第 3 人日）
+
+**Context:** D2 落地 IProxyManager 但 apply_network_proxy 只用 resolveProxy("")（无 url，仅全局）。D3 让所有网络消费者传真实 url + platform（启用域名/平台规则），Downloader（含 yt-dlp）也接入。
+
+**Approach:**
+- `apply_network_proxy(CURL*, const std::string &url, const std::string &platform = "")`：body 改 `resolveProxy(url, platform)`。
+- 4 个 curl 调用点传值：`network.cpp` configure_curl 传其 `url`（通用 fetch，platform ""）；`bilibili_api.cpp` 传 `url` + "bilibili"；`itunes_search.cpp` 传 `url` + "podcast"；`app_download.cpp` 传 `url`（下载，platform ""）。
+- `ytdlp_runner.cpp`：`--proxy` 从 `IniConfig::get_proxy()` 改为 `ProxyManager::instance().resolveProxy("").url`（经 Connectivity；yt-dlp 的 url/platform 感知路由留作精化）。
+- 行为零变化：无平台/域名规则时 resolveProxy 返回全局 [network] proxy（与改动前一致）。
+
+**Verification:** ctest 35/35；增量构建 0-warning；`build/panicast --version` 正常。
+
+**Followups:** 按需填首批规则（youtube→代理、`*.googlevideo.com`→代理、bilibili→直连）；ytdlp_runner 传真实 url/platform（需 run() 加参数）。
+
+---
+
 ## D2 — IProxyManager（Connectivity 层）+ apply_network_proxy 首个消费者（新架构 M0 第 2 人日）
 
 **Context:** 落地"统一网络前端"——所有网络消费者（Parser/Downloader/字幕/AI 云端）经一个 IProxyManager 解析代理，mpv 播放直连。D2 做接口 + 规则链 + 首个消费者；Downloader 等调用点切换在 D3。

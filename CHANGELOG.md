@@ -4,6 +4,18 @@
 
 ---
 
+## 新架构 D3 — 2026-08-05 — 全部网络消费者接入 Connectivity（含 Downloader）
+
+> 新架构增量迁移 M0 第 3 人日。apply_network_proxy 改 url-aware，4 个 curl 调用点 + yt-dlp 全部经 IProxyManager。
+
+### 变更
+- **[Net] `apply_network_proxy` 改为 `(curl, url, platform)`**：`network.cpp` / `bilibili_api.cpp` / `itunes_search.cpp` / `app_download.cpp` 4 个 curl 调用点传真实 url（启用域名规则）+ platform（bilibili→"bilibili"、itunes→"podcast"、通用→""）。
+- **[Net] ytdlp_runner（`--proxy`）接入 ProxyManager**：从直读 `IniConfig::get_proxy()` 改为 `ProxyManager::resolveProxy("").url`——yt-dlp 下载也经 Connectivity（mpv 播放仍直连）。至此所有网络消费者（Parser/Downloader/解析/yt-dlp）统一经 IProxyManager。
+- README 去掉内部版本注记（Y05/Y11），公开文档更正式。
+
+### 验收
+- ctest 35/35 通过；增量构建 0-warning；`build/panicast --version` 正常；代理路径无回归。
+
 ## 新架构 D2 — 2026-08-05 — IProxyManager（Connectivity 统一网络前端）
 
 > 新架构增量迁移 M0 第 2 人日。落地"所有网络消费者经统一代理层"的接口（Downloader 切换在 D3）。

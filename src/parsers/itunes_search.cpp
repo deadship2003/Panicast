@@ -176,7 +176,7 @@ std::string ITunesSearch::fetch(const std::string &url) {
         });
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT); // Unified browser UA
-    apply_network_proxy(curl);                             // [network] proxy
+    apply_network_proxy(curl, url, "podcast");                             // [network] proxy
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);

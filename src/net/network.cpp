@@ -28,13 +28,13 @@ namespace {
 }();
 }  // namespace
 
-void apply_network_proxy(CURL *curl) {
+void apply_network_proxy(CURL *curl, const std::string &url, const std::string &platform) {
     if (!curl)
         return;
-    // D2: every curl fetch resolves its proxy through the Connectivity layer. With no
-    // platform/domain rules set this returns the [network] proxy — identical to the previous
-    // direct read, but now through one seam. mpv playback stays direct (not via this path).
-    ProxyConfig cfg = ProxyManager::instance().resolveProxy("");
+    // D3: every curl fetch resolves its proxy through the Connectivity layer (url-aware:
+    // domain rules match the request host, platform rules match the platform id). With no
+    // rules set this returns the [network] proxy. mpv playback stays direct (not via this).
+    ProxyConfig cfg = ProxyManager::instance().resolveProxy(url, platform);
     if (cfg.enabled()) {
         curl_easy_setopt(curl, CURLOPT_PROXY, cfg.url.c_str());
     }
@@ -47,7 +47,7 @@ static void configure_curl(CURL *curl, const std::string &url, struct curl_slist
     if (headers)
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
-    apply_network_proxy(curl);
+    apply_network_proxy(curl, url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, Network::write_cb);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
