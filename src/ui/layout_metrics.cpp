@@ -3,7 +3,7 @@
 namespace panicast
 {
 
-LayoutMetrics& LayoutMetrics::instance() {
+LayoutMetrics &LayoutMetrics::instance() {
     static LayoutMetrics lm;
     return lm;
 }

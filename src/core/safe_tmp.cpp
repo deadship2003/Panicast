@@ -1,9 +1,9 @@
 #include "panicast/core/safe_tmp.h"
 
 #include <cerrno>
-#include <cstring>      // strerror
+#include <cstring> // strerror
 #include <filesystem>
-#include <unistd.h>     // close
+#include <unistd.h> // close
 #include <vector>
 
 #include <fmt/format.h>
@@ -16,7 +16,7 @@ namespace panicast
 
 namespace fs = std::filesystem;
 
-std::string SafeTmpFile::create(const std::string& suffix) {
+std::string SafeTmpFile::create(const std::string &suffix) {
     ensure_tmp_dir();
     std::string tmpl = tmp_dir() + "/panicast_XXXXXX" + suffix;
     std::vector<char> buf(tmpl.begin(), tmpl.end());
@@ -30,8 +30,9 @@ std::string SafeTmpFile::create(const std::string& suffix) {
     return std::string(buf.data());
 }
 
-void SafeTmpFile::remove(const std::string& path) {
-    if (!path.empty()) std::filesystem::remove(path);
+void SafeTmpFile::remove(const std::string &path) {
+    if (!path.empty())
+        std::filesystem::remove(path);
 }
 
 std::string SafeTmpFile::tmp_dir() {

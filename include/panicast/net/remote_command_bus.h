@@ -37,8 +37,12 @@ public:
     //   commands. Returns an empty vector when nothing is pending or after shutdown.
     std::vector<RemoteCommand> drain_all();
 
-    void shutdown() { shutdown_.store(true); }
-    bool is_shutdown() const { return shutdown_.load(); }
+    void shutdown() {
+        shutdown_.store(true);
+    }
+    bool is_shutdown() const {
+        return shutdown_.load();
+    }
 
 private:
     std::mutex mtx_;

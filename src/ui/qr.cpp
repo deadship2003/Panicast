@@ -18,10 +18,10 @@ bool qr_available() {
 #endif
 }
 
-std::vector<std::string> render_qr_rows(const std::string& text) {
+std::vector<std::string> render_qr_rows(const std::string &text) {
     std::vector<std::string> rows;
 #ifdef HAVE_QRENCODE
-    QRcode* q = QRcode_encodeString(text.c_str(), 0, QR_ECLEVEL_L, QR_MODE_8, 1);
+    QRcode *q = QRcode_encodeString(text.c_str(), 0, QR_ECLEVEL_L, QR_MODE_8, 1);
     if (!q) {
         LOG("[QR] encode failed");
         return rows;
@@ -30,7 +30,8 @@ std::vector<std::string> render_qr_rows(const std::string& text) {
     // Top/bottom quiet border of one light module for scannability.
     int w = q->width;
     auto mod = [&](int x, int y) -> bool {
-        if (x < 0 || x >= w || y < 0 || y >= w) return false; // border = light
+        if (x < 0 || x >= w || y < 0 || y >= w)
+            return false; // border = light
         return (q->data[y * w + x] & 1) != 0;
     };
     for (int y = -1; y <= w; ++y) {

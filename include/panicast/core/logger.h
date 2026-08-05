@@ -10,10 +10,10 @@ namespace panicast
 
 class Logger {
 public:
-    static Logger& instance();
+    static Logger &instance();
 
     void init();
-    void log(const std::string& msg);
+    void log(const std::string &msg);
     ~Logger();
 
 private:

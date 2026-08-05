@@ -15,7 +15,8 @@ namespace panicast
 //  subscription in P mode under an active account; Y01 wires the pull here, push is available
 //  via GoogleOAuth::subscribe/unsubscribe for Y02 to bind to the add/delete actions.)
 void App::sync_account_subscriptions(int account_id) {
-    if (account_id <= 0) return;
+    if (account_id <= 0)
+        return;
     GoogleAccount acc;
     if (!AccountsManager::instance().get_tokens(account_id, acc)) {
         EVENT_LOG(fmt::format("Y: sync subs #{} — no valid token", account_id));
@@ -31,12 +32,14 @@ void App::sync_account_subscriptions(int account_id) {
 
 // Pull the account's YouTube watch history (InnerTube /browse) into youtube_history.
 void App::sync_account_history(int account_id) {
-    if (account_id <= 0) return;
+    if (account_id <= 0)
+        return;
     GoogleAccount acc;
-    if (!AccountsManager::instance().get_tokens(account_id, acc)) return;
+    if (!AccountsManager::instance().get_tokens(account_id, acc))
+        return;
     EVENT_LOG(fmt::format("Y: pulling watch history for #{} ...", account_id));
     auto rows = GoogleOAuth::fetch_watch_history(acc.access_token);
-    for (const auto& r : rows) {
+    for (const auto &r : rows) {
         AccountsManager::instance().upsert_history(account_id, r);
     }
     AccountsManager::instance().set_sync_state(account_id, "watch_history");
@@ -45,11 +48,13 @@ void App::sync_account_history(int account_id) {
 }
 
 // Record a YouTube play under the active account (local side — YouTube has no "mark watched" API).
-void App::record_youtube_play(const std::string& video_id, const std::string& title,
-                              const std::string& channel_name) {
-    if (video_id.empty()) return;
+void App::record_youtube_play(const std::string &video_id, const std::string &title,
+                              const std::string &channel_name) {
+    if (video_id.empty())
+        return;
     int aid = AccountsManager::instance().active_account_id();
-    if (aid <= 0) return;
+    if (aid <= 0)
+        return;
     YouTubeHistoryRow r;
     r.video_id = video_id;
     r.title = title;

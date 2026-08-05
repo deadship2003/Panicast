@@ -19,6 +19,6 @@ class RemoteServer;
 // Serve one WS/HTTP connection (runs on a worker thread). Does the HTTP parse; if it's a WS
 //   upgrade, handshakes + bridges PRP over WS (registering the session for idle push); otherwise
 //   serves the embedded BS client for GET / (or 404). Blocks until the connection closes.
-void ws_serve_connection(int client_fd, RemoteServer& server, bool localhost);
+void ws_serve_connection(int client_fd, RemoteServer &server, bool localhost);
 
 } // namespace panicast

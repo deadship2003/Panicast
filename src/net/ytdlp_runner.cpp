@@ -20,14 +20,14 @@
 #include "panicast/core/logger.h"
 #include "panicast/core/utils.h"
 
-extern char** environ;  // Required by posix_spawnp
+extern char **environ; // Required by posix_spawnp
 
 namespace panicast
 {
 
-YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string>& args,
-                                      std::function<void(const std::string&)> line_cb,
-                                      int timeout_sec) {
+YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string> &args,
+                                     std::function<void(const std::string &)> line_cb,
+                                     int timeout_sec) {
     Result res;
     std::string ytdlp = find_ytdlp();
     if (ytdlp.empty()) {
@@ -45,10 +45,12 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string>& args,
         storage.push_back("--proxy");
         storage.push_back(proxy);
     }
-    for (const auto& a : args) storage.push_back(a);
-    std::vector<char*> argv;
+    for (const auto &a : args)
+        storage.push_back(a);
+    std::vector<char *> argv;
     argv.reserve(storage.size() + 1);
-    for (auto& s : storage) argv.push_back(s.data());
+    for (auto &s : storage)
+        argv.push_back(s.data());
     argv.push_back(nullptr);
 
     int out_pipe[2], err_pipe[2];
@@ -58,7 +60,8 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string>& args,
     }
     if (pipe(err_pipe) != 0) {
         LOG("[YtdlpRunner] pipe() failed");
-        close(out_pipe[0]); close(out_pipe[1]);
+        close(out_pipe[0]);
+        close(out_pipe[1]);
         return res;
     }
 
@@ -71,14 +74,15 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string>& args,
 
     if (pid < 0) {
         LOG(fmt::format("[YtdlpRunner] fork/spawn failed: {}", strerror(errno)));
-        close(out_pipe[0]); close(err_pipe[0]);
+        close(out_pipe[0]);
+        close(err_pipe[0]);
         return res;
     }
     res.launched = true;
-    Utils::register_child_pid(pid);  // N04-fix: track for shutdown kill
+    Utils::register_child_pid(pid); // N04-fix: track for shutdown kill
 
     // Concurrently read stdout/stderr to avoid deadlock when one side fills the pipe buffer before the other reaches EOF
-    constexpr size_t MAX_CAPTURE = 8 * 1024 * 1024;  // Prevent unbounded growth
+    constexpr size_t MAX_CAPTURE = 8 * 1024 * 1024; // Prevent unbounded growth
     int effective_timeout = (timeout_sec > 0) ? timeout_sec : 30;
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(effective_timeout);
     std::string out_pending;
@@ -88,30 +92,44 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string>& args,
     while (out_open || err_open) {
         struct pollfd fds[2];
         int nfds = 0;
-        if (out_open) { fds[nfds].fd = out_pipe[0]; fds[nfds].events = POLLIN; nfds++; }
-        if (err_open) { fds[nfds].fd = err_pipe[0]; fds[nfds].events = POLLIN; nfds++; }
-        int pr = poll(fds, nfds, 1000);  // Wake up once per second to check timeout
+        if (out_open) {
+            fds[nfds].fd = out_pipe[0];
+            fds[nfds].events = POLLIN;
+            nfds++;
+        }
+        if (err_open) {
+            fds[nfds].fd = err_pipe[0];
+            fds[nfds].events = POLLIN;
+            nfds++;
+        }
+        int pr = poll(fds, nfds, 1000); // Wake up once per second to check timeout
         if (pr < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR)
+                continue;
             break;
         }
         if (pr == 0) {
-            if (std::chrono::steady_clock::now() >= deadline) { timed_out = true; break; }
+            if (std::chrono::steady_clock::now() >= deadline) {
+                timed_out = true;
+                break;
+            }
             continue;
         }
         for (int i = 0; i < nfds; ++i) {
-            if (!(fds[i].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+            if (!(fds[i].revents & (POLLIN | POLLHUP | POLLERR)))
+                continue;
             char buf[4096];
             ssize_t n = read(fds[i].fd, buf, sizeof(buf));
             if (n > 0) {
                 bool is_out = (fds[i].fd == out_pipe[0]);
-                std::string& dst = is_out ? res.stdout_output : res.stderr_output;
+                std::string &dst = is_out ? res.stdout_output : res.stderr_output;
                 if (dst.size() < MAX_CAPTURE) {
                     size_t add = std::min((size_t)n, MAX_CAPTURE - dst.size());
                     dst.append(buf, add);
                 }
                 if (is_out && line_cb) {
-                    if (out_pending.size() < MAX_CAPTURE) out_pending.append(buf, n);
+                    if (out_pending.size() < MAX_CAPTURE)
+                        out_pending.append(buf, n);
                     size_t pos;
                     while ((pos = out_pending.find('\n')) != std::string::npos) {
                         line_cb(out_pending.substr(0, pos));
@@ -121,12 +139,18 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string>& args,
             } else if (n == 0) {
                 if (fds[i].fd == out_pipe[0]) {
                     out_open = false;
-                    if (line_cb && !out_pending.empty()) { line_cb(out_pending); out_pending.clear(); }
+                    if (line_cb && !out_pending.empty()) {
+                        line_cb(out_pending);
+                        out_pending.clear();
+                    }
                 } else {
                     err_open = false;
                 }
             } else if (errno != EINTR) {
-                if (fds[i].fd == out_pipe[0]) out_open = false; else err_open = false;
+                if (fds[i].fd == out_pipe[0])
+                    out_open = false;
+                else
+                    err_open = false;
             }
         }
     }
@@ -135,9 +159,10 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string>& args,
 
     if (timed_out) {
         LOG(fmt::format("[YtdlpRunner] timeout after {}s, killing child", effective_timeout));
-        kill(-pid, SIGTERM);  // N04-fix: group kill (yt-dlp + its ffmpeg child)
+        kill(-pid, SIGTERM); // N04-fix: group kill (yt-dlp + its ffmpeg child)
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        if (waitpid(pid, nullptr, WNOHANG) == 0) kill(-pid, SIGKILL);  // Force kill if still not exited
+        if (waitpid(pid, nullptr, WNOHANG) == 0)
+            kill(-pid, SIGKILL); // Force kill if still not exited
     }
 
     int status = 0;
@@ -146,13 +171,13 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string>& args,
     } else {
         res.exit_code = -1;
     }
-    Utils::unregister_child_pid(pid);  // N04-fix: untrack (reaped)
+    Utils::unregister_child_pid(pid); // N04-fix: untrack (reaped)
     return res;
 }
 
 std::string YtdlpRunner::find_ytdlp() {
     // Add a regular-file check (access X_OK is also true for directories)
-    auto is_exec_file = [](const std::string& p) -> bool {
+    auto is_exec_file = [](const std::string &p) -> bool {
         struct stat st;
         return stat(p.c_str(), &st) == 0 && S_ISREG(st.st_mode) && access(p.c_str(), X_OK) == 0;
     };
@@ -160,12 +185,16 @@ std::string YtdlpRunner::find_ytdlp() {
     std::istringstream ss(path_env);
     std::string dir;
     while (std::getline(ss, dir, ':')) {
-        if (dir.empty()) continue;
+        if (dir.empty())
+            continue;
         std::string candidate = dir + "/yt-dlp";
-        if (is_exec_file(candidate)) return candidate;
+        if (is_exec_file(candidate))
+            return candidate;
     }
-    if (is_exec_file("/usr/bin/yt-dlp")) return "/usr/bin/yt-dlp";
-    if (is_exec_file("/usr/local/bin/yt-dlp")) return "/usr/local/bin/yt-dlp";
+    if (is_exec_file("/usr/bin/yt-dlp"))
+        return "/usr/bin/yt-dlp";
+    if (is_exec_file("/usr/local/bin/yt-dlp"))
+        return "/usr/local/bin/yt-dlp";
     return "";
 }
 

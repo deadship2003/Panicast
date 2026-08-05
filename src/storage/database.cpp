@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
-#include <sys/stat.h>   // P1.4: chmod(0600) on the DB file
+#include <sys/stat.h> // P1.4: chmod(0600) on the DB file
 
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
@@ -11,7 +11,7 @@
 #include "panicast/config/ini_config.h"
 #include "panicast/core/logger.h"
 #include "panicast/core/paths.h"
-#include "panicast/net/url_classifier.h"   // N06: classifyMediaType for media_type backfill
+#include "panicast/net/url_classifier.h" // N06: classifyMediaType for media_type backfill
 
 namespace panicast
 {
@@ -19,8 +19,7 @@ namespace panicast
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
-
-DatabaseManager& DatabaseManager::instance() {
+DatabaseManager &DatabaseManager::instance() {
     static DatabaseManager db;
     return db;
 }
@@ -29,19 +28,25 @@ DatabaseManager::DatabaseManager() : initialized_(false), db_(nullptr) {}
 
 bool DatabaseManager::init() {
     // Fast path (lock-free) + double-checked locking; ensures one-time, reentrant init under multithreading
-    if (initialized_.load()) return true;
+    if (initialized_.load())
+        return true;
     static std::mutex init_mtx;
     std::lock_guard<std::mutex> lk(init_mtx);
-    if (initialized_.load()) return true;
+    if (initialized_.load())
+        return true;
 
     std::string db_path = Paths::get_db_file();
-    if (db_path.empty()) return false;
+    if (db_path.empty())
+        return false;
 
     fs::create_directories(fs::path(db_path).parent_path());
 
     if (sqlite3_open(db_path.c_str(), &db_) != SQLITE_OK) {
         LOG(fmt::format("[DB] Failed to open: {}", db_ ? sqlite3_errmsg(db_) : "null handle"));
-        if (db_) { sqlite3_close(db_); db_ = nullptr; }  // close even on failure
+        if (db_) {
+            sqlite3_close(db_);
+            db_ = nullptr;
+        } // close even on failure
         return false;
     }
 
@@ -51,12 +56,15 @@ bool DatabaseManager::init() {
     ::chmod(db_path.c_str(), 0600);
 
     // Enable WAL mode to allow concurrent read/write (download thread writes don't block UI reads)
-    char* err = nullptr;
+    char *err = nullptr;
     sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &err);
-    if (err) { LOG(fmt::format("[DB] WAL pragma: {}", err)); sqlite3_free(err); }
+    if (err) {
+        LOG(fmt::format("[DB] WAL pragma: {}", err));
+        sqlite3_free(err);
+    }
     sqlite3_exec(db_, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
     sqlite3_exec(db_, "PRAGMA foreign_keys=ON;", nullptr, nullptr, nullptr);
-    sqlite3_exec(db_, "PRAGMA busy_timeout=5000;", nullptr, nullptr, nullptr);  // 5s lock wait
+    sqlite3_exec(db_, "PRAGMA busy_timeout=5000;", nullptr, nullptr, nullptr); // 5s lock wait
     LOG("[DB] WAL mode enabled, synchronous=NORMAL");
 
     // F38: schema version via PRAGMA user_version. On mismatch, drop the tables whose schema
@@ -87,28 +95,33 @@ bool DatabaseManager::init() {
     constexpr int SCHEMA_VERSION = 47;
     int stored_version = 0;
     {
-        sqlite3_stmt* sv = nullptr;
+        sqlite3_stmt *sv = nullptr;
         if (sqlite3_prepare_v2(db_, "PRAGMA user_version;", -1, &sv, nullptr) == SQLITE_OK) {
-            if (sqlite3_step(sv) == SQLITE_ROW) stored_version = sqlite3_column_int(sv, 0);
+            if (sqlite3_step(sv) == SQLITE_ROW)
+                stored_version = sqlite3_column_int(sv, 0);
             sqlite3_finalize(sv);
         }
     }
     if (stored_version != SCHEMA_VERSION) {
         // Y03 (39 -> 40): ensure history.url has a UNIQUE constraint (see comment above). Runs for
         //   any version mismatch; idempotent. Dedupe first so CREATE UNIQUE INDEX can't fail on dups.
-        if (stored_version > 0) {  // skip on a fresh DB (no rows yet)
-            sqlite3_exec(db_, "DELETE FROM history WHERE id NOT IN (SELECT MAX(id) FROM history GROUP BY url);",
-                         nullptr, nullptr, nullptr);
+        if (stored_version > 0) { // skip on a fresh DB (no rows yet)
+            sqlite3_exec(
+                db_,
+                "DELETE FROM history WHERE id NOT IN (SELECT MAX(id) FROM history GROUP BY url);",
+                nullptr, nullptr, nullptr);
         }
         sqlite3_exec(db_, "CREATE UNIQUE INDEX IF NOT EXISTS idx_history_url ON history(url);",
                      nullptr, nullptr, nullptr);
-        LOG(fmt::format("[DB] Schema version {} -> {}: history.url UNIQUE index; youtube_cache rebuilt (account_id); "
-                        "F42 user data preserved", stored_version, SCHEMA_VERSION));
+        LOG(fmt::format("[DB] Schema version {} -> {}: history.url UNIQUE index; youtube_cache "
+                        "rebuilt (account_id); "
+                        "F42 user data preserved",
+                        stored_version, SCHEMA_VERSION));
         sqlite3_exec(db_, "DROP TABLE IF EXISTS youtube_cache;", nullptr, nullptr, nullptr);
     }
 
     // Create tables
-    const char* create_tables = R"(
+    const char *create_tables = R"(
         -- F38: unified recursive tree (replaces nodes + radio_cache). root_type ∈ {podcast,radio}.
         --   children via parent_id recursion; node state as columns; no data_json.
         --   is_downloaded/local_file NOT here — use media_cache (single source of truth).
@@ -340,7 +353,7 @@ bool DatabaseManager::init() {
         );
     )";
 
-    char* err_msg = nullptr;
+    char *err_msg = nullptr;
     if (sqlite3_exec(db_, create_tables, nullptr, nullptr, &err_msg) != SQLITE_OK) {
         LOG(fmt::format("[DB] Create tables error: {}", err_msg));
         sqlite3_free(err_msg);
@@ -351,20 +364,23 @@ bool DatabaseManager::init() {
     //   existing table, so an old DB (created before these columns existed) keeps the old schema
     //   and INSERTs fail with "no such column". Add any missing column via ALTER TABLE. Runs every
     //   init (cheap PRAGMA table_info check); safe on fresh DBs (columns already present).
-    auto add_column_if_missing = [&](const char* table, const char* col, const char* decl) {
-        sqlite3_stmt* st = nullptr;
+    auto add_column_if_missing = [&](const char *table, const char *col, const char *decl) {
+        sqlite3_stmt *st = nullptr;
         std::string q = fmt::format("PRAGMA table_info({});", table);
         bool found = false;
         if (sqlite3_prepare_v2(db_, q.c_str(), -1, &st, nullptr) == SQLITE_OK) {
             while (sqlite3_step(st) == SQLITE_ROW) {
-                const char* name = reinterpret_cast<const char*>(sqlite3_column_text(st, 1));
-                if (name && strcmp(name, col) == 0) { found = true; break; }
+                const char *name = reinterpret_cast<const char *>(sqlite3_column_text(st, 1));
+                if (name && strcmp(name, col) == 0) {
+                    found = true;
+                    break;
+                }
             }
             sqlite3_finalize(st);
         }
         if (!found) {
             std::string al = fmt::format("ALTER TABLE {} ADD COLUMN {} {};", table, col, decl);
-            char* e = nullptr;
+            char *e = nullptr;
             if (sqlite3_exec(db_, al.c_str(), nullptr, nullptr, &e) == SQLITE_OK) {
                 LOG(fmt::format("[DB] migrated {} + column {}", table, col));
             } else {
@@ -375,7 +391,7 @@ bool DatabaseManager::init() {
     };
     add_column_if_missing("episode_cache", "is_youtube", "INTEGER DEFAULT 0");
     add_column_if_missing("episode_cache", "has_subtitle", "INTEGER DEFAULT 0");
-    add_column_if_missing("episode_cache", "subtitle_url", "TEXT");  // Y23.10
+    add_column_if_missing("episode_cache", "subtitle_url", "TEXT"); // Y23.10
     add_column_if_missing("episode_cache", "has_asr_srt", "INTEGER DEFAULT 0");
     add_column_if_missing("episode_cache", "asr_srt_path", "TEXT");
     add_column_if_missing("favourites", "is_youtube", "INTEGER DEFAULT 0");
@@ -398,18 +414,19 @@ bool DatabaseManager::init() {
     //   such column → all default 0). New rows get the value at insert time. classifyMediaType is
     //   platform-priority (YouTube never Video, m3u8→IPTV, local vs online distinguished).
     if (stored_version > 0 && stored_version < 47) {
-        auto backfill = [&](const char* table) {
-            sqlite3_stmt* q = nullptr;
+        auto backfill = [&](const char *table) {
+            sqlite3_stmt *q = nullptr;
             std::string sel = fmt::format("SELECT rowid, url FROM {} WHERE media_type = 0;", table);
             if (sqlite3_prepare_v2(db_, sel.c_str(), -1, &q, nullptr) == SQLITE_OK) {
-                sqlite3_stmt* upd = nullptr;
-                std::string usql = fmt::format("UPDATE {} SET media_type = ? WHERE rowid = ?;", table);
+                sqlite3_stmt *upd = nullptr;
+                std::string usql =
+                    fmt::format("UPDATE {} SET media_type = ? WHERE rowid = ?;", table);
                 sqlite3_prepare_v2(db_, usql.c_str(), -1, &upd, nullptr);
                 int n = 0;
                 while (upd && sqlite3_step(q) == SQLITE_ROW) {
                     sqlite3_int64 rowid = sqlite3_column_int64(q, 0);
-                    const unsigned char* u = sqlite3_column_text(q, 1);
-                    std::string url = u ? reinterpret_cast<const char*>(u) : "";
+                    const unsigned char *u = sqlite3_column_text(q, 1);
+                    std::string url = u ? reinterpret_cast<const char *>(u) : "";
                     int mt = static_cast<int>(URLClassifier::classifyMediaType(url));
                     sqlite3_bind_int(upd, 1, mt);
                     sqlite3_bind_int64(upd, 2, rowid);
@@ -418,7 +435,8 @@ bool DatabaseManager::init() {
                     sqlite3_clear_bindings(upd);
                     ++n;
                 }
-                if (upd) sqlite3_finalize(upd);
+                if (upd)
+                    sqlite3_finalize(upd);
                 sqlite3_finalize(q);
                 LOG(fmt::format("[DB] backfilled {} rows in {} with media_type", n, table));
             }
@@ -428,8 +446,8 @@ bool DatabaseManager::init() {
     }
 
     // Record the schema version (PRAGMA user_version) so future schema changes can detect mismatch.
-    sqlite3_exec(db_, fmt::format("PRAGMA user_version = {};", SCHEMA_VERSION).c_str(),
-                 nullptr, nullptr, nullptr);
+    sqlite3_exec(db_, fmt::format("PRAGMA user_version = {};", SCHEMA_VERSION).c_str(), nullptr,
+                 nullptr, nullptr);
 
     initialized_ = true;
     LOG("[DB] Database initialized successfully");
@@ -441,40 +459,53 @@ bool DatabaseManager::init() {
 }
 
 DatabaseManager::~DatabaseManager() {
-    if (db_) sqlite3_close_v2(db_);  // close_v2 schedules final teardown even with outstanding statements
+    if (db_)
+        sqlite3_close_v2(db_); // close_v2 schedules final teardown even with outstanding statements
 }
 
 // Public is_ready method for external callers
-bool DatabaseManager::is_ready() const { return initialized_ && db_ != nullptr; }
+bool DatabaseManager::is_ready() const {
+    return initialized_ && db_ != nullptr;
+}
 
 // Transaction helpers — ensure atomicity of "delete then insert" style operations, avoiding data loss on midway failure
-bool DatabaseManager::begin_txn() { return exec_sql("BEGIN;"); }
-bool DatabaseManager::commit_txn() { return exec_sql("COMMIT;"); }
-bool DatabaseManager::rollback_txn() { return exec_sql("ROLLBACK;"); }
+bool DatabaseManager::begin_txn() {
+    return exec_sql("BEGIN;");
+}
+bool DatabaseManager::commit_txn() {
+    return exec_sql("COMMIT;");
+}
+bool DatabaseManager::rollback_txn() {
+    return exec_sql("ROLLBACK;");
+}
 
-std::string DatabaseManager::escape_sql(const std::string& s) {
+std::string DatabaseManager::escape_sql(const std::string &s) {
     std::string result;
     result.reserve(s.size() * 2);
     for (char c : s) {
-        if (c == '\0') continue;  // Strip NUL to prevent c_str() from truncating the statement
-        if (c == '\'') result += "''";
-        else result += c;
+        if (c == '\0')
+            continue; // Strip NUL to prevent c_str() from truncating the statement
+        if (c == '\'')
+            result += "''";
+        else
+            result += c;
     }
     return result;
 }
 
-bool DatabaseManager::exec_sql(const std::string& sql) {
-    char* err_msg = nullptr;
+bool DatabaseManager::exec_sql(const std::string &sql) {
+    char *err_msg = nullptr;
     int rc = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &err_msg);
     if (rc != SQLITE_OK) {
         LOG(fmt::format("[DB] SQL error: {}", err_msg ? err_msg : "unknown"));
-        if (err_msg) sqlite3_free(err_msg);
+        if (err_msg)
+            sqlite3_free(err_msg);
         return false;
     }
     return true;
 }
 
-void DatabaseManager::run_locked(const std::function<void()>& fn) {
+void DatabaseManager::run_locked(const std::function<void()> &fn) {
     std::lock_guard<std::recursive_mutex> lk(mtx_);
     fn();
 }

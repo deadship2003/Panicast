@@ -19,7 +19,7 @@ namespace panicast
 
 struct GoogleAccount {
     int account_id = 0;
-    std::string type;            // "google"
+    std::string type; // "google"
     std::string label;
     std::string google_email;
     std::string gaia_id;
@@ -46,11 +46,11 @@ struct YouTubeSubRow {
 // Y02: a YouTube search hit (mixed types). Used by Y-mode `/` search.
 struct YouTubeSearchRow {
     enum class Kind { VIDEO, CHANNEL, PLAYLIST } kind = Kind::CHANNEL;
-    std::string id;           // videoId / channelId / playlistId
+    std::string id; // videoId / channelId / playlistId
     std::string title;
     std::string channel_title;
-    std::string url;          // watch?v= / channel/ / playlist?list=
-    bool music = false;       // true if returned from a music-category search
+    std::string url;           // watch?v= / channel/ / playlist?list=
+    bool music = false;        // true if returned from a music-category search
     std::string thumbnail_url; // Y23: snippet.thumbnails (art_url for display/cache)
 };
 
@@ -60,26 +60,28 @@ struct YouTubeHistoryRow {
     std::string channel_name;
     int duration = 0;
     std::string watched_at;
-    std::string source;   // "youtube" | "local"
+    std::string source; // "youtube" | "local"
 };
 
 class AccountsManager {
 public:
-    static AccountsManager& instance();
+    static AccountsManager &instance();
 
     // ── account CRUD ──
     // Create a new Google account row from the OAuth result. Returns its account_id (>0), or 0 on failure.
-    int add_account(const std::string& google_email, const std::string& gaia_id, const std::string& channel_id,
-                    const std::string& access_token, const std::string& refresh_token,
-                    int64_t expires_at, const std::string& scope, const std::string& label = "");
+    int add_account(const std::string &google_email, const std::string &gaia_id,
+                    const std::string &channel_id, const std::string &access_token,
+                    const std::string &refresh_token, int64_t expires_at, const std::string &scope,
+                    const std::string &label = "");
     // Update tokens for an existing account (e.g. after refresh or re-login).
-    bool update_tokens(int account_id, const std::string& access_token, const std::string& refresh_token,
-                       int64_t expires_at, const std::string& scope = "");
+    bool update_tokens(int account_id, const std::string &access_token,
+                       const std::string &refresh_token, int64_t expires_at,
+                       const std::string &scope = "");
     // Update profile fields (email/channel/etc. discovered after first token use).
-    bool update_profile(int account_id, const std::string& google_email, const std::string& gaia_id,
-                        const std::string& channel_id);
+    bool update_profile(int account_id, const std::string &google_email, const std::string &gaia_id,
+                        const std::string &channel_id);
     bool delete_account(int account_id);
-    bool set_label(int account_id, const std::string& label);
+    bool set_label(int account_id, const std::string &label);
 
     std::vector<GoogleAccount> list_accounts();
     // Touch last_login_at = now.
@@ -90,31 +92,32 @@ public:
     // The active Google account supplies the OAuth token for yt-dlp/mpv and scopes YouTube data.
     // 0 = none active (no login state; podcast/local play unaffected).
     int active_account_id();
-    void set_active_account(int account_id);   // 0 to clear; updates accounts.is_active + stats.
-    bool get_account(int account_id, GoogleAccount& out);
+    void set_active_account(int account_id); // 0 to clear; updates accounts.is_active + stats.
+    bool get_account(int account_id, GoogleAccount &out);
     // Fill out.access_token/refresh_token (decrypted). Refreshes if expired (calls GoogleOAuth).
     // Returns false if no valid token could be obtained.
-    bool get_tokens(int account_id, GoogleAccount& out);
+    bool get_tokens(int account_id, GoogleAccount &out);
 
     // ── youtube_subscriptions ──
-    void replace_subscriptions(int account_id, const std::vector<YouTubeSubRow>& subs);
+    void replace_subscriptions(int account_id, const std::vector<YouTubeSubRow> &subs);
     std::vector<YouTubeSubRow> load_subscriptions(int account_id);
 
     // ── youtube_history ──
-    void upsert_history(int account_id, const YouTubeHistoryRow& row);
+    void upsert_history(int account_id, const YouTubeHistoryRow &row);
     std::vector<YouTubeHistoryRow> load_history(int account_id, int limit = 200);
     void clear_history(int account_id);
 
     // ── account_sync_state ──
-    void set_sync_state(int account_id, const std::string& sync_type, const std::string& cursor = "");
-    int64_t get_sync_last(int account_id, const std::string& sync_type);
+    void set_sync_state(int account_id, const std::string &sync_type,
+                        const std::string &cursor = "");
+    int64_t get_sync_last(int account_id, const std::string &sync_type);
 
     // ── yt-dlp / mpv OAuth injection (task 6) ──
 private:
     AccountsManager();
     // Encrypt plaintext token string for db storage.
-    std::string seal(const std::string& plaintext);
-    bool open_sealed(const std::string& b64, std::string& out);
+    std::string seal(const std::string &plaintext);
+    bool open_sealed(const std::string &b64, std::string &out);
 
     int64_t now_epoch();
 

@@ -12,19 +12,24 @@
 namespace panicast
 {
 
-std::string g_last_xml_error;  // Stores the last XML error message
-int g_xml_error_count = 0;     // Error count
-static std::mutex g_xml_err_mtx;  // Protects the two above (libxml2 callbacks may come from worker threads)
+std::string g_last_xml_error; // Stores the last XML error message
+int g_xml_error_count = 0;    // Error count
+static std::mutex
+    g_xml_err_mtx; // Protects the two above (libxml2 callbacks may come from worker threads)
 
 std::string get_xml_prop_any(xmlNodePtr n, std::vector<std::string> ns) {
-    for (auto& name : ns) {
-        xmlChar* p = xmlGetProp(n, (const xmlChar*)name.c_str());
-        if (p) { std::string s = (char*)p; xmlFree(p); return s; }
+    for (auto &name : ns) {
+        xmlChar *p = xmlGetProp(n, (const xmlChar *)name.c_str());
+        if (p) {
+            std::string s = (char *)p;
+            xmlFree(p);
+            return s;
+        }
     }
     return "";
 }
 
-void xml_error_handler(void* ctx, const char* msg, ...) {
+void xml_error_handler(void *ctx, const char *msg, ...) {
     (void)ctx; // libxml2 standard parameter, currently unused
     char buffer[1024];
     va_list args;
@@ -56,7 +61,7 @@ void xml_error_handler(void* ctx, const char* msg, ...) {
 }
 
 // Fix parameter type to const xmlError* (matches libxml2's xmlStructuredErrorFunc definition)
-void xml_structured_error_handler(void* ctx, xmlError* error) {
+void xml_structured_error_handler(void *ctx, xmlError *error) {
     (void)ctx; // libxml2 standard parameter, currently unused
     if (error && error->message) {
         std::string msg = error->message;

@@ -10,8 +10,9 @@
 namespace panicast
 {
 
-int StatusBarColorRenderer::get_color(const StatusBarColorConfig& config, int offset) {
-    static std::mutex mtx;  // P3-8: Multi-core concurrency protection for in-function static state (hue/last_update)
+int StatusBarColorRenderer::get_color(const StatusBarColorConfig &config, int offset) {
+    static std::mutex
+        mtx; // P3-8: Multi-core concurrency protection for in-function static state (hue/last_update)
     std::lock_guard<std::mutex> lk(mtx);
     static int hue = 0;
     static auto last_update = std::chrono::steady_clock::now();
@@ -27,30 +28,30 @@ int StatusBarColorRenderer::get_color(const StatusBarColorConfig& config, int of
     float brightness = calculate_brightness(config);
 
     switch (config.mode) {
-        case StatusBarColorMode::RAINBOW:
-            return get_rainbow_color(hue + offset, brightness);
-        case StatusBarColorMode::RANDOM:
-            return get_random_color(brightness);
-        case StatusBarColorMode::TIME_BRIGHTNESS:
-            return get_time_adjusted_color(brightness);
-        case StatusBarColorMode::FIXED:
-            return get_fixed_color(config.fixed_color, brightness);
-        case StatusBarColorMode::CUSTOM:
-            // Cycle through the user-defined color sequence
-            return get_custom_color(config, offset);
-        default:
-            return get_rainbow_color(hue + offset, brightness);
+    case StatusBarColorMode::RAINBOW:
+        return get_rainbow_color(hue + offset, brightness);
+    case StatusBarColorMode::RANDOM:
+        return get_random_color(brightness);
+    case StatusBarColorMode::TIME_BRIGHTNESS:
+        return get_time_adjusted_color(brightness);
+    case StatusBarColorMode::FIXED:
+        return get_fixed_color(config.fixed_color, brightness);
+    case StatusBarColorMode::CUSTOM:
+        // Cycle through the user-defined color sequence
+        return get_custom_color(config, offset);
+    default:
+        return get_rainbow_color(hue + offset, brightness);
     }
 }
 
-float StatusBarColorRenderer::calculate_brightness(const StatusBarColorConfig& config) {
+float StatusBarColorRenderer::calculate_brightness(const StatusBarColorConfig &config) {
     float brightness = config.brightness_max;
 
     if (config.time_adjust) {
         auto now = std::chrono::system_clock::now();
         std::time_t t = std::chrono::system_clock::to_time_t(now);
         std::tm tm_local;
-        localtime_local(&t, &tm_local);  // Thread-safe
+        localtime_local(&t, &tm_local); // Thread-safe
         int hour = tm_local.tm_hour;
 
         if (hour >= 22 || hour < 6) {
@@ -76,20 +77,45 @@ int StatusBarColorRenderer::get_rainbow_color(int hue, float brightness) {
 
     float r, g, b;
     switch (i) {
-        case 0: r = v; g = t; b = p; break;
-        case 1: r = q; g = v; b = p; break;
-        case 2: r = p; g = v; b = t; break;
-        case 3: r = p; g = q; b = v; break;
-        case 4: r = t; g = p; b = v; break;
-        default: r = v; g = p; b = q; break;
+    case 0:
+        r = v;
+        g = t;
+        b = p;
+        break;
+    case 1:
+        r = q;
+        g = v;
+        b = p;
+        break;
+    case 2:
+        r = p;
+        g = v;
+        b = t;
+        break;
+    case 3:
+        r = p;
+        g = q;
+        b = v;
+        break;
+    case 4:
+        r = t;
+        g = p;
+        b = v;
+        break;
+    default:
+        r = v;
+        g = p;
+        b = q;
+        break;
     }
 
-    return 16 + static_cast<int>(r * 5) * 36 + static_cast<int>(g * 5) * 6 + static_cast<int>(b * 5);
+    return 16 + static_cast<int>(r * 5) * 36 + static_cast<int>(g * 5) * 6 +
+           static_cast<int>(b * 5);
 }
 
 int StatusBarColorRenderer::get_random_color(float brightness) {
-    (void)brightness; // Parameter reserved for future use
-    static std::mutex mtx;  // P3-8: Multi-core concurrency protection for mt19937/distributor
+    (void)brightness;      // Parameter reserved for future use
+    static std::mutex mtx; // P3-8: Multi-core concurrency protection for mt19937/distributor
     std::lock_guard<std::mutex> lk(mtx);
     static std::random_device rd;
     static std::mt19937 gen(rd());
@@ -104,20 +130,21 @@ int StatusBarColorRenderer::get_time_adjusted_color(float brightness) {
     return get_rainbow_color(hue, brightness);
 }
 
-int StatusBarColorRenderer::get_fixed_color(const std::string& color_name, float brightness) {
+int StatusBarColorRenderer::get_fixed_color(const std::string &color_name, float brightness) {
     (void)brightness; // Parameter reserved for future use
     static std::map<std::string, int> color_map = {
-        {"black", COLOR_BLACK}, {"red", COLOR_RED}, {"green", COLOR_GREEN},
-        {"yellow", COLOR_YELLOW}, {"blue", COLOR_BLUE}, {"magenta", COLOR_MAGENTA},
-        {"cyan", COLOR_CYAN}, {"white", COLOR_WHITE},
+        {"black", COLOR_BLACK},   {"red", COLOR_RED},     {"green", COLOR_GREEN},
+        {"yellow", COLOR_YELLOW}, {"blue", COLOR_BLUE},   {"magenta", COLOR_MAGENTA},
+        {"cyan", COLOR_CYAN},     {"white", COLOR_WHITE},
     };
 
     auto it = color_map.find(color_name);
-    if (it != color_map.end()) return it->second;
+    if (it != color_map.end())
+        return it->second;
     return COLOR_CYAN;
 }
 
-int StatusBarColorRenderer::get_custom_color(const StatusBarColorConfig& config, int offset) {
+int StatusBarColorRenderer::get_custom_color(const StatusBarColorConfig &config, int offset) {
     if (config.custom_colors.empty()) {
         // Fall back to CYAN when no color sequence is configured
         return COLOR_CYAN;

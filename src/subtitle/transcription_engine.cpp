@@ -17,9 +17,9 @@
 #include "panicast/core/paths.h"
 #include "panicast/core/utils.h"
 #include "panicast/core/thread_pool.h"
-#include "panicast/playback/mpv_controller.h"  // Y24.28: for video ASR (sub_add + show_osd)
-#include "panicast/net/network.h"             // ASR: Network::download_to_file (proxy-aware source fetch)
-#include "panicast/storage/cache.h"           // ASR: CacheManager (reuse/register the episode's local cache)
+#include "panicast/playback/mpv_controller.h" // Y24.28: for video ASR (sub_add + show_osd)
+#include "panicast/net/network.h"   // ASR: Network::download_to_file (proxy-aware source fetch)
+#include "panicast/storage/cache.h" // ASR: CacheManager (reuse/register the episode's local cache)
 #include "panicast/storage/database.h"
 #include "panicast/subtitle/subtitle_manager.h"
 
@@ -27,26 +27,31 @@ namespace panicast
 {
 namespace fs = std::filesystem;
 
-namespace {
+namespace
+{
 std::string temp_basename() {
     static std::atomic<unsigned> n{0};
     return "/tmp/panicast_wh_" + std::to_string(++n);
 }
-std::string expand_home(const std::string& p) {
+std::string expand_home(const std::string &p) {
     if (!p.empty() && p[0] == '~') {
-        const char* h = std::getenv("HOME");
-        if (h) return std::string(h) + p.substr(1);
+        const char *h = std::getenv("HOME");
+        if (h)
+            return std::string(h) + p.substr(1);
     }
     return p;
 }
 bool cpu_has_room(int active, int max_concurrent) {
-    if (active >= max_concurrent) return false;
+    if (active >= max_concurrent)
+        return false;
     double load[1] = {0.0};
     int n = getloadavg(load, 1);
     unsigned cores = std::thread::hardware_concurrency();
-    if (cores == 0) cores = 4;
+    if (cores == 0)
+        cores = 4;
     double threshold = (cores > 1) ? (static_cast<double>(cores) - 1.0) : 1.0;
-    if (n < 1) return true;
+    if (n < 1)
+        return true;
     return load[0] < threshold;
 }
 // Thread count for whisper-cli (-t). whisper with -t=$(nproc) pegs EVERY core and starves the
@@ -55,20 +60,25 @@ bool cpu_has_room(int active, int max_concurrent) {
 //   overrides (power users with dedicated transcode boxes can set it higher).
 unsigned whisper_threads() {
     int cfg = IniConfig::instance().get_int("transcription", "threads", 0);
-    if (cfg > 0) return static_cast<unsigned>(cfg);
+    if (cfg > 0)
+        return static_cast<unsigned>(cfg);
     unsigned t = std::thread::hardware_concurrency();
-    if (t == 0) t = 4;
-    if (t > 2) t -= 2;
-    else t = 1;
+    if (t == 0)
+        t = 4;
+    if (t > 2)
+        t -= 2;
+    else
+        t = 1;
     return t;
 }
 // Parse a whisper-cli stdout line "[HH:MM:SS.mmm --> HH:MM:SS.mmm]  text" into a segment.
-bool parse_whisper_line(const std::string& line, TranscriptSegment& seg) {
+bool parse_whisper_line(const std::string &line, TranscriptSegment &seg) {
     static const std::regex re(
         R"(\[(\d+):(\d+):(\d+\.\d+)\s*-->\s*(\d+):(\d+):(\d+\.\d+)\]\s*(.*))");
     std::smatch m;
-    if (!std::regex_match(line, m, re)) return false;
-    auto to_sec = [](const std::string& h, const std::string& mm, const std::string& ss) {
+    if (!std::regex_match(line, m, re))
+        return false;
+    auto to_sec = [](const std::string &h, const std::string &mm, const std::string &ss) {
         return std::stod(h) * 3600.0 + std::stod(mm) * 60.0 + std::stod(ss);
     };
     seg.start = to_sec(m[1].str(), m[2].str(), m[3].str());
@@ -77,16 +87,18 @@ bool parse_whisper_line(const std::string& line, TranscriptSegment& seg) {
     return true;
 }
 // djb2 string hash → hex (for streaming sidecar filenames; no Math/random).
-std::string url_hash(const std::string& s) {
+std::string url_hash(const std::string &s) {
     unsigned long h = 5381;
-    for (char c : s) h = ((h << 5) + h) + static_cast<unsigned char>(c);
+    for (char c : s)
+        h = ((h << 5) + h) + static_cast<unsigned char>(c);
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%lx", h);
     return buf;
 }
 // Format seconds → SRT timestamp HH:MM:SS,mmm.
 std::string srt_ts(double t) {
-    if (t < 0) t = 0;
+    if (t < 0)
+        t = 0;
     int ms = static_cast<int>(t * 1000) % 1000;
     int s = static_cast<int>(t);
     int h = s / 3600, m = (s % 3600) / 60, sec = s % 60;
@@ -95,42 +107,49 @@ std::string srt_ts(double t) {
     return buf;
 }
 // Write segments to an SRT file.
-void write_srt_file(const std::string& path, const std::vector<TranscriptSegment>& segs) {
+void write_srt_file(const std::string &path, const std::vector<TranscriptSegment> &segs) {
     std::ofstream f(path);
-    if (!f) return;
+    if (!f)
+        return;
     for (size_t i = 0; i < segs.size(); ++i) {
-        f << (i + 1) << "\n" << srt_ts(segs[i].start) << " --> " << srt_ts(segs[i].end)
-          << "\n" << segs[i].text << "\n\n";
+        f << (i + 1) << "\n"
+          << srt_ts(segs[i].start) << " --> " << srt_ts(segs[i].end) << "\n"
+          << segs[i].text << "\n\n";
     }
 }
 // Parse an existing SRT file into segments (via the subtitle parser registry).
-std::vector<TranscriptSegment> parse_srt_file(const std::string& path) {
+std::vector<TranscriptSegment> parse_srt_file(const std::string &path) {
     std::ifstream f(path);
-    if (!f) return {};
+    if (!f)
+        return {};
     std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     return SubtitleParserRegistry::instance().parse(content, "srt");
 }
 // Get audio duration in seconds (ffmpeg -i → parse stderr "Duration: HH:MM:SS.xx").
-double get_audio_duration(const std::string& file) {
+double get_audio_duration(const std::string &file) {
     auto r = Utils::run_process("ffmpeg", {"-i", file});
     // ffmpeg without output exits 1; stderr has "Duration: 00:30:15.23,"
     size_t pos = r.stderr_out.find("Duration: ");
-    if (pos == std::string::npos) return -1.0;
-    pos += 10;  // skip "Duration: "
+    if (pos == std::string::npos)
+        return -1.0;
+    pos += 10; // skip "Duration: "
     // Parse HH:MM:SS.xx
-    int h = 0, m = 0; double s = 0.0;
-    if (std::sscanf(r.stderr_out.c_str() + pos, "%d:%d:%lf", &h, &m, &s) < 3) return -1.0;
+    int h = 0, m = 0;
+    double s = 0.0;
+    if (std::sscanf(r.stderr_out.c_str() + pos, "%d:%d:%lf", &h, &m, &s) < 3)
+        return -1.0;
 
     return h * 3600.0 + m * 60.0 + s;
 }
 
 // Y24.22: compute the SRT sidecar path for a given url (local: <file>.srt; streaming: <data_dir>/transcripts/<hash>.srt).
-std::string compute_srt_path(const std::string& url, bool is_streaming, TreeNodePtr node) {
+std::string compute_srt_path(const std::string &url, bool is_streaming, TreeNodePtr node) {
     if (!is_streaming && node) {
         std::string file = node->local_file.empty() ? node->url : node->local_file;
         std::string base = file;
         size_t dot = base.find_last_of('.');
-        if (dot != std::string::npos) base = base.substr(0, dot);
+        if (dot != std::string::npos)
+            base = base.substr(0, dot);
         return base + ".srt";
     }
     return Paths::get_data_dir() + "/transcripts/" + url_hash(url) + ".srt";
@@ -138,12 +157,15 @@ std::string compute_srt_path(const std::string& url, bool is_streaming, TreeNode
 
 // Y24.22/23: persist the ASR subtitle marker (has_asr_srt + asr_srt_path) to episode_cache.
 void persist_subtitle_marker(TreeNodePtr node) {
-    if (!node) return;
+    if (!node)
+        return;
     auto parent = node->parent.lock();
-    if (!parent || parent->type != NodeType::PODCAST_FEED) return;
+    if (!parent || parent->type != NodeType::PODCAST_FEED)
+        return;
     // Y24.23: ASR SRT -> update has_asr_srt + asr_srt_path (NOT has_subtitle, which is for online 📜).
     node->has_asr_srt = true;
-    node->asr_srt_path = node->subtitle_url;  // subtitle_url was set by probe_sidecar to the SRT path
+    node->asr_srt_path =
+        node->subtitle_url; // subtitle_url was set by probe_sidecar to the SRT path
     DatabaseManager::instance().update_episode_asr(parent->url, node->url, node->asr_srt_path);
     LOG(fmt::format("[Transcribe] persisted ASR marker: feed={} ep={} srt={}",
                     parent->url.substr(0, 40), node->url.substr(0, 40), node->asr_srt_path));
@@ -154,17 +176,22 @@ void persist_subtitle_marker(TreeNodePtr node) {
 std::string TranscriptionEngine::resolve_whisper_bin() {
     std::string v = IniConfig::instance().get("transcription", "whisper_bin", "whisper-cli");
     v = expand_home(v);
-    if (v.empty()) return "";
-    if (v[0] == '/') return fs::exists(v) ? v : "";            // absolute → fs::exists
-    return Utils::which_binary(v);                              // bare → PATH search
+    if (v.empty())
+        return "";
+    if (v[0] == '/')
+        return fs::exists(v) ? v : ""; // absolute → fs::exists
+    return Utils::which_binary(v);     // bare → PATH search
 }
 std::string TranscriptionEngine::resolve_model() {
-    std::string v = IniConfig::instance().get("transcription", "model",
-                                              "~/.local/share/panicast/models/ggml-small.en-q5_1.bin");
+    std::string v = IniConfig::instance().get(
+        "transcription", "model", "~/.local/share/panicast/models/ggml-small.en-q5_1.bin");
     v = expand_home(v);
-    if (v.empty()) return "";
-    if (v[0] == '/') return fs::exists(v) ? v : "";            // absolute → fs::exists
-    if (v.find('/') != std::string::npos) return fs::exists(v) ? v : "";  // relative path
+    if (v.empty())
+        return "";
+    if (v[0] == '/')
+        return fs::exists(v) ? v : ""; // absolute → fs::exists
+    if (v.find('/') != std::string::npos)
+        return fs::exists(v) ? v : ""; // relative path
     // bare filename → <data_dir>/models/<file>
     std::string p = Paths::get_data_dir() + "/models/" + v;
     return fs::exists(p) ? p : "";
@@ -180,17 +207,20 @@ int TranscriptionEngine::queue_remaining() const {
     return static_cast<int>(queue_.size());
 }
 
-void TranscriptionEngine::enqueue_offline(const std::vector<TreeNodePtr>& nodes) {
-    stop_offline_ = false;  // Y24.21: reset stop flag for a new batch
+void TranscriptionEngine::enqueue_offline(const std::vector<TreeNodePtr> &nodes) {
+    stop_offline_ = false; // Y24.21: reset stop flag for a new batch
     int added = 0;
     {
         std::lock_guard<std::mutex> lk(mtx_);
-        for (auto& n : nodes) {
-            if (!n) continue;
+        for (auto &n : nodes) {
+            if (!n)
+                continue;
             std::string file = n->local_file.empty() ? n->url : n->local_file;
-            if (file.empty()) continue;
+            if (file.empty())
+                continue;
             queue_.push_back(n);
-            ++added; ++total_;
+            ++added;
+            ++total_;
         }
     }
     if (added > 0) {
@@ -211,16 +241,19 @@ void TranscriptionEngine::stop_offline() {
 }
 
 void TranscriptionEngine::start_dispatcher() {
-    if (dispatcher_started_) return;
+    if (dispatcher_started_)
+        return;
     dispatcher_started_ = true;
     stop_ = false;
-    if (dispatcher_.joinable()) dispatcher_.join();
+    if (dispatcher_.joinable())
+        dispatcher_.join();
     dispatcher_ = std::thread([this]() { dispatcher_loop(); });
 }
 
 void TranscriptionEngine::dispatcher_loop() {
     int max_concurrent = IniConfig::instance().get_int("transcription", "max_concurrent", 3);
-    if (max_concurrent < 1) max_concurrent = 1;
+    if (max_concurrent < 1)
+        max_concurrent = 1;
     while (!stop_ && !stop_offline_.load()) {
         if (!cpu_has_room(active_.load(), max_concurrent)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -229,7 +262,8 @@ void TranscriptionEngine::dispatcher_loop() {
         TreeNodePtr node;
         {
             std::lock_guard<std::mutex> lk(mtx_);
-            if (queue_.empty()) break;
+            if (queue_.empty())
+                break;
             node = queue_.front();
             queue_.pop_front();
         }
@@ -249,28 +283,37 @@ void TranscriptionEngine::dispatcher_loop() {
 
 void TranscriptionEngine::transcribe_one(TreeNodePtr node) {
     std::string file = node->local_file.empty() ? node->url : node->local_file;
-    if (node->local_file.empty()) node->local_file = file;
+    if (node->local_file.empty())
+        node->local_file = file;
     std::string whisper_bin = resolve_whisper_bin();
     std::string model = resolve_model();
-    if (whisper_bin.empty()) { EVENT_LOG("Transcribe: whisper-cli not found — install whisper-cpp"); return; }
-    if (model.empty()) { EVENT_LOG("Transcribe: model not found — set [transcription] model"); return; }
+    if (whisper_bin.empty()) {
+        EVENT_LOG("Transcribe: whisper-cli not found — install whisper-cpp");
+        return;
+    }
+    if (model.empty()) {
+        EVENT_LOG("Transcribe: model not found — set [transcription] model");
+        return;
+    }
 
     // Y24.20: skip/resume check \u2014 don\u2019t waste CPU re-transcribing files that already have subtitles.
     std::string base = file;
     size_t dot = base.find_last_of('.');
-    if (dot != std::string::npos) base = base.substr(0, dot);
+    if (dot != std::string::npos)
+        base = base.substr(0, dot);
     std::string srt_dst = base + ".srt";
 
     std::vector<TranscriptSegment> existing_segs;
-    int offset_ms = 0;  // 0 = full transcribe; >0 = resume from this offset
+    int offset_ms = 0; // 0 = full transcribe; >0 = resume from this offset
     if (fs::exists(srt_dst)) {
         existing_segs = parse_srt_file(srt_dst);
         if (!existing_segs.empty()) {
             double last_end = existing_segs.back().end;
             double duration = get_audio_duration(file);
             if (duration > 0 && last_end >= duration - 5.0) {
-                EVENT_LOG(fmt::format("Transcribe skip: \u2018{}\u2019 (already has {} segs, {:.0f}s/{:.0f}s)",
-                                      node->title, existing_segs.size(), last_end, duration));
+                EVENT_LOG(fmt::format(
+                    "Transcribe skip: \u2018{}\u2019 (already has {} segs, {:.0f}s/{:.0f}s)",
+                    node->title, existing_segs.size(), last_end, duration));
                 LOG(fmt::format("[Transcribe] skip (complete): {} ({} segs, {:.1}s/{:.1}s)",
                                 srt_dst, existing_segs.size(), last_end, duration));
                 SubtitleManager::probe_sidecar(node);
@@ -278,32 +321,44 @@ void TranscriptionEngine::transcribe_one(TreeNodePtr node) {
                 return;
             }
             offset_ms = static_cast<int>(last_end * 1000);
-            EVENT_LOG(fmt::format("Transcribe resume: \u2018{}\u2019 ({} segs to {:.0f}s, resuming)",
-                                  node->title, existing_segs.size(), last_end));
-            LOG(fmt::format("[Transcribe] resume from {:.1}s (offset_ms={}): {}", last_end, offset_ms, srt_dst));
+            EVENT_LOG(
+                fmt::format("Transcribe resume: \u2018{}\u2019 ({} segs to {:.0f}s, resuming)",
+                            node->title, existing_segs.size(), last_end));
+            LOG(fmt::format("[Transcribe] resume from {:.1}s (offset_ms={}): {}", last_end,
+                            offset_ms, srt_dst));
         }
     }
 
     std::string tmp_base = temp_basename();
     std::string tmp_wav = tmp_base + ".wav";
     std::string out_base = tmp_base + "_out";
-    LOG(fmt::format("[Transcribe] offline start: \u2018{}\u2019 (model={}, offset_ms={})", node->title, model, offset_ms));
-    auto r1 = Utils::run_process("ffmpeg", {"-y", "-i", file, "-ar", "16000", "-ac", "1", "-f", "wav", tmp_wav});
+    LOG(fmt::format("[Transcribe] offline start: \u2018{}\u2019 (model={}, offset_ms={})",
+                    node->title, model, offset_ms));
+    auto r1 = Utils::run_process(
+        "ffmpeg", {"-y", "-i", file, "-ar", "16000", "-ac", "1", "-f", "wav", tmp_wav});
     if (!r1.launched || r1.exit_code != 0) {
-        LOG(fmt::format("[Transcribe] ffmpeg failed (exit={}): {}", r1.exit_code, r1.stderr_out.substr(0, 200)));
-        fs::remove(tmp_wav); return;
+        LOG(fmt::format("[Transcribe] ffmpeg failed (exit={}): {}", r1.exit_code,
+                        r1.stderr_out.substr(0, 200)));
+        fs::remove(tmp_wav);
+        return;
     }
-    unsigned threads = whisper_threads();  // capped: leave cores for the UI + mpv (see whisper_threads)
+    unsigned threads =
+        whisper_threads(); // capped: leave cores for the UI + mpv (see whisper_threads)
     // Y24.21: streaming whisper-cli (stop_pred enables L-toggle stop; segments captured from stdout).
     std::vector<std::string> wargs = {"-m", model, "-f", tmp_wav, "-t", std::to_string(threads)};
-    if (offset_ms > 0) { wargs.push_back("-ot"); wargs.push_back(std::to_string(offset_ms)); }
+    if (offset_ms > 0) {
+        wargs.push_back("-ot");
+        wargs.push_back(std::to_string(offset_ms));
+    }
     std::vector<TranscriptSegment> new_segs;
-    int rc = Utils::run_process_streaming(whisper_bin, wargs,
-        [&new_segs](const std::string& line) {
+    int rc = Utils::run_process_streaming(
+        whisper_bin, wargs,
+        [&new_segs](const std::string &line) {
             TranscriptSegment seg;
-            if (parse_whisper_line(line, seg)) new_segs.push_back(seg);
+            if (parse_whisper_line(line, seg))
+                new_segs.push_back(seg);
         },
-        [this]() { return stop_offline_.load(); }  // stop_pred: L-toggle kills whisper-cli
+        [this]() { return stop_offline_.load(); } // stop_pred: L-toggle kills whisper-cli
     );
     fs::remove(tmp_wav);
     bool stopped = stop_offline_.load();
@@ -312,37 +367,47 @@ void TranscriptionEngine::transcribe_one(TreeNodePtr node) {
         return;
     }
     // Combine existing + new, save SRT (full or partial for resume).
-    if (!new_segs.empty()) existing_segs.insert(existing_segs.end(), new_segs.begin(), new_segs.end());
-    if (!existing_segs.empty()) write_srt_file(srt_dst, existing_segs);
+    if (!new_segs.empty())
+        existing_segs.insert(existing_segs.end(), new_segs.begin(), new_segs.end());
+    if (!existing_segs.empty())
+        write_srt_file(srt_dst, existing_segs);
     if (stopped) {
-        EVENT_LOG(fmt::format("Transcribe stopped: {} ({} segs saved, resume with L)",
-                              node->title, existing_segs.size()));
-        LOG(fmt::format("[Transcribe] stopped (partial): {} ({} segs)", srt_dst, existing_segs.size()));
+        EVENT_LOG(fmt::format("Transcribe stopped: {} ({} segs saved, resume with L)", node->title,
+                              existing_segs.size()));
+        LOG(fmt::format("[Transcribe] stopped (partial): {} ({} segs)", srt_dst,
+                        existing_segs.size()));
     } else {
-        EVENT_LOG(fmt::format("Transcribe done: {} -> {} ({} segs)", node->title, srt_dst, existing_segs.size()));
+        EVENT_LOG(fmt::format("Transcribe done: {} -> {} ({} segs)", node->title, srt_dst,
+                              existing_segs.size()));
     }
     SubtitleManager::probe_sidecar(node);
     persist_subtitle_marker(node);
 }
 
 // ── Real-time (Y24.20) ──
-void TranscriptionEngine::start_realtime(TreeNodePtr node, const std::string& url, bool is_streaming, bool is_video) {
+void TranscriptionEngine::start_realtime(TreeNodePtr node, const std::string &url,
+                                         bool is_streaming, bool is_video) {
     unsigned gen = ++realtime_gen_;
     realtime_active_ = true;
-    EVENT_LOG(fmt::format("Transcribe: real-time start for '{}' (video={})", node ? node->title : url, is_video));
+    EVENT_LOG(fmt::format("Transcribe: real-time start for '{}' (video={})",
+                          node ? node->title : url, is_video));
     // DETACH (don't join) any previous worker. start_realtime() is called from the L key handler on
     //   the UI thread; a .join() here would block the UI until the previous chunk's ffmpeg/whisper
     //   finishes (up to ~chunk+whisper time). The previous worker carries an old gen — it sees the
     //   gen mismatch and self-terminates (killable ffmpeg via stop_pred), and a detached thread is
     //   reaped by the OS / dies with the process at shutdown (_exit). Safe: this app exits via
     //   _exit(0), so detached workers never outlive a live engine.
-    if (realtime_thread_.joinable()) realtime_thread_.detach();
-    realtime_thread_ = std::thread([this, node, url, is_streaming, is_video, gen]() { realtime_worker(node, url, is_streaming, is_video, gen); });
+    if (realtime_thread_.joinable())
+        realtime_thread_.detach();
+    realtime_thread_ = std::thread([this, node, url, is_streaming, is_video, gen]() {
+        realtime_worker(node, url, is_streaming, is_video, gen);
+    });
 }
 
 void TranscriptionEngine::stop_realtime() {
-    if (!realtime_active_.load()) return;
-    ++realtime_gen_;  // invalidate the running worker (stop_pred → kill whisper-cli)
+    if (!realtime_active_.load())
+        return;
+    ++realtime_gen_; // invalidate the running worker (stop_pred → kill whisper-cli)
     realtime_active_ = false;
     EVENT_LOG("Transcribe: real-time stopped");
 }
@@ -366,16 +431,26 @@ void TranscriptionEngine::stop_realtime() {
 //     is killable the same way); segment timestamps are offset by the chunk start so they map onto the
 //     source timeline, accumulated, and fed to the LYRIC panel progressively (audio) / OSD (video).
 //   - Finite media: loop until chunk start ≥ duration. Live media: loop until stopped.
-void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, bool is_streaming, bool is_video, unsigned gen) {
+void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, bool is_streaming,
+                                          bool is_video, unsigned gen) {
     std::string whisper_bin = resolve_whisper_bin();
     std::string model = resolve_model();
-    if (whisper_bin.empty()) { EVENT_LOG("Transcribe: whisper-cli not found — install whisper-cpp"); realtime_active_ = false; return; }
-    if (model.empty()) { EVENT_LOG("Transcribe: model not found — set [transcription] model"); realtime_active_ = false; return; }
+    if (whisper_bin.empty()) {
+        EVENT_LOG("Transcribe: whisper-cli not found — install whisper-cpp");
+        realtime_active_ = false;
+        return;
+    }
+    if (model.empty()) {
+        EVENT_LOG("Transcribe: model not found — set [transcription] model");
+        realtime_active_ = false;
+        return;
+    }
 
     // Y24.22: skip/resume check — load any existing partial/complete SRT and resume from its end.
     std::string srt_path = compute_srt_path(url, is_streaming, node);
-    std::vector<TranscriptSegment> segs;  // accumulated (pre-filled with existing partial, then grown)
-    double start = 0.0;                    // chunk start offset on the source timeline (seconds)
+    std::vector<TranscriptSegment>
+        segs;           // accumulated (pre-filled with existing partial, then grown)
+    double start = 0.0; // chunk start offset on the source timeline (seconds)
     // ASR-fix: read the duration from mpv (already loaded) — NOT via `ffmpeg -i <url>`. That probe has
     //   no timeout and HANGS on throttled/slow streaming URLs (YouTube googlevideo via a proxy, slow
     //   podcasts), blocking the worker before the chunk loop ever starts — the "Shift+L does nothing"
@@ -393,10 +468,17 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
             double last_end = segs.back().end;
             if (duration > 0 && last_end >= duration - 5.0) {
                 // Complete — just load, don't transcribe.
-                EVENT_LOG(fmt::format("Transcribe skip (realtime): already has {} segs ({:.0f}s/{:.0f}s)",
-                                      segs.size(), last_end, duration));
-                if (sm_) sm_->set_pending(segs, url);
-                if (node) { node->has_asr_srt = true; node->subtitle_url = srt_path; node->subtitle_type = "srt"; node->asr_srt_path = srt_path; }
+                EVENT_LOG(
+                    fmt::format("Transcribe skip (realtime): already has {} segs ({:.0f}s/{:.0f}s)",
+                                segs.size(), last_end, duration));
+                if (sm_)
+                    sm_->set_pending(segs, url);
+                if (node) {
+                    node->has_asr_srt = true;
+                    node->subtitle_url = srt_path;
+                    node->subtitle_type = "srt";
+                    node->asr_srt_path = srt_path;
+                }
                 persist_subtitle_marker(node);
                 realtime_active_ = false;
                 return;
@@ -405,20 +487,25 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
             EVENT_LOG(fmt::format("Transcribe resume (realtime): {} segs to {:.0f}s, resuming",
                                   segs.size(), last_end));
             // Show existing segments immediately while new chunks transcribe.
-            if (sm_) sm_->set_pending(segs, url);
+            if (sm_)
+                sm_->set_pending(segs, url);
         }
     }
 
-    unsigned threads = whisper_threads();  // capped: leave cores for the UI + mpv (see whisper_threads)
+    unsigned threads =
+        whisper_threads(); // capped: leave cores for the UI + mpv (see whisper_threads)
     int chunk_sec = IniConfig::instance().get_int("transcription", "realtime_chunk_sec", 30);
-    if (chunk_sec < 5) chunk_sec = 5;
-    if (chunk_sec > 120) chunk_sec = 120;
+    if (chunk_sec < 5)
+        chunk_sec = 5;
+    if (chunk_sec > 120)
+        chunk_sec = 120;
     auto stop_pred = [this, gen]() { return realtime_gen_.load() != gen; };
 
-    EVENT_LOG(fmt::format("Transcribe (realtime): chunked {}s from {:.0f}s{}",
-                          chunk_sec, start, seekable ? "" : " (live stream)"));
+    EVENT_LOG(fmt::format("Transcribe (realtime): chunked {}s from {:.0f}s{}", chunk_sec, start,
+                          seekable ? "" : " (live stream)"));
     LOG(fmt::format("[Transcribe] realtime chunked: chunk={}s start={:.1f}s dur={} url='{}'",
-                    chunk_sec, start, seekable ? fmt::format("{:.0f}s", duration) : std::string("live"), url));
+                    chunk_sec, start,
+                    seekable ? fmt::format("{:.0f}s", duration) : std::string("live"), url));
 
     // Source for chunk capture. FINITE media (duration known) needs a LOCAL file: ffmpeg's HTTP input
     //   CANNOT tunnel over the configured SOCKS proxy, so a direct ffmpeg capture stalls on CDN URLs
@@ -445,21 +532,34 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
             if (dot != std::string::npos && dot > slash) {
                 std::string ue = url.substr(dot);
                 size_t q = ue.find('?');
-                if (q != std::string::npos) ue = ue.substr(0, q);
-                if (ue.length() <= 5 && !ue.empty()) ext = ue;
+                if (q != std::string::npos)
+                    ue = ue.substr(0, q);
+                if (ue.length() <= 5 && !ue.empty())
+                    ext = ue;
             }
-            std::string path = dir + "/" + Utils::sanitize_filename(node ? node->title : std::string("asr")) + ext;
-            EVENT_LOG(fmt::format("Transcribe: caching episode via proxy ({:.0f}s; highlighted + reused next time)...", duration));
+            std::string path =
+                dir + "/" + Utils::sanitize_filename(node ? node->title : std::string("asr")) + ext;
+            EVENT_LOG(fmt::format("Transcribe: caching episode via proxy ({:.0f}s; highlighted + "
+                                  "reused next time)...",
+                                  duration));
             if (!Network::download_to_file(url, path, 600)) {
-                LOG(fmt::format("[Transcribe] realtime: source download failed: {}", url.substr(0, 80)));
-                EVENT_LOG("Transcribe: source download failed — check [network] proxy / connectivity");
+                LOG(fmt::format("[Transcribe] realtime: source download failed: {}",
+                                url.substr(0, 80)));
+                EVENT_LOG(
+                    "Transcribe: source download failed — check [network] proxy / connectivity");
                 CacheManager::instance().mark_partial(url);
                 realtime_active_ = false;
                 return;
             }
-            if (realtime_gen_.load() != gen) { realtime_active_ = false; return; }  // stopped during fetch
-            CacheManager::instance().mark_downloaded(url, path);  // persist + reuse (+ highlight)
-            if (node) { node->local_file = path; node->is_downloaded = true; }      // highlight this session
+            if (realtime_gen_.load() != gen) {
+                realtime_active_ = false;
+                return;
+            } // stopped during fetch
+            CacheManager::instance().mark_downloaded(url, path); // persist + reuse (+ highlight)
+            if (node) {
+                node->local_file = path;
+                node->is_downloaded = true;
+            } // highlight this session
             src = path;
         }
     }
@@ -467,85 +567,124 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
     bool stopped = false;
     while (realtime_gen_.load() == gen) {
         // Finite media stop condition.
-        if (seekable && start >= duration - 0.5) break;
+        if (seekable && start >= duration - 0.5)
+            break;
 
         // ── capture one bounded chunk → wav (killable via -progress pipe:1) ──
         std::string tmp_wav = temp_basename() + ".wav";
         std::vector<std::string> fargs = {"-y"};
-        fargs.push_back("-timeout"); fargs.push_back("20000000");  // 20s net read timeout (live/network input; ignored for local files)
-        if (seekable && start > 0.5) { fargs.push_back("-ss"); fargs.push_back(fmt::format("{:.3f}", start)); }
-        fargs.push_back("-i"); fargs.push_back(src);
-        fargs.push_back("-t"); fargs.push_back(std::to_string(chunk_sec));
-        fargs.push_back("-ar"); fargs.push_back("16000");
-        fargs.push_back("-ac"); fargs.push_back("1");
-        fargs.push_back("-f"); fargs.push_back("wav");
+        fargs.push_back("-timeout");
+        fargs.push_back(
+            "20000000"); // 20s net read timeout (live/network input; ignored for local files)
+        if (seekable && start > 0.5) {
+            fargs.push_back("-ss");
+            fargs.push_back(fmt::format("{:.3f}", start));
+        }
+        fargs.push_back("-i");
+        fargs.push_back(src);
+        fargs.push_back("-t");
+        fargs.push_back(std::to_string(chunk_sec));
+        fargs.push_back("-ar");
+        fargs.push_back("16000");
+        fargs.push_back("-ac");
+        fargs.push_back("1");
+        fargs.push_back("-f");
+        fargs.push_back("wav");
         fargs.push_back(tmp_wav);
-        fargs.push_back("-progress"); fargs.push_back("pipe:1");  // progress→stdout so stop_pred is polled ~1/s
-        fargs.push_back("-stats_period"); fargs.push_back("1");
-        LOG(fmt::format("[Transcribe] realtime: capture chunk [{:.1f},{:.1f}]s", start, start + chunk_sec));
+        fargs.push_back("-progress");
+        fargs.push_back("pipe:1"); // progress→stdout so stop_pred is polled ~1/s
+        fargs.push_back("-stats_period");
+        fargs.push_back("1");
+        LOG(fmt::format("[Transcribe] realtime: capture chunk [{:.1f},{:.1f}]s", start,
+                        start + chunk_sec));
         int frc = Utils::run_process_streaming("ffmpeg", fargs, nullptr, stop_pred);
-        if (realtime_gen_.load() != gen) { stopped = true; fs::remove(tmp_wav); break; }
+        if (realtime_gen_.load() != gen) {
+            stopped = true;
+            fs::remove(tmp_wav);
+            break;
+        }
         // ffmpeg returns non-zero at end-of-media for the last partial chunk, or on a decode error;
         // either way we stop after saving whatever segments we have. A too-small/missing wav also means
         // nothing useful was captured for this chunk.
         if (frc != 0 || !fs::exists(tmp_wav, ec) || fs::file_size(tmp_wav, ec) < 1000) {
-            LOG(fmt::format("[Transcribe] realtime capture end/failed (rc={}, start={:.1f}s)", frc, start));
+            LOG(fmt::format("[Transcribe] realtime capture end/failed (rc={}, start={:.1f}s)", frc,
+                            start));
             fs::remove(tmp_wav, ec);
             break;
         }
 
         // ── transcribe the chunk; offset segment times onto the source timeline ──
-        std::vector<std::string> wargs = {"-m", model, "-f", tmp_wav, "-t", std::to_string(threads)};
+        std::vector<std::string> wargs = {"-m",    model, "-f",
+                                          tmp_wav, "-t",  std::to_string(threads)};
         size_t before = segs.size();
         Utils::run_process_streaming(
             whisper_bin, wargs,
-            [this, &segs, &url, &start, gen, is_video](const std::string& line) {
-                if (realtime_gen_.load() != gen) return;
+            [this, &segs, &url, &start, gen, is_video](const std::string &line) {
+                if (realtime_gen_.load() != gen)
+                    return;
                 TranscriptSegment seg;
                 if (parse_whisper_line(line, seg)) {
-                    seg.start += start; seg.end += start;  // map chunk-local times → source timeline
+                    seg.start += start;
+                    seg.end += start; // map chunk-local times → source timeline
                     segs.push_back(seg);
-                    if (!is_video && sm_) sm_->set_pending(segs, url);  // audio: progressive LYRIC feed
+                    if (!is_video && sm_)
+                        sm_->set_pending(segs, url); // audio: progressive LYRIC feed
                     if (is_video && mpv_ && (segs.size() % 5 == 0))
-                        mpv_->show_osd(fmt::format("Transcribing... {} segments", segs.size()), 1500);
+                        mpv_->show_osd(fmt::format("Transcribing... {} segments", segs.size()),
+                                       1500);
                 }
             },
-            stop_pred  // whisper-cli prints segment lines to stdout → killable on stop
+            stop_pred // whisper-cli prints segment lines to stdout → killable on stop
         );
         fs::remove(tmp_wav, ec);
-        if (realtime_gen_.load() != gen) { stopped = true; break; }
+        if (realtime_gen_.load() != gen) {
+            stopped = true;
+            break;
+        }
         if (segs.size() == before)
-            LOG(fmt::format("[Transcribe] realtime: chunk at {:.1f}s produced no segments (silence?)", start));
+            LOG(fmt::format(
+                "[Transcribe] realtime: chunk at {:.1f}s produced no segments (silence?)", start));
 
-        start += chunk_sec;  // advance to the next window
+        start += chunk_sec; // advance to the next window
     }
     // NOTE: src is the episode's persistent cache (dl_dir) — do NOT delete it; it's reused by
     //   playback + future ASR (registered via CacheManager). Only tmp_wav chunks are removed above.
 
     realtime_active_ = false;
     if (segs.empty()) {
-        if (!stopped) EVENT_LOG("Transcribe: real-time produced no segments");
+        if (!stopped)
+            EVENT_LOG("Transcribe: real-time produced no segments");
         return;
     }
     save_srt(segs, node, url, is_streaming);
-    if (node && !is_streaming) SubtitleManager::probe_sidecar(node);
+    if (node && !is_streaming)
+        SubtitleManager::probe_sidecar(node);
     // Y24.28: video → load the SRT into mpv (renders in video window, bottom center).
     if (is_video && mpv_) {
         mpv_->sub_add(compute_srt_path(url, is_streaming, node));
-        if (!stopped) mpv_->show_osd(fmt::format("Transcription complete: {} segments", segs.size()), 3000);
+        if (!stopped)
+            mpv_->show_osd(fmt::format("Transcription complete: {} segments", segs.size()), 3000);
     }
     persist_subtitle_marker(node);
-    EVENT_LOG(fmt::format("Transcribe done (real-time): {} segments → saved{}", segs.size(), stopped ? " (stopped)" : ""));
+    EVENT_LOG(fmt::format("Transcribe done (real-time): {} segments → saved{}", segs.size(),
+                          stopped ? " (stopped)" : ""));
 }
 
-void TranscriptionEngine::save_srt(const std::vector<TranscriptSegment>& segs, TreeNodePtr node,
-                                   const std::string& url, bool is_streaming) {
+void TranscriptionEngine::save_srt(const std::vector<TranscriptSegment> &segs, TreeNodePtr node,
+                                   const std::string &url, bool is_streaming) {
     std::string dst = compute_srt_path(url, is_streaming, node);
-    if (is_streaming) { std::error_code ec; fs::create_directories(Paths::get_data_dir() + "/transcripts", ec); }
+    if (is_streaming) {
+        std::error_code ec;
+        fs::create_directories(Paths::get_data_dir() + "/transcripts", ec);
+    }
     std::ofstream f(dst);
-    if (!f) { LOG(fmt::format("[Transcribe] save_srt: cannot write {}", dst)); return; }
+    if (!f) {
+        LOG(fmt::format("[Transcribe] save_srt: cannot write {}", dst));
+        return;
+    }
     for (size_t i = 0; i < segs.size(); ++i) {
-        f << (i + 1) << "\n" << srt_ts(segs[i].start) << " --> " << srt_ts(segs[i].end) << "\n"
+        f << (i + 1) << "\n"
+          << srt_ts(segs[i].start) << " --> " << srt_ts(segs[i].end) << "\n"
           << segs[i].text << "\n\n";
     }
     LOG(fmt::format("[Transcribe] SRT saved: {} ({} segments)", dst, segs.size()));
@@ -558,17 +697,22 @@ void TranscriptionEngine::save_srt(const std::vector<TranscriptSegment>& segs, T
     }
 }
 
-void TranscriptionEngine::poll(UI& /*ui*/) { /* progress via EVENT_LOG; reserved for a progress bar */ }
+void TranscriptionEngine::poll(
+    UI & /*ui*/) { /* progress via EVENT_LOG; reserved for a progress bar */ }
 
 void TranscriptionEngine::shutdown() {
     stop_ = true;
     stop_offline_ = true;
-    ++realtime_gen_;  // invalidate any running realtime job
+    ++realtime_gen_; // invalidate any running realtime job
     realtime_active_ = false;
-    if (realtime_thread_.joinable()) realtime_thread_.join();
-    if (dispatcher_.joinable()) dispatcher_.join();
+    if (realtime_thread_.joinable())
+        realtime_thread_.join();
+    if (dispatcher_.joinable())
+        dispatcher_.join();
     std::lock_guard<std::mutex> lk(mtx_);
-    for (auto& w : workers_) if (w.joinable()) w.join();
+    for (auto &w : workers_)
+        if (w.joinable())
+            w.join();
     workers_.clear();
 }
 

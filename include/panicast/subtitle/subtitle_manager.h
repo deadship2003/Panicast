@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "panicast/core/types.h"            // TreeNodePtr, TranscriptStatus
-#include "panicast/subtitle/subtitle_parser.h"  // TranscriptSegment
+#include "panicast/core/types.h"               // TreeNodePtr, TranscriptStatus
+#include "panicast/subtitle/subtitle_parser.h" // TranscriptSegment
 
 namespace panicast
 {
@@ -21,7 +21,7 @@ class SubtitleManager {
 public:
     // RSS detection — called by rss_parser on <podcast:transcript url= type=>. Sets the node's
     //   subtitle_url / has_subtitle / subtitle_type and logs recognition.
-    static void detect_from_rss(TreeNodePtr node, const std::string& url, const std::string& type);
+    static void detect_from_rss(TreeNodePtr node, const std::string &url, const std::string &type);
 
     // Probe for a same-name local sidecar (.json/.srt/.vtt/.lrc/.transcript) next to node->local_file.
     //   If found AND subtitle_url is empty, sets subtitle_url to the sidecar path (+ has_subtitle).
@@ -30,7 +30,7 @@ public:
 
     // Async load: probe sidecar → fetch+parse node->subtitle_url → set status + pending segments.
     //   Sets LOADING before the pool fetch; READY/FAILED on completion. Emits the diagnostic LOG.
-    void load_async(TreeNodePtr node, ThreadPool& pool);
+    void load_async(TreeNodePtr node, ThreadPool &pool);
 
     // Y24.18: sync reset to NONE + clear pending (poll clears the UI transcript next frame). Used
     //   when switching to a track that doesn't use Method B (video Method A / no subtitle) so the
@@ -40,18 +40,18 @@ public:
     // Y24.20: progressive transcript feed (real-time transcription) — set segments + READY so poll()
     //   picks them up next frame (set_transcript → LYRIC). Called repeatedly as whisper-cli emits
     //   segments. Thread-safe (worker thread → UI thread handoff via pending_).
-    void set_pending(const std::vector<TranscriptSegment>& segs, const std::string& url);
+    void set_pending(const std::vector<TranscriptSegment> &segs, const std::string &url);
 
     // UI-thread handoff: if a pending transcript is ready, push segments to the UI (set_transcript)
     //   and update L-mode active state (requested && READY) + offset. Returns true if handed off.
-    bool poll(UI& ui, bool lyric_bar_requested);
+    bool poll(UI &ui, bool lyric_bar_requested);
 
     // Download the transcript sidecar alongside an episode (format-preserving extension, async).
     //   Saved as <local_file>.<ext> where ext is inferred from subtitle_type / subtitle_url.
-    void download_sidecar(TreeNodePtr node, const std::string& local_file, ThreadPool& pool);
+    void download_sidecar(TreeNodePtr node, const std::string &local_file, ThreadPool &pool);
 
     TranscriptStatus status() const;
-    bool is_ready() const;             // status == READY
+    bool is_ready() const; // status == READY
 
     // Force a status re-log on the next poll (track change / L-toggle).
     void force_log();
@@ -65,7 +65,7 @@ private:
     std::string pending_url_;
     bool pending_ready_ = false;
 
-    void set_status_locked(TranscriptStatus st);  // requires mtx_ held; logs transitions (English)
+    void set_status_locked(TranscriptStatus st); // requires mtx_ held; logs transitions (English)
 };
 
-}  // namespace panicast
+} // namespace panicast

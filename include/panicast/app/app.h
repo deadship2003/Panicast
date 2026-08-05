@@ -44,7 +44,7 @@
 #include <fmt/core.h>
 #include <fmt/chrono.h>
 
-extern char** environ;  // Required by posix_spawnp (capture_exec / ffprobe verification)
+extern char **environ; // Required by posix_spawnp (capture_exec / ffprobe verification)
 
 #include "panicast/core/types.h"
 #include "panicast/core/paths.h"
@@ -76,8 +76,8 @@ extern char** environ;  // Required by posix_spawnp (capture_exec / ffprobe veri
 #include "panicast/storage/cache.h"
 #include "panicast/storage/youtube_cache.h"
 #include "panicast/storage/persistence.h"
-#include "panicast/subtitle/subtitle_manager.h"  // Y24.7
-#include "panicast/subtitle/transcription_engine.h"  // Y24.19
+#include "panicast/subtitle/subtitle_manager.h"     // Y24.7
+#include "panicast/subtitle/transcription_engine.h" // Y24.19
 #include "panicast/ui/border.h"
 #include "panicast/ui/ui.h"
 #include "panicast/theme/colors.h"
@@ -99,507 +99,576 @@ namespace panicast
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
-    class App : public RemoteControlInterface {
-    public:
-        App();
-        ~App();
-        void run();
+class App : public RemoteControlInterface {
+public:
+    App();
+    ~App();
+    void run();
 
-        // Use std::cout instead of EVENT_LOG for command-line mode compatibility
-        void import_feed(const std::string& url);
-        // Import from an OPML file; use std::cout instead of EVENT_LOG
-        void import_opml(const std::string& filepath);
-        // Export podcast subscriptions
-        void export_podcasts(const std::string& filename);
-        // Public method for loading persistent data in command-line mode
-        void load_data();
+    // Use std::cout instead of EVENT_LOG for command-line mode compatibility
+    void import_feed(const std::string &url);
+    // Import from an OPML file; use std::cout instead of EVENT_LOG
+    void import_opml(const std::string &filepath);
+    // Export podcast subscriptions
+    void export_podcasts(const std::string &filename);
+    // Public method for loading persistent data in command-line mode
+    void load_data();
 
-        // N02: RemoteControlInterface — thread-safe state snapshot for remote query commands.
-        RemoteStateSnapshot snapshot_state() override;
+    // N02: RemoteControlInterface — thread-safe state snapshot for remote query commands.
+    RemoteStateSnapshot snapshot_state() override;
 
-    private:
-        UI ui;
-        MPVController player;
-        // E refactor: the 8 per-mode "roots" are now the mode's TOP-LEVEL ITEM LISTS (std::vector),
-        //   NOT TreeNode container nodes. The root NODE is eliminated; items live directly in the
-        //   vector. (Name kept as xxx_root for historical reasons — it's the mode's root list.)
-        std::vector<TreeNodePtr> radio_root, podcast_root, fav_root, history_root,
-                                 account_root, bilibili_root, tiktok_root, iptv_root;
-        // E: per-mode "loaded" flags (were the root node's children_loaded before root removal)
-        bool radio_loaded = false, podcast_loaded = false, account_loaded = false,
-             bilibili_loaded = false, tiktok_loaded = false, iptv_loaded = false;
-        TreeNodePtr playback_node;
-        std::string tiktok_region_;  // Y24.11: current T-mode region code (US/JP/...), persisted in INI [tiktok] region
-        // Y11: async interaction selection. A pool task that builds a new node (e.g. YouTube search
-        //   results) sets pending_select_ under tree_mutex; the UI thread consumes it next frame
-        //   (sets selected_idx to that node) so interactions stay fluid (network/parse off the UI thread).
-        TreeNodePtr pending_select_;
-        std::vector<DisplayItem> display_list;
-        int selected_idx = 0, view_start = 0;
-        bool cur_sort_reversed = false;  // E: reverse state for top-level (cur_items) sort — was on the root node
-        bool running = true;
-        AppMode mode = AppMode::RADIO;
-        AppMode playback_mode_ = AppMode::RADIO;  // Y24.54: mode when playback started (for N = jump-to-playing)
-        std::recursive_mutex tree_mutex;
-        // Thread pool replaces detached threads; App destructor safely joins.
-        // Sized to MAX_CONCURRENT_DOWNLOADS so up to 10 downloads can truly run at once.
-        ThreadPool pool_{MAX_CONCURRENT_DOWNLOADS};
-        // N01: remote control. remote_bus_ is the network→UI command queue (the single crossing
-        //   point between the server thread and the UI thread); remote_server_ owns the TCP accept
-        //   thread. Declared in this order so remote_server_ can bind a reference to remote_bus_.
-        //   Only started when [remote] enable=true; otherwise the local TUI is unaffected.
-        RemoteCommandBus remote_bus_;
-        RemoteServer remote_server_{remote_bus_};
-        // N02: state snapshot cache. Built once per frame on the UI thread
-        //   (update_remote_state_cache) under remote_state_mtx_; read by server threads via
-        //   snapshot_state(). Avoids cross-locking tree_mutex/playlist_mutex from server threads.
-        std::mutex remote_state_mtx_;
-        RemoteStateSnapshot remote_state_cache_;
-        void update_remote_state_cache();
-        // Pending download queue (main-thread-only): when all MAX_CONCURRENT_DOWNLOADS slots are
-        //   occupied (active + within their completion display window), further items wait here and
-        //   are promoted as slots free. Keeps the download list capped and the INFO panel uncluttered.
-        std::deque<TreeNodePtr> pending_downloads_;
-        // Dedicated playlist lock, protecting on_playback_ended callback thread access
-        std::mutex playlist_mutex_;
-        std::string search_query;
-        std::vector<TreeNodePtr> search_matches;
-        int current_match_idx = -1, total_matches = 0;
-        bool visual_mode_ = false;
-        int visual_start_ = -1;
+private:
+    UI ui;
+    MPVController player;
+    // E refactor: the 8 per-mode "roots" are now the mode's TOP-LEVEL ITEM LISTS (std::vector),
+    //   NOT TreeNode container nodes. The root NODE is eliminated; items live directly in the
+    //   vector. (Name kept as xxx_root for historical reasons — it's the mode's root list.)
+    std::vector<TreeNodePtr> radio_root, podcast_root, fav_root, history_root, account_root,
+        bilibili_root, tiktok_root, iptv_root;
+    // E: per-mode "loaded" flags (were the root node's children_loaded before root removal)
+    bool radio_loaded = false, podcast_loaded = false, account_loaded = false,
+         bilibili_loaded = false, tiktok_loaded = false, iptv_loaded = false;
+    TreeNodePtr playback_node;
+    std::string
+        tiktok_region_; // Y24.11: current T-mode region code (US/JP/...), persisted in INI [tiktok] region
+    // Y11: async interaction selection. A pool task that builds a new node (e.g. YouTube search
+    //   results) sets pending_select_ under tree_mutex; the UI thread consumes it next frame
+    //   (sets selected_idx to that node) so interactions stay fluid (network/parse off the UI thread).
+    TreeNodePtr pending_select_;
+    std::vector<DisplayItem> display_list;
+    int selected_idx = 0, view_start = 0;
+    bool cur_sort_reversed =
+        false; // E: reverse state for top-level (cur_items) sort — was on the root node
+    bool running = true;
+    AppMode mode = AppMode::RADIO;
+    AppMode playback_mode_ =
+        AppMode::RADIO; // Y24.54: mode when playback started (for N = jump-to-playing)
+    std::recursive_mutex tree_mutex;
+    // Thread pool replaces detached threads; App destructor safely joins.
+    // Sized to MAX_CONCURRENT_DOWNLOADS so up to 10 downloads can truly run at once.
+    ThreadPool pool_{MAX_CONCURRENT_DOWNLOADS};
+    // N01: remote control. remote_bus_ is the network→UI command queue (the single crossing
+    //   point between the server thread and the UI thread); remote_server_ owns the TCP accept
+    //   thread. Declared in this order so remote_server_ can bind a reference to remote_bus_.
+    //   Only started when [remote] enable=true; otherwise the local TUI is unaffected.
+    RemoteCommandBus remote_bus_;
+    RemoteServer remote_server_{remote_bus_};
+    // N02: state snapshot cache. Built once per frame on the UI thread
+    //   (update_remote_state_cache) under remote_state_mtx_; read by server threads via
+    //   snapshot_state(). Avoids cross-locking tree_mutex/playlist_mutex from server threads.
+    std::mutex remote_state_mtx_;
+    RemoteStateSnapshot remote_state_cache_;
+    void update_remote_state_cache();
+    // Pending download queue (main-thread-only): when all MAX_CONCURRENT_DOWNLOADS slots are
+    //   occupied (active + within their completion display window), further items wait here and
+    //   are promoted as slots free. Keeps the download list capped and the INFO panel uncluttered.
+    std::deque<TreeNodePtr> pending_downloads_;
+    // Dedicated playlist lock, protecting on_playback_ended callback thread access
+    std::mutex playlist_mutex_;
+    std::string search_query;
+    std::vector<TreeNodePtr> search_matches;
+    int current_match_idx = -1, total_matches = 0;
+    bool visual_mode_ = false;
+    int visual_start_ = -1;
 
-        // ═════════════════════════════════════════════════════════════════════════
-        // Implicit "playlist" = the peers (siblings) of the currently playing episode.
-        // No persisted list, no L popup. When Enter/l plays an episode, its parent's
-        //   playable children are snapshotted into current_playlist; current_index points
-        //   to the played item; on END_FILE the pointer advances per play_mode.
-        //   SHUFFLE uses shuffle_queue_ (a pre-generated lookahead) so the INFO area can
-        //   show the real upcoming tracks.
-        // current_playlist is shared with on_playback_ended (mpv thread) → playlist_mutex_.
-        // ═════════════════════════════════════════════════════════════════════════
-        std::vector<PlaylistItem> current_playlist;
-        int current_index = -1;            // playing pointer (index into current_playlist)
-        // SHUFFLE lookahead: upcoming random indices (pre-generated so INFO can preview them).
-        // on END_FILE the front is consumed and a new random index is pushed to keep 3 ahead.
-        std::deque<int> shuffle_queue_;
+    // ═════════════════════════════════════════════════════════════════════════
+    // Implicit "playlist" = the peers (siblings) of the currently playing episode.
+    // No persisted list, no L popup. When Enter/l plays an episode, its parent's
+    //   playable children are snapshotted into current_playlist; current_index points
+    //   to the played item; on END_FILE the pointer advances per play_mode.
+    //   SHUFFLE uses shuffle_queue_ (a pre-generated lookahead) so the INFO area can
+    //   show the real upcoming tracks.
+    // current_playlist is shared with on_playback_ended (mpv thread) → playlist_mutex_.
+    // ═════════════════════════════════════════════════════════════════════════
+    std::vector<PlaylistItem> current_playlist;
+    int current_index = -1; // playing pointer (index into current_playlist)
+    // SHUFFLE lookahead: upcoming random indices (pre-generated so INFO can preview them).
+    // on END_FILE the front is consumed and a new random index is pushed to keep 3 ahead.
+    std::deque<int> shuffle_queue_;
 
-        PlayMode play_mode = PlayMode::CYCLE;  // global play mode (persisted in INI [playback] mode)
+    PlayMode play_mode = PlayMode::CYCLE; // global play mode (persisted in INI [playback] mode)
 
-        // ═════════════════════════════════════════════════════════════════════════
-        // Pointer-driven playback (on END_FILE advance current_index)
-        // ═════════════════════════════════════════════════════════════════════════
+    // ═════════════════════════════════════════════════════════════════════════
+    // Pointer-driven playback (on END_FILE advance current_index)
+    // ═════════════════════════════════════════════════════════════════════════
 
-        // ── app_playback.cpp ───────────────────────────────────────────────────────
-        bool is_playable_node(TreeNodePtr node);
-        void on_playback_ended(int reason);
-        std::vector<std::string> resolve_youtube_url(const std::string& url, bool has_video) const;  // F23: standalone YouTube -g resolve (pool-safe). Y09 1A: returns 1-2 stream URLs (DASH=2).
-        int random_peer_index(int avoid) const;
-        void refill_shuffle_queue();
-        void play_current(int idx);
-        // N04-fix: clear the implicit peer playlist while keeping the current track playing.
-        //   on_playback_ended() treats an empty playlist as "nothing to advance", so auto-advance
-        //   simply stops; mpv is untouched and the current track keeps playing.
-        void clear_playlist();
-        int build_peer_list(TreeNodePtr node);
-        // Y24.27: build episode child nodes from DB cache — extracted from 7 duplicated sites.
-        // Y24.27: unified mode switch (was duplicated 4x — R/P/F/H/O/Y inline + M cycle + B + T).
-        //   B/T were missing reset_search() (fixed).
-        void switch_mode(AppMode new_mode);
-        void build_episode_children_from_cache(TreeNodePtr parent,
-            const std::vector<std::tuple<std::string, std::string, int, bool, bool, std::string, bool, std::string>>& episodes,
-            bool is_opml = false);
-        void play_episode(TreeNodePtr node);
-        void record_play_history(const std::string& url, const std::string& title, int duration = 0);
+    // ── app_playback.cpp ───────────────────────────────────────────────────────
+    bool is_playable_node(TreeNodePtr node);
+    void on_playback_ended(int reason);
+    std::vector<std::string> resolve_youtube_url(const std::string &url, bool has_video)
+        const; // F23: standalone YouTube -g resolve (pool-safe). Y09 1A: returns 1-2 stream URLs (DASH=2).
+    int random_peer_index(int avoid) const;
+    void refill_shuffle_queue();
+    void play_current(int idx);
+    // N04-fix: clear the implicit peer playlist while keeping the current track playing.
+    //   on_playback_ended() treats an empty playlist as "nothing to advance", so auto-advance
+    //   simply stops; mpv is untouched and the current track keeps playing.
+    void clear_playlist();
+    int build_peer_list(TreeNodePtr node);
+    // Y24.27: build episode child nodes from DB cache — extracted from 7 duplicated sites.
+    // Y24.27: unified mode switch (was duplicated 4x — R/P/F/H/O/Y inline + M cycle + B + T).
+    //   B/T were missing reset_search() (fixed).
+    void switch_mode(AppMode new_mode);
+    void build_episode_children_from_cache(
+        TreeNodePtr parent,
+        const std::vector<std::tuple<std::string, std::string, int, bool, bool, std::string, bool,
+                                     std::string>> &episodes,
+        bool is_opml = false);
+    void play_episode(TreeNodePtr node);
+    void record_play_history(const std::string &url, const std::string &title, int duration = 0);
 
-        // ── app_download.cpp ───────────────────────────────────────────────────────
-        void download_node(int marked_count);
-        bool start_one_download(TreeNodePtr n);
-        // Y24.49: shared yt-dlp download core (run + progress parse + verify + cache). Used by the
-        //   YouTube and Bilibili/TikTok/Douyin video download branches (DRY). `site_args` is the
-        //   site-specific prefix (cookies / player_client / js_runtime); the helper appends the common
-        //   -f / -o / --progress / url args.
-        void ytdlp_download(const std::string& url, const std::vector<std::string>& site_args,
-                            const std::string& dir, const std::string& base_name,
-                            const std::string& title, const std::string& dl_id, TreeNodePtr n);
-        void pump_download_queue(size_t current_slot_count);
+    // ── app_download.cpp ───────────────────────────────────────────────────────
+    void download_node(int marked_count);
+    bool start_one_download(TreeNodePtr n);
+    // Y24.49: shared yt-dlp download core (run + progress parse + verify + cache). Used by the
+    //   YouTube and Bilibili/TikTok/Douyin video download branches (DRY). `site_args` is the
+    //   site-specific prefix (cookies / player_client / js_runtime); the helper appends the common
+    //   -f / -o / --progress / url args.
+    void ytdlp_download(const std::string &url, const std::vector<std::string> &site_args,
+                        const std::string &dir, const std::string &base_name,
+                        const std::string &title, const std::string &dl_id, TreeNodePtr n);
+    void pump_download_queue(size_t current_slot_count);
 
-        // ── app_search.cpp ─────────────────────────────────────────────────────────
-        void perform_online_search();
-        void perform_online_search_from_favourite();
-        void load_search_history_children(TreeNodePtr node);
-        // Y23.1: B/Y search-record cache (mirror O-mode online_root).
-        TreeNodePtr build_search_result_node(const std::string& source, const nlohmann::json& r);
-        // Y23.2: shared container + finalizer (mode-agnostic; mode is just `source`).
-        TreeNodePtr make_search_history_child(TreeNodePtr account_node, const std::string& source, int account_id);
-        void finalize_search(const std::string& source, int account_id, TreeNodePtr account_node,
-                             const std::string& query, const nlohmann::json& results_json);
-        void load_search_record_children(TreeNodePtr node, const std::string& source);
-        void expand_search_history(TreeNodePtr node);
-        void add_search_record(const std::string& source, int account_id, TreeNodePtr account_node,
-                               const std::string& query, const std::string& results_json,
-                               std::vector<TreeNodePtr> result_nodes);
-        void reset_search();
-        void perform_search();
-        void search_recursive(const TreeNodePtr& node, const std::string& query, std::vector<TreeNodePtr>& results);
-        void jump_search(int dir);
-        void jump_to_match(int idx);
-        void reveal_node(TreeNodePtr node);
+    // ── app_search.cpp ─────────────────────────────────────────────────────────
+    void perform_online_search();
+    void perform_online_search_from_favourite();
+    void load_search_history_children(TreeNodePtr node);
+    // Y23.1: B/Y search-record cache (mirror O-mode online_root).
+    TreeNodePtr build_search_result_node(const std::string &source, const nlohmann::json &r);
+    // Y23.2: shared container + finalizer (mode-agnostic; mode is just `source`).
+    TreeNodePtr make_search_history_child(TreeNodePtr account_node, const std::string &source,
+                                          int account_id);
+    void finalize_search(const std::string &source, int account_id, TreeNodePtr account_node,
+                         const std::string &query, const nlohmann::json &results_json);
+    void load_search_record_children(TreeNodePtr node, const std::string &source);
+    void expand_search_history(TreeNodePtr node);
+    void add_search_record(const std::string &source, int account_id, TreeNodePtr account_node,
+                           const std::string &query, const std::string &results_json,
+                           std::vector<TreeNodePtr> result_nodes);
+    void reset_search();
+    void perform_search();
+    void search_recursive(const TreeNodePtr &node, const std::string &query,
+                          std::vector<TreeNodePtr> &results);
+    void jump_search(int dir);
+    void jump_to_match(int idx);
+    void reveal_node(TreeNodePtr node);
 
-        // ── app_subscriptions.cpp ──────────────────────────────────────────────────
-        void add_feed();
-        void subscribe_online_podcast();
-        void subscribe_online_podcasts_batch(int marked_count);
-        void subscribe_favourites_batch(int marked_count);
-        void add_favourites_batch(int marked_count);
-        void add_favourite();
-        // F42: add_local_folder removed (dead code — never called; 'a' uses add_local_files).
-        // BUG/new: 'a' in FAVOURITE mode — recursively scan a local folder for audio/video files
-        //   and add them as playable children of a new folder node under fav_root.
-        void add_local_files();
+    // ── app_subscriptions.cpp ──────────────────────────────────────────────────
+    void add_feed();
+    void subscribe_online_podcast();
+    void subscribe_online_podcasts_batch(int marked_count);
+    void subscribe_favourites_batch(int marked_count);
+    void add_favourites_batch(int marked_count);
+    void add_favourite();
+    // F42: add_local_folder removed (dead code — never called; 'a' uses add_local_files).
+    // BUG/new: 'a' in FAVOURITE mode — recursively scan a local folder for audio/video files
+    //   and add them as playable children of a new folder node under fav_root.
+    void add_local_files();
 
-        // ── app_navigation.cpp ─────────────────────────────────────────────────────
-        void nav_up() { if (selected_idx > 0) selected_idx--; }
-        void nav_down() { if (selected_idx < (int)display_list.size() - 1) selected_idx++; }
-        void nav_top() { selected_idx = 0; view_start = 0; }
-        // When the list is empty, size()-1 underflows to SIZE_MAX, casts to -1 as int, then out-of-bounds access
-        void nav_bottom() { selected_idx = display_list.empty() ? 0 : (int)display_list.size() - 1; }
-        // Y24.54: jump to the currently playing node — switch to its mode, expand ancestors, select + scroll.
-        void jump_to_playing();
-        void nav_page_up() { selected_idx -= PAGE_SCROLL_LINES; if (selected_idx < 0) selected_idx = 0; }
-        void nav_page_down();
-        void go_back();
-        void enter_node(int marked_count);
-        // Y24.39: enter_node split into focused sub-functions (was a ~175-line god function).
-        void enter_marked(int marked_count);              // play the first marked episode, then clear marks
-        void enter_folder_expand(TreeNodePtr node);       // FOLDER / PODCAST_FEED expand-or-collapse dispatch
-        void enter_favourite_folder(TreeNodePtr node);    // FAVOURITE-mode expansion (local/link/search/feed/folder)
-        void enter_leaf(TreeNodePtr node);                // playable leaf node → play_episode
-        void toggle_mark();
-        void toggle_sort_order();
+    // ── app_navigation.cpp ─────────────────────────────────────────────────────
+    void nav_up() {
+        if (selected_idx > 0)
+            selected_idx--;
+    }
+    void nav_down() {
+        if (selected_idx < (int)display_list.size() - 1)
+            selected_idx++;
+    }
+    void nav_top() {
+        selected_idx = 0;
+        view_start = 0;
+    }
+    // When the list is empty, size()-1 underflows to SIZE_MAX, casts to -1 as int, then out-of-bounds access
+    void nav_bottom() {
+        selected_idx = display_list.empty() ? 0 : (int)display_list.size() - 1;
+    }
+    // Y24.54: jump to the currently playing node — switch to its mode, expand ancestors, select + scroll.
+    void jump_to_playing();
+    void nav_page_up() {
+        selected_idx -= PAGE_SCROLL_LINES;
+        if (selected_idx < 0)
+            selected_idx = 0;
+    }
+    void nav_page_down();
+    void go_back();
+    void enter_node(int marked_count);
+    // Y24.39: enter_node split into focused sub-functions (was a ~175-line god function).
+    void enter_marked(int marked_count);        // play the first marked episode, then clear marks
+    void enter_folder_expand(TreeNodePtr node); // FOLDER / PODCAST_FEED expand-or-collapse dispatch
+    void enter_favourite_folder(
+        TreeNodePtr node);             // FAVOURITE-mode expansion (local/link/search/feed/folder)
+    void enter_leaf(TreeNodePtr node); // playable leaf node → play_episode
+    void toggle_mark();
+    void toggle_sort_order();
 
-        // ── app_tree_expand.cpp ────────────────────────────────────────────────────
-        void mark_cached_nodes(TreeNodePtr node);
-        std::vector<TreeNodePtr>* get_root_by_mode_string(const std::string& mode_str);  // E: returns the mode's items vector (was TreeNodePtr root)
-        bool should_use_radio_loader(const std::string& source_mode, NodeType node_type, const std::string& url);
-        void sync_link_node_status(TreeNodePtr target);
-        bool expand_link_node(TreeNodePtr node);
-        TreeNodePtr find_node_by_url(TreeNodePtr root, const std::string& url);
-        bool load_favourite_children_from_cache(TreeNodePtr node);
-        void expand_local_folder(TreeNodePtr node);
+    // ── app_tree_expand.cpp ────────────────────────────────────────────────────
+    void mark_cached_nodes(TreeNodePtr node);
+    std::vector<TreeNodePtr> *get_root_by_mode_string(
+        const std::string &mode_str); // E: returns the mode's items vector (was TreeNodePtr root)
+    bool should_use_radio_loader(const std::string &source_mode, NodeType node_type,
+                                 const std::string &url);
+    void sync_link_node_status(TreeNodePtr target);
+    bool expand_link_node(TreeNodePtr node);
+    TreeNodePtr find_node_by_url(TreeNodePtr root, const std::string &url);
+    bool load_favourite_children_from_cache(TreeNodePtr node);
+    void expand_local_folder(TreeNodePtr node);
 
-        // ── app_input.cpp ──────────────────────────────────────────────────────────
-        void handle_mouse_event();
-        void configure_proxy();
-        // Y02: set the YouTube cookies.txt path (latest yt-dlp requires cookies; oauth2 removed).
-        void configure_cookies();
-        void open_command_window();
-        void handle_input(int ch, int marked_count);
+    // ── app_input.cpp ──────────────────────────────────────────────────────────
+    void handle_mouse_event();
+    void configure_proxy();
+    // Y02: set the YouTube cookies.txt path (latest yt-dlp requires cookies; oauth2 removed).
+    void configure_cookies();
+    void open_command_window();
+    void handle_input(int ch, int marked_count);
 
-        // ── app_remote.cpp (N line: network control) ───────────────────────────────
-        // Drain the remote command queue and dispatch each command on the UI thread. Called once
-        //   per frame from run(). N01: logs the action only; the real action mapping lands in N02+.
-        void drain_remote_commands();
-        void dispatch_remote(const RemoteCommand& cmd);
+    // ── app_remote.cpp (N line: network control) ───────────────────────────────
+    // Drain the remote command queue and dispatch each command on the UI thread. Called once
+    //   per frame from run(). N01: logs the action only; the real action mapping lands in N02+.
+    void drain_remote_commands();
+    void dispatch_remote(const RemoteCommand &cmd);
 
-        // ── app_nodes.cpp ──────────────────────────────────────────────────────────
-        void delete_node(int marked_count);
-        void clear_feed_cache(TreeNodePtr feed);
-        void collect_playable_marked(const TreeNodePtr& node, std::vector<TreeNodePtr>& list);
-        void collect_playable_items(const TreeNodePtr& node, std::vector<TreeNodePtr>& list);
-        void clear_marks(const TreeNodePtr& node);
-        void clear_all_marks();
-        void confirm_visual_selection();
-        bool remove_node(TreeNodePtr parent, TreeNodePtr target);
-        void edit_node();
-        void refresh_node();
+    // ── app_nodes.cpp ──────────────────────────────────────────────────────────
+    void delete_node(int marked_count);
+    void clear_feed_cache(TreeNodePtr feed);
+    void collect_playable_marked(const TreeNodePtr &node, std::vector<TreeNodePtr> &list);
+    void collect_playable_items(const TreeNodePtr &node, std::vector<TreeNodePtr> &list);
+    void clear_marks(const TreeNodePtr &node);
+    void clear_all_marks();
+    void confirm_visual_selection();
+    bool remove_node(TreeNodePtr parent, TreeNodePtr target);
+    void edit_node();
+    void refresh_node();
 
-        // ── app_run.cpp ─────────────────────────────────────────────────────────────
-        void load_history_to_root();
-        void load_persistent_data();
-        void save_persistent_data();
-        void restore_player_state();
-        void load_radio_root();
-        void spawn_load_radio(TreeNodePtr node, bool force = false);
-        void spawn_load_feed(TreeNodePtr node);
-        // Y24.40: spawn_load_feed's worker lambda split into focused helpers (was a ~230-line god lambda).
-        //   parse_feed_by_type: Apple lookup + YouTube cache + ParserRegistry dispatch → result tree.
-        //     cur_url_out = (possibly Apple-rewritten) URL; abort_out=true ⇒ Apple lookup failed,
-        //     node state already set, caller must skip commit.
-        TreeNodePtr parse_feed_by_type(TreeNodePtr node, const std::string& url, URLType url_type,
-                                       std::string& cur_url_out, bool& abort_out);
-        void cache_youtube_videos(TreeNodePtr node, URLType cur_type, const std::string& cur_url,
-                                  TreeNodePtr& result);  // cache miss: parse + backfill YouTubeCache
-        void commit_feed_result(TreeNodePtr node, TreeNodePtr result, const std::string& cur_url);  // tree write + episode_cache + save_cache
-        void load_default_podcasts();
-        void flatten(const TreeNodePtr& node, int depth, bool is_last, int parent_idx);
-        // E refactor: display iterates the current mode's TOP-LEVEL items directly — the per-mode
-        //   root node is never in the display domain (not "hidden", just not part of the input).
-        //   items_for_mode returns the active mode's top-level item list; flatten_items flattens it.
-        std::vector<TreeNodePtr>& items_for_mode(AppMode m);
-        std::vector<TreeNodePtr>& cur_items();                       // items_for_mode(mode)
-        void flatten_items(const std::vector<TreeNodePtr>& tops);    // flatten each top at depth 0
-        // E: mode-level helpers — operate on cur_items() (looping the subtree-recursion fns per
-        //   top-level item), replacing the old "pass current_root as the container" pattern.
-        int  count_marked_current();
-        void clear_marks_current();
-        void collect_marked_current(std::vector<TreeNodePtr>& list);
-        void collect_playable_marked_current(std::vector<TreeNodePtr>& list);
-        bool remove_from_current(TreeNodePtr target);  // erase a top-level item, else recurse to its parent
+    // ── app_run.cpp ─────────────────────────────────────────────────────────────
+    void load_history_to_root();
+    void load_persistent_data();
+    void save_persistent_data();
+    void restore_player_state();
+    void load_radio_root();
+    void spawn_load_radio(TreeNodePtr node, bool force = false);
+    void spawn_load_feed(TreeNodePtr node);
+    // Y24.40: spawn_load_feed's worker lambda split into focused helpers (was a ~230-line god lambda).
+    //   parse_feed_by_type: Apple lookup + YouTube cache + ParserRegistry dispatch → result tree.
+    //     cur_url_out = (possibly Apple-rewritten) URL; abort_out=true ⇒ Apple lookup failed,
+    //     node state already set, caller must skip commit.
+    TreeNodePtr parse_feed_by_type(TreeNodePtr node, const std::string &url, URLType url_type,
+                                   std::string &cur_url_out, bool &abort_out);
+    void cache_youtube_videos(TreeNodePtr node, URLType cur_type, const std::string &cur_url,
+                              TreeNodePtr &result); // cache miss: parse + backfill YouTubeCache
+    void commit_feed_result(TreeNodePtr node, TreeNodePtr result,
+                            const std::string &cur_url); // tree write + episode_cache + save_cache
+    void load_default_podcasts();
+    void flatten(const TreeNodePtr &node, int depth, bool is_last, int parent_idx);
+    // E refactor: display iterates the current mode's TOP-LEVEL items directly — the per-mode
+    //   root node is never in the display domain (not "hidden", just not part of the input).
+    //   items_for_mode returns the active mode's top-level item list; flatten_items flattens it.
+    std::vector<TreeNodePtr> &items_for_mode(AppMode m);
+    std::vector<TreeNodePtr> &cur_items();                    // items_for_mode(mode)
+    void flatten_items(const std::vector<TreeNodePtr> &tops); // flatten each top at depth 0
+    // E: mode-level helpers — operate on cur_items() (looping the subtree-recursion fns per
+    //   top-level item), replacing the old "pass current_root as the container" pattern.
+    int count_marked_current();
+    void clear_marks_current();
+    void collect_marked_current(std::vector<TreeNodePtr> &list);
+    void collect_playable_marked_current(std::vector<TreeNodePtr> &list);
+    bool
+    remove_from_current(TreeNodePtr target); // erase a top-level item, else recurse to its parent
 
-        // ── app_account.cpp (Y01: Y mode + Google account login) ───────────────────
-        // Build/refresh account_root from AccountsManager (each Google account = a node with
-        //   "History"/"Subscriptions" children). Call after login/delete/sync.
-        void load_accounts_root();
-        // a (another=false) / A (another=true): run SmartTube-style OAuth device flow with a QR
-        //   popup, fetch identity, persist the account, set it active, refresh the tree.
-        void start_account_login(bool another);
-        // Y02: subscribe the selected YouTube search-result channel to the active account.
-        void subscribe_youtube_channel(TreeNodePtr node);
-        // Y02: `/` in Y mode — search YouTube (mixed C/V/P, optional c/v/p/m prefix) and build a
-        //   tagged result list under the active account.
-        // Y23.4-1: LYRIC Method B + TranscriptParser module
-        // Y24.7: subtitle handling centralized in SubtitleManager (detect/probe/load/download/offset/status).
-        SubtitleManager subtitle_mgr_;
-        TranscriptionEngine transcription_engine_;  // Y24.19: whisper.cpp offline (later realtime) transcription
-        void load_transcript(TreeNodePtr node);  // delegates to subtitle_mgr_.load_async (kept for call-site clarity)
-        void probe_local_sidecar(TreeNodePtr node);  // delegates to subtitle_mgr_.probe_sidecar
-        // Y24.7: transcript load/offset/status moved to SubtitleManager (subtitle_mgr_).
-        // Y23.9: BUFFERING state — keep BUFFERING until mpv reports has_media (or timeout/error).
-        bool playback_pending_ = false;
-        std::chrono::steady_clock::time_point playback_pending_start_;
-        void perform_youtube_search(const std::string& preset = "");
-        // Y15: B-mode (Bilibili) — login (QR + cookie import), browse (following), search, play.
-        void load_bilibili_root();
-        // DB-11: delete the Bilibili account under the cursor (wired to 'd' in B mode).
-        void delete_bilibili_account_node(TreeNodePtr node);
-        void start_bilibili_login();
-        void expand_bilibili_account(TreeNodePtr node);
-        // Y22: lazy-expand the B-account's Subscriptions / History children.
-        void expand_bili_followings(TreeNodePtr node);
-        void expand_bili_history(TreeNodePtr node);
-        // Y-fix: 'r' on a B-account's Subscriptions / History / account node → force re-fetch
-        //   (B mode previously had no refresh path at all — 'r' was a silent no-op).
-        void refresh_bili_followings(TreeNodePtr node);
-        void refresh_bili_history(TreeNodePtr node);
-        void refresh_bilibili_account(TreeNodePtr node);
-        // Y23: subscribe to a Bilibili UP from a 👤 search result ('a').
-        void subscribe_bilibili_up(TreeNodePtr node);
-        void perform_bilibili_search(const std::string& preset = "");
-        // Y24.11/16: T-mode (TikTok/Douyin) — anonymous, no login. Subscribed items listed from DB;
-        //   'a' adds @user/video URL, '/' opens @user/#tag/URL, Enter loads a creator's videos via
-        //   yt-dlp --flat-playlist (+--geo-bypass-country), 'b' cycles region (13: 12 TikTok + CN=Douyin).
-        void load_tiktok_root();
-        void add_tiktok_user();
-        void tiktok_subscribe(const std::string& input);  // shared core: TikTok creator / Douyin video leaf
-        void tiktok_direct_input();                        // '/' handler: @user / #tag / URL dispatch
-        void tag_browse(const std::string& tag);           // '#' → yt-dlp tag list (transient; dormant upstream)
-        void cycle_tiktok_region();
-        void delete_tiktok_user_node(TreeNodePtr node);
-        const std::string& current_tiktok_region() const { return tiktok_region_; }
+    // ── app_account.cpp (Y01: Y mode + Google account login) ───────────────────
+    // Build/refresh account_root from AccountsManager (each Google account = a node with
+    //   "History"/"Subscriptions" children). Call after login/delete/sync.
+    void load_accounts_root();
+    // a (another=false) / A (another=true): run SmartTube-style OAuth device flow with a QR
+    //   popup, fetch identity, persist the account, set it active, refresh the tree.
+    void start_account_login(bool another);
+    // Y02: subscribe the selected YouTube search-result channel to the active account.
+    void subscribe_youtube_channel(TreeNodePtr node);
+    // Y02: `/` in Y mode — search YouTube (mixed C/V/P, optional c/v/p/m prefix) and build a
+    //   tagged result list under the active account.
+    // Y23.4-1: LYRIC Method B + TranscriptParser module
+    // Y24.7: subtitle handling centralized in SubtitleManager (detect/probe/load/download/offset/status).
+    SubtitleManager subtitle_mgr_;
+    TranscriptionEngine
+        transcription_engine_; // Y24.19: whisper.cpp offline (later realtime) transcription
+    void load_transcript(
+        TreeNodePtr node); // delegates to subtitle_mgr_.load_async (kept for call-site clarity)
+    void probe_local_sidecar(TreeNodePtr node); // delegates to subtitle_mgr_.probe_sidecar
+    // Y24.7: transcript load/offset/status moved to SubtitleManager (subtitle_mgr_).
+    // Y23.9: BUFFERING state — keep BUFFERING until mpv reports has_media (or timeout/error).
+    bool playback_pending_ = false;
+    std::chrono::steady_clock::time_point playback_pending_start_;
+    void perform_youtube_search(const std::string &preset = "");
+    // Y15: B-mode (Bilibili) — login (QR + cookie import), browse (following), search, play.
+    void load_bilibili_root();
+    // DB-11: delete the Bilibili account under the cursor (wired to 'd' in B mode).
+    void delete_bilibili_account_node(TreeNodePtr node);
+    void start_bilibili_login();
+    void expand_bilibili_account(TreeNodePtr node);
+    // Y22: lazy-expand the B-account's Subscriptions / History children.
+    void expand_bili_followings(TreeNodePtr node);
+    void expand_bili_history(TreeNodePtr node);
+    // Y-fix: 'r' on a B-account's Subscriptions / History / account node → force re-fetch
+    //   (B mode previously had no refresh path at all — 'r' was a silent no-op).
+    void refresh_bili_followings(TreeNodePtr node);
+    void refresh_bili_history(TreeNodePtr node);
+    void refresh_bilibili_account(TreeNodePtr node);
+    // Y23: subscribe to a Bilibili UP from a 👤 search result ('a').
+    void subscribe_bilibili_up(TreeNodePtr node);
+    void perform_bilibili_search(const std::string &preset = "");
+    // Y24.11/16: T-mode (TikTok/Douyin) — anonymous, no login. Subscribed items listed from DB;
+    //   'a' adds @user/video URL, '/' opens @user/#tag/URL, Enter loads a creator's videos via
+    //   yt-dlp --flat-playlist (+--geo-bypass-country), 'b' cycles region (13: 12 TikTok + CN=Douyin).
+    void load_tiktok_root();
+    void add_tiktok_user();
+    void
+    tiktok_subscribe(const std::string &input); // shared core: TikTok creator / Douyin video leaf
+    void tiktok_direct_input();                 // '/' handler: @user / #tag / URL dispatch
+    void tag_browse(const std::string &tag); // '#' → yt-dlp tag list (transient; dormant upstream)
+    void cycle_tiktok_region();
+    void delete_tiktok_user_node(TreeNodePtr node);
+    const std::string &current_tiktok_region() const {
+        return tiktok_region_;
+    }
 
-        // ── app_iptv.cpp (Y24.50: I-mode, iptv-org playlists) ──────────────────────────
-        void load_iptv_root();                       // build the catalog top-level (All/Region/Country/Category/Language/Custom)
-        void expand_iptv_node(TreeNodePtr node);     // lazy fetch+parse m3u/json on expand (async, cached)
-        // yt-dlp --flat-playlist listing (TikTok creator / tag; Douyin user unsupported — no DouyinUserIE).
-        //   region = TikTok geo-bypass country code (Douyin: "CN"). cookies_file optional. Retries on
-        //   transient empty output.
-        static TreeNodePtr parse_tiktok_user_videos(const std::string& url, const std::string& region,
-                                                    const std::string& cookies_file, const std::string& title);
-        // Y23.1: r/d on a 🔍 search record (rerun / delete); no-op on the container.
-        void rerun_search_record(TreeNodePtr node);
-        void delete_search_record(TreeNodePtr node);
-        // Enter/activate a Y-mode node: account node → set active; history/subscriptions/channel →
-        //   lazy-load children from the per-account tables / YouTube API.
-        void enter_account_node(TreeNodePtr node);
-        // Lazy-expand a "History" / "Subscriptions" / channel child (populate children).
-        void expand_account_child(TreeNodePtr node);
-        // d on a Y-mode account node: delete the account (after confirm).
-        void delete_account_node(TreeNodePtr node);
-        // r on a Y-mode account node: re-sync subscriptions + watch history.
-        void resync_account_node(TreeNodePtr node);
-        // Y-fix: 'r' on the Subscriptions / History container → re-sync only that subtree from
-        //   Google and reload it (preserves the rest of the tree + other accounts' expansion).
-        void refresh_account_subs(TreeNodePtr node);
-        void refresh_account_history(TreeNodePtr node);
+    // ── app_iptv.cpp (Y24.50: I-mode, iptv-org playlists) ──────────────────────────
+    void
+    load_iptv_root(); // build the catalog top-level (All/Region/Country/Category/Language/Custom)
+    void expand_iptv_node(TreeNodePtr node); // lazy fetch+parse m3u/json on expand (async, cached)
+    // yt-dlp --flat-playlist listing (TikTok creator / tag; Douyin user unsupported — no DouyinUserIE).
+    //   region = TikTok geo-bypass country code (Douyin: "CN"). cookies_file optional. Retries on
+    //   transient empty output.
+    static TreeNodePtr parse_tiktok_user_videos(const std::string &url, const std::string &region,
+                                                const std::string &cookies_file,
+                                                const std::string &title);
+    // Y23.1: r/d on a 🔍 search record (rerun / delete); no-op on the container.
+    void rerun_search_record(TreeNodePtr node);
+    void delete_search_record(TreeNodePtr node);
+    // Enter/activate a Y-mode node: account node → set active; history/subscriptions/channel →
+    //   lazy-load children from the per-account tables / YouTube API.
+    void enter_account_node(TreeNodePtr node);
+    // Lazy-expand a "History" / "Subscriptions" / channel child (populate children).
+    void expand_account_child(TreeNodePtr node);
+    // d on a Y-mode account node: delete the account (after confirm).
+    void delete_account_node(TreeNodePtr node);
+    // r on a Y-mode account node: re-sync subscriptions + watch history.
+    void resync_account_node(TreeNodePtr node);
+    // Y-fix: 'r' on the Subscriptions / History container → re-sync only that subtree from
+    //   Google and reload it (preserves the rest of the tree + other accounts' expansion).
+    void refresh_account_subs(TreeNodePtr node);
+    void refresh_account_history(TreeNodePtr node);
 
-        // ── app_sync.cpp (Y01: YouTube sync, bidirectional) ─────────────────────────
-        void sync_account_subscriptions(int account_id);
-        void sync_account_history(int account_id);
-        // Record a YouTube play (under the active account) into youtube_history (local side).
-        void record_youtube_play(const std::string& video_id, const std::string& title,
-                                 const std::string& channel_name = "");
+    // ── app_sync.cpp (Y01: YouTube sync, bidirectional) ─────────────────────────
+    void sync_account_subscriptions(int account_id);
+    void sync_account_history(int account_id);
+    // Record a YouTube play (under the active account) into youtube_history (local side).
+    void record_youtube_play(const std::string &video_id, const std::string &title,
+                             const std::string &channel_name = "");
 
-        // ── Inline helpers (short, used across multiple translation units) ─────────
-        int count_marked_safe(const TreeNodePtr& node) {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-            return count_marked(node);
-        }
+    // ── Inline helpers (short, used across multiple translation units) ─────────
+    int count_marked_safe(const TreeNodePtr &node) {
+        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        return count_marked(node);
+    }
 
-        int count_marked(const TreeNodePtr& node) {
-            int count = node->marked ? 1 : 0;
-            for (auto& child : node->children) count += count_marked(child);
-            return count;
-        }
+    int count_marked(const TreeNodePtr &node) {
+        int count = node->marked ? 1 : 0;
+        for (auto &child : node->children)
+            count += count_marked(child);
+        return count;
+    }
 
-        void collect_marked(const TreeNodePtr& node, std::vector<TreeNodePtr>& list) {
-            if (node->marked) list.push_back(node);
-            for (auto& child : node->children) collect_marked(child, list);
-        }
+    void collect_marked(const TreeNodePtr &node, std::vector<TreeNodePtr> &list) {
+        if (node->marked)
+            list.push_back(node);
+        for (auto &child : node->children)
+            collect_marked(child, list);
+    }
 
-        // ── Download verification helpers (static) ─────────────────────────────────
-        // capture_exec: run an executable and capture stdout (posix_spawn + pipe, no shell → no
-        //   command injection even if the file path contains metacharacters).
-        static std::string capture_exec(const std::string& exe, const std::vector<std::string>& args) {
-            int out_pipe[2];
-            if (pipe(out_pipe) != 0) return "";
-            posix_spawn_file_actions_t actions;
-            if (posix_spawn_file_actions_init(&actions) != 0) {
-                close(out_pipe[0]); close(out_pipe[1]); return "";
-            }
-            posix_spawn_file_actions_adddup2(&actions, out_pipe[1], STDOUT_FILENO);
-            posix_spawn_file_actions_addclose(&actions, out_pipe[0]);
-            posix_spawn_file_actions_addclose(&actions, out_pipe[1]);
-            posix_spawn_file_actions_addclose(&actions, STDERR_FILENO);  // discard stderr
-
-            std::vector<std::string> storage;
-            storage.reserve(args.size() + 1);
-            storage.push_back(exe);
-            for (const auto& a : args) storage.push_back(a);
-            std::vector<char*> argv;
-            argv.reserve(storage.size() + 1);
-            for (auto& s : storage) argv.push_back(s.data());
-            argv.push_back(nullptr);
-
-            pid_t pid;
-            int rc = posix_spawnp(&pid, exe.c_str(), &actions, nullptr, argv.data(), environ);
-            posix_spawn_file_actions_destroy(&actions);
-            close(out_pipe[1]);
-            if (rc != 0) { close(out_pipe[0]); return ""; }
-
-            std::string out;
-            char buf[4096];
-            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-            while (true) {
-                struct pollfd pfd; pfd.fd = out_pipe[0]; pfd.events = POLLIN; pfd.revents = 0;
-                int pr = poll(&pfd, 1, 1000);
-                if (pr < 0) { if (errno == EINTR) continue; break; }
-                if (pr == 0) {
-                    if (std::chrono::steady_clock::now() >= deadline) { kill(pid, SIGTERM); break; }
-                    continue;
-                }
-                if (pfd.revents & (POLLIN | POLLHUP | POLLERR)) {
-                    ssize_t n = read(out_pipe[0], buf, sizeof(buf));
-                    if (n > 0) out.append(buf, static_cast<size_t>(n));
-                    else if (n == 0) break;
-                    else if (errno != EINTR) break;
-                }
-            }
+    // ── Download verification helpers (static) ─────────────────────────────────
+    // capture_exec: run an executable and capture stdout (posix_spawn + pipe, no shell → no
+    //   command injection even if the file path contains metacharacters).
+    static std::string capture_exec(const std::string &exe, const std::vector<std::string> &args) {
+        int out_pipe[2];
+        if (pipe(out_pipe) != 0)
+            return "";
+        posix_spawn_file_actions_t actions;
+        if (posix_spawn_file_actions_init(&actions) != 0) {
             close(out_pipe[0]);
-            int status = 0;
-            waitpid(pid, &status, 0);
-            return out;
+            close(out_pipe[1]);
+            return "";
+        }
+        posix_spawn_file_actions_adddup2(&actions, out_pipe[1], STDOUT_FILENO);
+        posix_spawn_file_actions_addclose(&actions, out_pipe[0]);
+        posix_spawn_file_actions_addclose(&actions, out_pipe[1]);
+        posix_spawn_file_actions_addclose(&actions, STDERR_FILENO); // discard stderr
+
+        std::vector<std::string> storage;
+        storage.reserve(args.size() + 1);
+        storage.push_back(exe);
+        for (const auto &a : args)
+            storage.push_back(a);
+        std::vector<char *> argv;
+        argv.reserve(storage.size() + 1);
+        for (auto &s : storage)
+            argv.push_back(s.data());
+        argv.push_back(nullptr);
+
+        pid_t pid;
+        int rc = posix_spawnp(&pid, exe.c_str(), &actions, nullptr, argv.data(), environ);
+        posix_spawn_file_actions_destroy(&actions);
+        close(out_pipe[1]);
+        if (rc != 0) {
+            close(out_pipe[0]);
+            return "";
         }
 
-        // Probe a media file's duration (seconds) via ffprobe; -1.0 if ffprobe missing / not media.
-        static double probe_media_duration(const std::string& filepath) {
-            std::string ffprobe = Utils::which_binary("ffprobe");
-            if (ffprobe.empty()) return -1.0;
-            std::string out = capture_exec(ffprobe, {
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                filepath
-            });
-            while (!out.empty()) {
-                char c = out.back();
-                if (c == '\n' || c == '\r' || c == ' ' || c == '\t') out.pop_back();
-                else break;
+        std::string out;
+        char buf[4096];
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        while (true) {
+            struct pollfd pfd;
+            pfd.fd = out_pipe[0];
+            pfd.events = POLLIN;
+            pfd.revents = 0;
+            int pr = poll(&pfd, 1, 1000);
+            if (pr < 0) {
+                if (errno == EINTR)
+                    continue;
+                break;
             }
-            if (out.empty() || out == "N/A") return -1.0;
-            try {
-                double d = std::stod(out);
-                return d > 0 ? d : -1.0;
-            } catch (...) { return -1.0; }
-        }
-
-        struct VerifyResult { bool ok; std::string reason; };
-        // Verify a downloaded file matches the episode info before counting as success:
-        //   exists + regular + non-trivial size; and, if ffprobe is available, that the file is
-        //   readable media whose duration matches the episode (catches truncation / wrong-file /
-        //   "already downloaded a stale partial" cases that exit 0 but produce no valid file).
-        //   If ffprobe is not installed, fall back to a size-only check (don't penalize environments
-        //   without ffmpeg — yt-dlp itself needs ffmpeg for merging, so it is usually present).
-        static VerifyResult verify_downloaded_file(const std::string& filepath, int expected_duration) {
-            std::error_code ec;
-            if (!fs::exists(filepath, ec) || !fs::is_regular_file(filepath, ec))
-                return {false, "file missing"};
-            auto sz = fs::file_size(filepath, ec);
-            if (ec || sz < 1024)
-                return {false, "file empty/too small"};
-            std::string ffprobe = Utils::which_binary("ffprobe");
-            if (ffprobe.empty())
-                return {true, "size-only (ffprobe not installed)"};
-            double dur = probe_media_duration(filepath);
-            if (dur <= 0)
-                return {false, "not a valid media file"};
-            if (expected_duration > 0) {
-                // Tolerance: max(5s, 15%) — catches truncation and "wrong file saved" cases.
-                double tol = std::max(5.0, expected_duration * 0.15);
-                if (std::fabs(dur - expected_duration) > tol)
-                    return {false, fmt::format("duration {:.0f}s != expected {}s", dur, expected_duration)};
+            if (pr == 0) {
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    kill(pid, SIGTERM);
+                    break;
+                }
+                continue;
             }
-            return {true, ""};
+            if (pfd.revents & (POLLIN | POLLHUP | POLLERR)) {
+                ssize_t n = read(out_pipe[0], buf, sizeof(buf));
+                if (n > 0)
+                    out.append(buf, static_cast<size_t>(n));
+                else if (n == 0)
+                    break;
+                else if (errno != EINTR)
+                    break;
+            }
         }
+        close(out_pipe[0]);
+        int status = 0;
+        waitpid(pid, &status, 0);
+        return out;
+    }
 
-        // ─── Local folder support (added via A in F mode) ───────────────────────────
-        // Determine whether an extension is an audio/video format playable by MPV/ffmpeg.
-        static bool is_media_extension(const std::string& ext) {
-            static const std::set<std::string> exts = {
-                // ── Lossy audio ──
-                ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wma", ".amr", ".awb",
-                ".mpc", ".ofr", ".ofs", ".spx", ".qcp", ".ra", ".rm", ".m4r",
-                // ── Lossless audio ──
-                ".flac", ".alac", ".ape", ".wv", ".tta", ".tak", ".wav",
-                ".aiff", ".aif", ".aifc", ".caf",
-                // ── DSD (Direct Stream Digital) ──
-                ".dsf", ".dff", ".dsd",
-                // ── Cinema / multi-channel audio ──
-                ".ac3", ".dts", ".dtshd", ".eac3",
-                // ── Audiobooks / container audio ──
-                ".m4b", ".mka",
-                // ── Video ──
-                ".mp4", ".m4v", ".webm", ".mkv", ".avi", ".mov", ".flv", ".ogv", ".ogm",
-                ".ts", ".m2ts", ".mts", ".mpg", ".mpeg", ".vob", ".wmv", ".asf",
-                ".rmvb", ".3gp", ".3g2", ".f4v", ".mxf", ".y4m", ".divx", ".nut"
-            };
-            return exts.count(ext) > 0;
+    // Probe a media file's duration (seconds) via ffprobe; -1.0 if ffprobe missing / not media.
+    static double probe_media_duration(const std::string &filepath) {
+        std::string ffprobe = Utils::which_binary("ffprobe");
+        if (ffprobe.empty())
+            return -1.0;
+        std::string out =
+            capture_exec(ffprobe, {"-v", "error", "-show_entries", "format=duration", "-of",
+                                   "default=noprint_wrappers=1:nokey=1", filepath});
+        while (!out.empty()) {
+            char c = out.back();
+            if (c == '\n' || c == '\r' || c == ' ' || c == '\t')
+                out.pop_back();
+            else
+                break;
         }
-
-        // Sort comparison function: supports digit-prefixed titles
-        // Digit-prefixed (0-9) < letter-prefixed (A-Z)
-        static bool title_compare_asc(const std::string& a, const std::string& b) {
-            bool a_starts_digit = !a.empty() && std::isdigit(static_cast<unsigned char>(a[0]));
-            bool b_starts_digit = !b.empty() && std::isdigit(static_cast<unsigned char>(b[0]));
-
-            // Digit-prefixed sorts first
-            if (a_starts_digit && !b_starts_digit) return true;
-            if (!a_starts_digit && b_starts_digit) return false;
-
-            // Same type: alphabetical order
-            return a < b;
+        if (out.empty() || out == "N/A")
+            return -1.0;
+        try {
+            double d = std::stod(out);
+            return d > 0 ? d : -1.0;
+        } catch (...) {
+            return -1.0;
         }
+    }
 
-        static bool title_compare_desc(const std::string& a, const std::string& b) {
-            bool a_starts_digit = !a.empty() && std::isdigit(static_cast<unsigned char>(a[0]));
-            bool b_starts_digit = !b.empty() && std::isdigit(static_cast<unsigned char>(b[0]));
-
-            // Reverse: letters first, digits last
-            if (a_starts_digit && !b_starts_digit) return false;
-            if (!a_starts_digit && b_starts_digit) return true;
-
-            // Same type: reverse alphabetical order
-            return a > b;
-        }
+    struct VerifyResult {
+        bool ok;
+        std::string reason;
     };
+    // Verify a downloaded file matches the episode info before counting as success:
+    //   exists + regular + non-trivial size; and, if ffprobe is available, that the file is
+    //   readable media whose duration matches the episode (catches truncation / wrong-file /
+    //   "already downloaded a stale partial" cases that exit 0 but produce no valid file).
+    //   If ffprobe is not installed, fall back to a size-only check (don't penalize environments
+    //   without ffmpeg — yt-dlp itself needs ffmpeg for merging, so it is usually present).
+    static VerifyResult verify_downloaded_file(const std::string &filepath, int expected_duration) {
+        std::error_code ec;
+        if (!fs::exists(filepath, ec) || !fs::is_regular_file(filepath, ec))
+            return {false, "file missing"};
+        auto sz = fs::file_size(filepath, ec);
+        if (ec || sz < 1024)
+            return {false, "file empty/too small"};
+        std::string ffprobe = Utils::which_binary("ffprobe");
+        if (ffprobe.empty())
+            return {true, "size-only (ffprobe not installed)"};
+        double dur = probe_media_duration(filepath);
+        if (dur <= 0)
+            return {false, "not a valid media file"};
+        if (expected_duration > 0) {
+            // Tolerance: max(5s, 15%) — catches truncation and "wrong file saved" cases.
+            double tol = std::max(5.0, expected_duration * 0.15);
+            if (std::fabs(dur - expected_duration) > tol)
+                return {false,
+                        fmt::format("duration {:.0f}s != expected {}s", dur, expected_duration)};
+        }
+        return {true, ""};
+    }
+
+    // ─── Local folder support (added via A in F mode) ───────────────────────────
+    // Determine whether an extension is an audio/video format playable by MPV/ffmpeg.
+    static bool is_media_extension(const std::string &ext) {
+        static const std::set<std::string> exts = {
+            // ── Lossy audio ──
+            ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wma", ".amr", ".awb", ".mpc", ".ofr",
+            ".ofs", ".spx", ".qcp", ".ra", ".rm", ".m4r",
+            // ── Lossless audio ──
+            ".flac", ".alac", ".ape", ".wv", ".tta", ".tak", ".wav", ".aiff", ".aif", ".aifc",
+            ".caf",
+            // ── DSD (Direct Stream Digital) ──
+            ".dsf", ".dff", ".dsd",
+            // ── Cinema / multi-channel audio ──
+            ".ac3", ".dts", ".dtshd", ".eac3",
+            // ── Audiobooks / container audio ──
+            ".m4b", ".mka",
+            // ── Video ──
+            ".mp4", ".m4v", ".webm", ".mkv", ".avi", ".mov", ".flv", ".ogv", ".ogm", ".ts", ".m2ts",
+            ".mts", ".mpg", ".mpeg", ".vob", ".wmv", ".asf", ".rmvb", ".3gp", ".3g2", ".f4v",
+            ".mxf", ".y4m", ".divx", ".nut"};
+        return exts.count(ext) > 0;
+    }
+
+    // Sort comparison function: supports digit-prefixed titles
+    // Digit-prefixed (0-9) < letter-prefixed (A-Z)
+    static bool title_compare_asc(const std::string &a, const std::string &b) {
+        bool a_starts_digit = !a.empty() && std::isdigit(static_cast<unsigned char>(a[0]));
+        bool b_starts_digit = !b.empty() && std::isdigit(static_cast<unsigned char>(b[0]));
+
+        // Digit-prefixed sorts first
+        if (a_starts_digit && !b_starts_digit)
+            return true;
+        if (!a_starts_digit && b_starts_digit)
+            return false;
+
+        // Same type: alphabetical order
+        return a < b;
+    }
+
+    static bool title_compare_desc(const std::string &a, const std::string &b) {
+        bool a_starts_digit = !a.empty() && std::isdigit(static_cast<unsigned char>(a[0]));
+        bool b_starts_digit = !b.empty() && std::isdigit(static_cast<unsigned char>(b[0]));
+
+        // Reverse: letters first, digits last
+        if (a_starts_digit && !b_starts_digit)
+            return false;
+        if (!a_starts_digit && b_starts_digit)
+            return true;
+
+        // Same type: reverse alphabetical order
+        return a > b;
+    }
+};
 
 } // namespace panicast

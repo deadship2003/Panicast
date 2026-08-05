@@ -22,7 +22,8 @@ void App::load_accounts_root() {
     //   P-mode YouTube parsing/subscribe; default to 1# (first logged-in) when none is set yet.
     if (AccountsManager::instance().active_account_id() <= 0) {
         auto all0 = AccountsManager::instance().list_accounts();
-        if (!all0.empty()) AccountsManager::instance().set_active_account(all0.front().account_id);
+        if (!all0.empty())
+            AccountsManager::instance().set_active_account(all0.front().account_id);
     }
     auto accounts = AccountsManager::instance().list_accounts();
     int active = AccountsManager::instance().active_account_id();
@@ -40,7 +41,7 @@ void App::load_accounts_root() {
         return;
     }
 
-    for (const auto& a : accounts) {
+    for (const auto &a : accounts) {
         auto node = std::make_shared<TreeNode>();
         node->is_account = true;
         node->account_id = a.account_id;
@@ -52,8 +53,9 @@ void App::load_accounts_root() {
         node->account_email = a.google_email;
         node->account_token_expires = a.token_expires_at;
         node->account_last_sync = a.last_sync_at;
-        node->account_sub_count = (int)AccountsManager::instance().load_subscriptions(a.account_id).size();
-        node->is_cached = (a.account_id == active);   // reuse is_cached to mark "active"
+        node->account_sub_count =
+            (int)AccountsManager::instance().load_subscriptions(a.account_id).size();
+        node->is_cached = (a.account_id == active); // reuse is_cached to mark "active"
         node->expanded = false;
         node->children_loaded = false;
         node->parent.reset();
@@ -84,9 +86,10 @@ void App::load_accounts_root() {
 }
 
 // ── QR-login popup + device-flow poll ────────────────────────────────────────
-namespace {
+namespace
+{
 // Draw the QR login popup and poll for the token. Returns true on success (token in `tr`).
-bool qr_login_poll(const GoogleOAuth::DeviceCode& dc, GoogleOAuth::TokenResult& tr_out) {
+bool qr_login_poll(const GoogleOAuth::DeviceCode &dc, GoogleOAuth::TokenResult &tr_out) {
     std::string qr_text = dc.verification_url;
     // Append user_code as a query param so scanning opens the page with the code prefilled.
     qr_text += (qr_text.find('?') == std::string::npos ? "?" : "&");
@@ -96,22 +99,27 @@ bool qr_login_poll(const GoogleOAuth::DeviceCode& dc, GoogleOAuth::TokenResult& 
     int qr_h = qr_available() ? (int)qr_rows.size() : 0;
     int qr_w = qr_h ? (int)qr_rows[0].size() : 0;
 
-    int text_h = 9;  // instructions + user_code + url + browser-hint + status + cancel
+    int text_h = 9; // instructions + user_code + url + browser-hint + status + cancel
     int pop_h = std::max(qr_h, 1) + text_h + 4;
     int pop_w = std::max({60, qr_w + 4, (int)dc.verification_url.size() + 6});
-    if (pop_w > COLS) pop_w = COLS;
-    if (pop_h > LINES) pop_h = LINES;
+    if (pop_w > COLS)
+        pop_w = COLS;
+    if (pop_h > LINES)
+        pop_h = LINES;
     int py = (LINES - pop_h) / 2;
     int px = (COLS - pop_w) / 2;
-    if (py < 0) py = 0;
-    if (px < 0) px = 0;
+    if (py < 0)
+        py = 0;
+    if (px < 0)
+        px = 0;
 
-    WINDOW* win = newwin(pop_h, pop_w, py, px);
-    if (!win) return false;
+    WINDOW *win = newwin(pop_h, pop_w, py, px);
+    if (!win)
+        return false;
     keypad(win, TRUE);
-    nodelay(win, TRUE);   // non-blocking wgetch for cancel
+    nodelay(win, TRUE); // non-blocking wgetch for cancel
 
-    auto draw = [&](const std::string& status) {
+    auto draw = [&](const std::string &status) {
         werase(win);
         box(win, 0, 0);
         int y = 1;
@@ -119,8 +127,9 @@ bool qr_login_poll(const GoogleOAuth::DeviceCode& dc, GoogleOAuth::TokenResult& 
         y++;
         if (qr_h > 0) {
             int xoff = 2;
-            for (const auto& row : qr_rows) {
-                if (y >= pop_h - 1) break;
+            for (const auto &row : qr_rows) {
+                if (y >= pop_h - 1)
+                    break;
                 mvwprintw(win, y, xoff, "%s", row.c_str());
                 y++;
             }
@@ -146,10 +155,18 @@ bool qr_login_poll(const GoogleOAuth::DeviceCode& dc, GoogleOAuth::TokenResult& 
     while (std::chrono::steady_clock::now() < deadline) {
         // Check for cancel key.
         int ch = wgetch(win);
-        if (ch == 'q' || ch == 'Q') { draw("Cancelled"); break; }
+        if (ch == 'q' || ch == 'Q') {
+            draw("Cancelled");
+            break;
+        }
 
         GoogleOAuth::TokenResult tr = GoogleOAuth::poll_token(dc.device_code);
-        if (tr.ok) { tr_out = tr; ok = true; draw("Authorized! ✓"); break; }
+        if (tr.ok) {
+            tr_out = tr;
+            ok = true;
+            draw("Authorized! ✓");
+            break;
+        }
         if (tr.error == "authorization_pending") {
             // keep polling
         } else if (tr.error == "slow_down") {
@@ -163,7 +180,10 @@ bool qr_login_poll(const GoogleOAuth::DeviceCode& dc, GoogleOAuth::TokenResult& 
         // Sleep in small slices so 'q' stays responsive.
         for (int s = 0; s < interval * 10; ++s) {
             int c = wgetch(win);
-            if (c == 'q' || c == 'Q') { draw("Cancelled"); goto done; }
+            if (c == 'q' || c == 'Q') {
+                draw("Cancelled");
+                goto done;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
@@ -185,7 +205,7 @@ done:
 } // namespace
 
 void App::start_account_login(bool another) {
-    (void)another;  // both a/A add an account via the same flow; 'another' only signals intent.
+    (void)another; // both a/A add an account via the same flow; 'another' only signals intent.
     EVENT_LOG("Y: requesting Google device code...");
     auto dc = GoogleOAuth::request_device_code();
     if (!dc.ok) {
@@ -208,7 +228,10 @@ void App::start_account_login(bool another) {
         // Fetch channel identity (channel id + title) for the new account.
         std::string channel_id, label;
         auto id = GoogleOAuth::fetch_identity(tr.access_token);
-        if (id.ok) { channel_id = id.channel_id; label = id.title; }
+        if (id.ok) {
+            channel_id = id.channel_id;
+            label = id.title;
+        }
 
         int64_t expires_at = tr.obtained_at + tr.expires_in;
 
@@ -216,7 +239,7 @@ void App::start_account_login(bool another) {
         // its tokens and reactivate it instead of creating a duplicate row.
         int aid = 0;
         if (!channel_id.empty()) {
-            for (const auto& a : AccountsManager::instance().list_accounts()) {
+            for (const auto &a : AccountsManager::instance().list_accounts()) {
                 if (!a.channel_id.empty() && a.channel_id == channel_id) {
                     aid = a.account_id;
                     break;
@@ -224,14 +247,17 @@ void App::start_account_login(bool another) {
             }
         }
         if (aid > 0) {
-            AccountsManager::instance().update_tokens(aid, tr.access_token, tr.refresh_token, expires_at, tr.scope);
-            if (!label.empty()) AccountsManager::instance().set_label(aid, label);
+            AccountsManager::instance().update_tokens(aid, tr.access_token, tr.refresh_token,
+                                                      expires_at, tr.scope);
+            if (!label.empty())
+                AccountsManager::instance().set_label(aid, label);
             AccountsManager::instance().touch_login(aid);
             AccountsManager::instance().set_active_account(aid);
             EVENT_LOG(fmt::format("Y: account #{} re-logged in ({}); syncing...", aid, label));
         } else {
             aid = AccountsManager::instance().add_account(
-                /*email*/ "", /*gaia*/ "", channel_id, tr.access_token, tr.refresh_token, expires_at, tr.scope, label);
+                /*email*/ "", /*gaia*/ "", channel_id, tr.access_token, tr.refresh_token,
+                expires_at, tr.scope, label);
             if (aid <= 0) {
                 LOG("[Y] login failed: could not save account");
                 EVENT_LOG("Y: login failed — could not save account");
@@ -252,7 +278,8 @@ void App::start_account_login(bool another) {
 
 // ── Y-mode node activation ───────────────────────────────────────────────────
 void App::enter_account_node(TreeNodePtr node) {
-    if (!node) return;
+    if (!node)
+        return;
 
     if (node->is_account) {
         // Activate this account + expand to show its history/subscriptions children.
@@ -260,7 +287,8 @@ void App::enter_account_node(TreeNodePtr node) {
         EVENT_LOG(fmt::format("Y: active account -> #{} ({})", node->account_id, node->title));
         {
             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-            for (auto& a : account_root) a->is_cached = (a->account_id == node->account_id);
+            for (auto &a : account_root)
+                a->is_cached = (a->account_id == node->account_id);
         }
         node->expanded = !node->expanded;
         return;
@@ -278,14 +306,19 @@ void App::enter_account_node(TreeNodePtr node) {
 
     // Y23.1: Search History container — lazy-load the account's past search records from the cache.
     if (node->is_search_parent) {
-        if (!node->children_loaded) expand_search_history(node);
-        else node->expanded = !node->expanded;
+        if (!node->children_loaded)
+            expand_search_history(node);
+        else
+            node->expanded = !node->expanded;
         return;
     }
     // Y23.1: a 🔍 search record — lazy-load cached results on first expand.
     if (node->is_yt_search && node->url.rfind("search:", 0) == 0) {
-        if (!node->children_loaded) { load_search_history_children(node); node->expanded = true; }
-        else node->expanded = !node->expanded;
+        if (!node->children_loaded) {
+            load_search_history_children(node);
+            node->expanded = true;
+        } else
+            node->expanded = !node->expanded;
         return;
     }
 
@@ -311,12 +344,15 @@ void App::enter_account_node(TreeNodePtr node) {
                     if (p != std::string::npos) {
                         cid = url.substr(p + 9);
                         auto sl = cid.find('/');
-                        if (sl != std::string::npos) cid = cid.substr(0, sl);
+                        if (sl != std::string::npos)
+                            cid = cid.substr(0, sl);
                     }
                     if (!cid.empty()) {
                         vids = GoogleOAuth::fetch_channel_videos(acc.access_token, cid);
                         cnt = (int)vids.size();
-                        if (cnt > 0) EVENT_LOG(fmt::format("Y: channel {} -> {} videos (Data API)", cid, cnt));
+                        if (cnt > 0)
+                            EVENT_LOG(
+                                fmt::format("Y: channel {} -> {} videos (Data API)", cid, cnt));
                     }
                 }
 
@@ -324,14 +360,15 @@ void App::enter_account_node(TreeNodePtr node) {
                 if (cnt == 0) {
                     vids.clear();
                     cnt = YouTubeChannelParser::parse_video_list(url, n, vids, err);
-                    if (cnt > 0) EVENT_LOG(fmt::format("Y: channel -> {} videos (yt-dlp)", cnt));
+                    if (cnt > 0)
+                        EVENT_LOG(fmt::format("Y: channel -> {} videos (yt-dlp)", cnt));
                 }
 
                 std::lock_guard<std::recursive_mutex> lock(tree_mutex);
                 if (cnt > 0) {
                     // OAuth path returns a vector (build nodes here); yt-dlp path already built into n->children.
                     if (n->children.empty() && !vids.empty()) {
-                        for (const auto& v : vids) {
+                        for (const auto &v : vids) {
                             auto ep = std::make_shared<TreeNode>();
                             ep->type = NodeType::PODCAST_EPISODE;
                             ep->title = v.title;
@@ -344,7 +381,10 @@ void App::enter_account_node(TreeNodePtr node) {
                     }
                     n->children_loaded = true;
                     n->expanded = true;
-                    for (auto& c : n->children) { c->is_youtube = true; c->parent = n; }
+                    for (auto &c : n->children) {
+                        c->is_youtube = true;
+                        c->parent = n;
+                    }
                 } else {
                     n->parse_failed = true;
                     n->error_msg = err.empty() ? "no videos" : err;
@@ -362,7 +402,8 @@ void App::enter_account_node(TreeNodePtr node) {
         play_episode(node);
         // Determine owning account (nearest account ancestor).
         TreeNodePtr p = node->parent.lock();
-        while (p && !p->is_account) p = p->parent.lock();
+        while (p && !p->is_account)
+            p = p->parent.lock();
         if (p && p->account_id > 0) {
             // Extract video id from watch?v=ID.
             std::string vid;
@@ -370,7 +411,8 @@ void App::enter_account_node(TreeNodePtr node) {
             if (pos != std::string::npos) {
                 vid = node->url.substr(pos + 2);
                 auto end = vid.find_first_of("&");
-                if (end != std::string::npos) vid = vid.substr(0, end);
+                if (end != std::string::npos)
+                    vid = vid.substr(0, end);
             }
             record_youtube_play(vid, node->title, p->title);
         }
@@ -379,14 +421,15 @@ void App::enter_account_node(TreeNodePtr node) {
 
 // ── Lazy-expand "History" / "Subscriptions" ──────────────────────────────────────
 void App::expand_account_child(TreeNodePtr node) {
-    if (!node) return;
+    if (!node)
+        return;
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
     node->children.clear();
     int aid = node->account_id;
 
     if (node->is_yt_history) {
         auto rows = AccountsManager::instance().load_history(aid);
-        for (const auto& r : rows) {
+        for (const auto &r : rows) {
             auto c = std::make_shared<TreeNode>();
             c->title = r.title.empty() ? r.video_id : r.title;
             c->url = "https://www.youtube.com/watch?v=" + r.video_id;
@@ -401,10 +444,11 @@ void App::expand_account_child(TreeNodePtr node) {
         node->children_loaded = true;
     } else if (node->is_yt_subscriptions) {
         auto rows = AccountsManager::instance().load_subscriptions(aid);
-        for (const auto& r : rows) {
+        for (const auto &r : rows) {
             auto c = std::make_shared<TreeNode>();
             c->title = r.channel_name.empty() ? r.channel_id : r.channel_name;
-            c->url = r.channel_url.empty() ? ("https://www.youtube.com/channel/" + r.channel_id) : r.channel_url;
+            c->url = r.channel_url.empty() ? ("https://www.youtube.com/channel/" + r.channel_id)
+                                           : r.channel_url;
             c->type = NodeType::FOLDER;
             c->is_yt_channel = true;
             c->account_id = aid;
@@ -422,11 +466,14 @@ void App::delete_account_node(TreeNodePtr node) {
     if (!node || !node->is_account) {
         // If on a child, find the owning account.
         TreeNodePtr p = node;
-        while (p && !p->is_account) p = p->parent.lock();
-        if (!p) return;
+        while (p && !p->is_account)
+            p = p->parent.lock();
+        if (!p)
+            return;
         node = p;
     }
-    if (!ui.confirm_box("Delete Google account '" + node->title + "'? (all its YouTube data)")) return;
+    if (!ui.confirm_box("Delete Google account '" + node->title + "'? (all its YouTube data)"))
+        return;
     AccountsManager::instance().delete_account(node->account_id);
     EVENT_LOG(fmt::format("Y: account #{} deleted", node->account_id));
     load_accounts_root();
@@ -434,9 +481,11 @@ void App::delete_account_node(TreeNodePtr node) {
 
 // ── r: re-sync the selected account ──────────────────────────────────────────
 void App::resync_account_node(TreeNodePtr node) {
-    if (!node) return;
+    if (!node)
+        return;
     TreeNodePtr p = node;
-    while (p && !p->is_account) p = p->parent.lock();
+    while (p && !p->is_account)
+        p = p->parent.lock();
     if (!p) {
         EVENT_LOG("Y: select an account to sync");
         return;
@@ -454,59 +503,78 @@ void App::resync_account_node(TreeNodePtr node) {
 //   this one subtree. Unlike resync_account_node (which rebuilds the WHOLE account tree, collapsing
 //   every expanded channel), this preserves the rest of the tree and other accounts' expansion.
 void App::refresh_account_subs(TreeNodePtr node) {
-    if (!node || !node->is_yt_subscriptions) return;
+    if (!node || !node->is_yt_subscriptions)
+        return;
     int aid = node->account_id;
     TreeNodePtr n = node;
     EVENT_LOG(fmt::format("Y: re-syncing subscriptions for account #{} ...", aid));
     pool_.submit([this, aid, n]() {
-        sync_account_subscriptions(aid);   // refresh DB rows from Google (network)
-        expand_account_child(n);           // clears + rebuilds this subtree from DB (under tree_mutex)
-        { std::lock_guard<std::recursive_mutex> lk(tree_mutex); n->expanded = true; }
+        sync_account_subscriptions(aid); // refresh DB rows from Google (network)
+        expand_account_child(n); // clears + rebuilds this subtree from DB (under tree_mutex)
+        {
+            std::lock_guard<std::recursive_mutex> lk(tree_mutex);
+            n->expanded = true;
+        }
         EVENT_LOG("Y: subscriptions re-synced");
     });
 }
 
 // Y-fix: 'r' on the History container — re-sync only watch history from Google and reload this subtree.
 void App::refresh_account_history(TreeNodePtr node) {
-    if (!node || !node->is_yt_history) return;
+    if (!node || !node->is_yt_history)
+        return;
     int aid = node->account_id;
     TreeNodePtr n = node;
     EVENT_LOG(fmt::format("Y: re-syncing watch history for account #{} ...", aid));
     pool_.submit([this, aid, n]() {
         sync_account_history(aid);
         expand_account_child(n);
-        { std::lock_guard<std::recursive_mutex> lk(tree_mutex); n->expanded = true; }
+        {
+            std::lock_guard<std::recursive_mutex> lk(tree_mutex);
+            n->expanded = true;
+        }
         EVENT_LOG("Y: watch history re-synced");
     });
 }
 
 // ── Y02: YouTube search + subscribe ──────────────────────────────────────────
-void App::perform_youtube_search(const std::string& preset) {
+void App::perform_youtube_search(const std::string &preset) {
     std::string q;
     if (!preset.empty()) {
         q = preset;
     } else {
         q = ui.input_box("Search YouTube  [c/v/p/m prefix to filter]");
-        if (UI::is_input_cancelled(q)) { EVENT_LOG("Search cancelled"); return; }
+        if (UI::is_input_cancelled(q)) {
+            EVENT_LOG("Search cancelled");
+            return;
+        }
     }
-    if (q.empty()) return;
+    if (q.empty())
+        return;
 
     // Optional single-letter type filter prefix: "c "/"v "/"p "/"m ".
     std::string filter;
     bool music = false;
     if (q.size() >= 2 && q[1] == ' ' &&
-        (q[0]=='c'||q[0]=='v'||q[0]=='p'||q[0]=='m'||q[0]=='C'||q[0]=='V'||q[0]=='P'||q[0]=='M')) {
+        (q[0] == 'c' || q[0] == 'v' || q[0] == 'p' || q[0] == 'm' || q[0] == 'C' || q[0] == 'V' ||
+         q[0] == 'P' || q[0] == 'M')) {
         char c = (char)std::tolower((unsigned char)q[0]);
-        if (c == 'm') music = true;
-        else if (c == 'c') filter = "channel";
-        else if (c == 'v') filter = "video";
-        else if (c == 'p') filter = "playlist";
+        if (c == 'm')
+            music = true;
+        else if (c == 'c')
+            filter = "channel";
+        else if (c == 'v')
+            filter = "video";
+        else if (c == 'p')
+            filter = "playlist";
         q = q.substr(2);
         size_t s = q.find_first_not_of(' ');
-        if (s == std::string::npos) return;
+        if (s == std::string::npos)
+            return;
         q = q.substr(s);
     }
-    if (q.empty()) return;
+    if (q.empty())
+        return;
 
     int aid = AccountsManager::instance().active_account_id();
     if (aid <= 0) {
@@ -531,20 +599,30 @@ void App::perform_youtube_search(const std::string& preset) {
         TreeNodePtr acct;
         {
             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-            for (auto& c : account_root)
-                if (c->is_account && c->account_id == aid) { acct = c; break; }
+            for (auto &c : account_root)
+                if (c->is_account && c->account_id == aid) {
+                    acct = c;
+                    break;
+                }
         }
-        if (!acct) { EVENT_LOG("Y: active account not found in tree"); return; }
+        if (!acct) {
+            EVENT_LOG("Y: active account not found in tree");
+            return;
+        }
 
         // Y23.1/Y23.2: serialize results to JSON (mode-specific); the finalizer (build nodes + cache +
         //   add 🔍 record) is shared with B mode via finalize_search.
         json results_json = json::array();
-        for (const auto& r : results) {
+        for (const auto &r : results) {
             std::string kind = (r.kind == YouTubeSearchRow::Kind::CHANNEL) ? "channel"
-                             : (r.kind == YouTubeSearchRow::Kind::PLAYLIST) ? "playlist"
-                             : (r.music ? "music" : "video");
-            results_json.push_back({{"kind", kind}, {"id", r.id}, {"title", r.title},
-                                    {"url", r.url}, {"channel_title", r.channel_title},
+                               : (r.kind == YouTubeSearchRow::Kind::PLAYLIST)
+                                   ? "playlist"
+                                   : (r.music ? "music" : "video");
+            results_json.push_back({{"kind", kind},
+                                    {"id", r.id},
+                                    {"title", r.title},
+                                    {"url", r.url},
+                                    {"channel_title", r.channel_title},
                                     {"thumbnail", r.thumbnail_url}});
         }
         finalize_search("youtube", aid, acct, q, results_json);
@@ -557,10 +635,17 @@ void App::subscribe_youtube_channel(TreeNodePtr node) {
         EVENT_LOG("Y: select a [C] channel result to subscribe");
         return;
     }
-    int aid = node->account_id > 0 ? node->account_id : AccountsManager::instance().active_account_id();
-    if (aid <= 0) { EVENT_LOG("Y: login first"); return; }
+    int aid =
+        node->account_id > 0 ? node->account_id : AccountsManager::instance().active_account_id();
+    if (aid <= 0) {
+        EVENT_LOG("Y: login first");
+        return;
+    }
     GoogleAccount acc;
-    if (!AccountsManager::instance().get_tokens(aid, acc)) { EVENT_LOG("Y: token unavailable"); return; }
+    if (!AccountsManager::instance().get_tokens(aid, acc)) {
+        EVENT_LOG("Y: token unavailable");
+        return;
+    }
     std::string who = node->channel_name.empty() ? node->title : node->channel_name;
     std::string channel_id = node->channel_id;
     EVENT_LOG(fmt::format("Y: subscribing {} ...", who));

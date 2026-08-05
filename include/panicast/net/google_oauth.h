@@ -17,8 +17,8 @@
 #include <string>
 #include <vector>
 
-#include "panicast/storage/accounts.h"  // YouTubeSubRow / YouTubeHistoryRow
-#include "panicast/storage/youtube_cache.h"  // YouTubeVideoInfo (fetch_channel_videos)
+#include "panicast/storage/accounts.h"      // YouTubeSubRow / YouTubeHistoryRow
+#include "panicast/storage/youtube_cache.h" // YouTubeVideoInfo (fetch_channel_videos)
 
 namespace panicast
 {
@@ -43,9 +43,9 @@ public:
     struct DeviceCode {
         std::string device_code;
         std::string user_code;
-        std::string verification_url;   // e.g. https://www.google.com/device
-        int expires_in = 0;             // seconds
-        int interval = 5;               // polling interval seconds
+        std::string verification_url; // e.g. https://www.google.com/device
+        int expires_in = 0;           // seconds
+        int interval = 5;             // polling interval seconds
         bool ok = false;
         std::string error;
     };
@@ -54,19 +54,19 @@ public:
         bool ok = false;
         std::string access_token;
         std::string refresh_token;
-        int expires_in = 0;             // seconds (access token lifetime)
+        int expires_in = 0; // seconds (access token lifetime)
         std::string scope;
         // When ok==false: "authorization_pending" means keep polling; "expired_token"/"slow_down"/others stop.
         std::string error;
         std::string error_desc;
-        int64_t obtained_at = 0;        // unix epoch when obtained (caller computes expires_at)
+        int64_t obtained_at = 0; // unix epoch when obtained (caller computes expires_at)
     };
 
     struct ChannelIdentity {
         bool ok = false;
         std::string channel_id;
         std::string title;
-        std::string email;              // may be empty (email scope not always returned)
+        std::string email; // may be empty (email scope not always returned)
     };
 
     // Step 1: request device code. Returns verification_url + user_code to render as QR.
@@ -74,25 +74,25 @@ public:
 
     // Step 2: poll the token endpoint ONCE. Caller loops with `interval` until ok or expired.
     //   ok=true → tokens obtained. error=="authorization_pending" → keep polling.
-    static TokenResult poll_token(const std::string& device_code);
+    static TokenResult poll_token(const std::string &device_code);
 
     // Refresh an expired access_token using a refresh_token.
-    static TokenResult refresh(const std::string& refresh_token);
+    static TokenResult refresh(const std::string &refresh_token);
 
     // Fetch the authenticated user's YouTube channel identity (channels?mine=true&part=snippet).
-    static ChannelIdentity fetch_identity(const std::string& access_token);
+    static ChannelIdentity fetch_identity(const std::string &access_token);
 
     // ── subscriptions (official Data API v3) ──
     // List the authenticated user's subscriptions (paginated). Returns channel rows.
-    static std::vector<YouTubeSubRow> fetch_subscriptions(const std::string& access_token);
+    static std::vector<YouTubeSubRow> fetch_subscriptions(const std::string &access_token);
     // Subscribe to a channel. channel_id is UC... id.
-    static bool subscribe(const std::string& access_token, const std::string& channel_id);
+    static bool subscribe(const std::string &access_token, const std::string &channel_id);
     // Unsubscribe: looks up the subscription id for the channel, then deletes it.
-    static bool unsubscribe(const std::string& access_token, const std::string& channel_id);
+    static bool unsubscribe(const std::string &access_token, const std::string &channel_id);
 
     // ── watch history (InnerTube /browse, unofficial) ──
     // Returns recent watch-history videos. May return empty if the account has history disabled.
-    static std::vector<YouTubeHistoryRow> fetch_watch_history(const std::string& access_token);
+    static std::vector<YouTubeHistoryRow> fetch_watch_history(const std::string &access_token);
 
     // ── channel uploads (official Data API v3) ── Y04
     // Fetch a channel's recent uploads via Data API v3 (channels.list?part=contentDetails → uploads
@@ -101,15 +101,17 @@ public:
     //   OAuth token (which already powers subscriptions) is needed. Quota: 1 (channels.list) + 1/page.
     //   Returns up to ~200 most recent uploads (YouTube caps the uploads playlist). Empty on error.
     //   channel_id is the UC... id (or the URL is parsed by the caller).
-    static std::vector<YouTubeVideoInfo> fetch_channel_videos(const std::string& access_token,
-                                                               const std::string& channel_id);
+    static std::vector<YouTubeVideoInfo> fetch_channel_videos(const std::string &access_token,
+                                                              const std::string &channel_id);
 
     // ── search (official Data API v3) ── Y02
     // Search YouTube. type_filter: "" = mixed (video/channel/playlist), or "video"/"channel"/"playlist".
     // music_only = true → video results filtered to the Music category (videoCategoryId=10).
     // Quota: 100 units/call (default daily quota 10k → ~100 searches).
-    static std::vector<YouTubeSearchRow> search(const std::string& access_token, const std::string& query,
-                                                 const std::string& type_filter = "", bool music_only = false);
+    static std::vector<YouTubeSearchRow> search(const std::string &access_token,
+                                                const std::string &query,
+                                                const std::string &type_filter = "",
+                                                bool music_only = false);
 };
 
 } // namespace panicast

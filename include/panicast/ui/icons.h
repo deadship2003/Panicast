@@ -3,8 +3,8 @@
 
 #include <string>
 
-#include "panicast/core/terminal.h"  // get_emoji_width()
-#include "panicast/core/types.h"     // MediaType
+#include "panicast/core/terminal.h" // get_emoji_width()
+#include "panicast/core/types.h"    // MediaType
 
 namespace panicast
 {
@@ -23,16 +23,21 @@ enum class IconStyle { ASCII, EMOJI };
 extern IconStyle g_icon_style;
 
 // Safe layout constants (icon-related)
-constexpr int ICON_FIELD_WIDTH = 3;       // Fixed width of icon area (icon + space, emoji width 2 + space 1 = 3)
-constexpr int EMOJI_LOGICAL_WIDTH = 2;    // Emoji logical width
-constexpr int ASCII_LOGICAL_WIDTH = 1;    // ASCII logical width
+constexpr int ICON_FIELD_WIDTH =
+    3; // Fixed width of icon area (icon + space, emoji width 2 + space 1 = 3)
+constexpr int EMOJI_LOGICAL_WIDTH = 2; // Emoji logical width
+constexpr int ASCII_LOGICAL_WIDTH = 1; // ASCII logical width
 
 // Icon manager - supports ASCII/Emoji dual mode
 // Icon format: <icon><space>, keep 1 space separation from connector
 class IconManager {
 public:
-    static void set_style(IconStyle style) { g_icon_style = style; }
-    static IconStyle get_style() { return g_icon_style; }
+    static void set_style(IconStyle style) {
+        g_icon_style = style;
+    }
+    static IconStyle get_style() {
+        return g_icon_style;
+    }
     static void toggle_style() {
         g_icon_style = (g_icon_style == IconStyle::EMOJI) ? IconStyle::ASCII : IconStyle::EMOJI;
     }
@@ -76,13 +81,14 @@ public:
     }
     // Y23.1: search-result type icons (all glibc wcwidth=2, consistent with the project's emoji set).
     //   Video results reuse get_video() (📺) so a search-result video looks the same as a P-mode video.
-    static std::string get_creator() {      // YouTube channel / Bilibili UP (a person/channel, not a video)
+    static std::string
+    get_creator() { // YouTube channel / Bilibili UP (a person/channel, not a video)
         return (g_icon_style == IconStyle::EMOJI) ? "👤 " : "[U]";
     }
-    static std::string get_playlist() {     // YouTube playlist
+    static std::string get_playlist() { // YouTube playlist
         return (g_icon_style == IconStyle::EMOJI) ? "📋 " : "[L]";
     }
-    static std::string get_music() {        // YouTube music-category video
+    static std::string get_music() { // YouTube music-category video
         return (g_icon_style == IconStyle::EMOJI) ? "🎵 " : "[M]";
     }
     // ===== CONVENTION: every icon/emoji glyph below MUST have glibc wcwidth == 2. =====
@@ -97,27 +103,45 @@ public:
     static std::string media_type_icon(MediaType t) {
         if (g_icon_style != IconStyle::EMOJI) {
             switch (t) {
-                case MediaType::Radio:       return "[R] ";
-                case MediaType::Youtube:     return "[Y] ";
-                case MediaType::Bilibili:    return "[B] ";
-                case MediaType::Tiktok:      return "[K] ";
-                case MediaType::Iptv:        return "[T] ";
-                case MediaType::OnlineAudio: return "[A] ";
-                case MediaType::OnlineVideo: return "[V] ";
-                case MediaType::LocalAudio:  return "[a] ";
-                case MediaType::LocalVideo:  return "[v] ";
+            case MediaType::Radio:
+                return "[R] ";
+            case MediaType::Youtube:
+                return "[Y] ";
+            case MediaType::Bilibili:
+                return "[B] ";
+            case MediaType::Tiktok:
+                return "[K] ";
+            case MediaType::Iptv:
+                return "[T] ";
+            case MediaType::OnlineAudio:
+                return "[A] ";
+            case MediaType::OnlineVideo:
+                return "[V] ";
+            case MediaType::LocalAudio:
+                return "[a] ";
+            case MediaType::LocalVideo:
+                return "[v] ";
             }
         }
         switch (t) {
-            case MediaType::Radio:       return "📻 ";
-            case MediaType::Youtube:     return "📹 ";
-            case MediaType::Bilibili:    return "Ｂ ";
-            case MediaType::Tiktok:      return "🎵 ";
-            case MediaType::Iptv:        return "📺 ";
-            case MediaType::OnlineAudio: return "🎤 ";
-            case MediaType::OnlineVideo: return "🎬 ";
-            case MediaType::LocalAudio:  return "🎶 ";
-            case MediaType::LocalVideo:  return "🎥 ";
+        case MediaType::Radio:
+            return "📻 ";
+        case MediaType::Youtube:
+            return "📹 ";
+        case MediaType::Bilibili:
+            return "Ｂ ";
+        case MediaType::Tiktok:
+            return "🎵 ";
+        case MediaType::Iptv:
+            return "📺 ";
+        case MediaType::OnlineAudio:
+            return "🎤 ";
+        case MediaType::OnlineVideo:
+            return "🎬 ";
+        case MediaType::LocalAudio:
+            return "🎶 ";
+        case MediaType::LocalVideo:
+            return "🎥 ";
         }
         return "🎵 ";
     }
@@ -136,9 +160,9 @@ public:
     //   Field width = measured emoji width + 1, reserved by actual occupied width to ensure title alignment across rows.
     static int get_icon_field_width() {
         if (g_icon_style == IconStyle::EMOJI) {
-            return get_emoji_width() + 1;  // Icon (actual width) + 1 space
+            return get_emoji_width() + 1; // Icon (actual width) + 1 space
         }
-        return 2;  // ASCII: 1 char + space = 2
+        return 2; // ASCII: 1 char + space = 2
     }
 };
 

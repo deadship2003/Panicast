@@ -3,7 +3,7 @@
 namespace panicast
 {
 
-IniConfig& IniConfig::instance() {
+IniConfig &IniConfig::instance() {
     static IniConfig ic;
     return ic;
 }

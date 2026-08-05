@@ -16,11 +16,11 @@ public:
     explicit ThreadPool(size_t n = 2);
     ~ThreadPool();
 
-    template <class F>
-    void submit(F&& task) {
+    template <class F> void submit(F &&task) {
         {
             std::lock_guard<std::mutex> lock(mtx_);
-            if (stop_) return;  // Do not accept new tasks after shutdown (avoids lost tasks and pointless queuing)
+            if (stop_)
+                return; // Do not accept new tasks after shutdown (avoids lost tasks and pointless queuing)
             // P2-C9: the queue is intentionally unbounded and submit is non-blocking. A blocking
             //   producer would deadlock when a worker itself submits (on_playback_ended does), and
             //   dropping tasks would lose user-initiated loads. The pool is sized to
@@ -43,7 +43,8 @@ private:
     std::mutex mtx_;
     std::condition_variable cv_;
     bool stop_;
-    int active_ = 0;  // Number of tasks currently executing, used by wait_idle to determine true idle
+    int active_ =
+        0; // Number of tasks currently executing, used by wait_idle to determine true idle
 };
 
 } // namespace panicast

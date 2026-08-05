@@ -11,11 +11,11 @@ namespace panicast
 class TerminalDetector {
 public:
     enum class TerminalType {
-        UNKNOWN,            // Unknown terminal (treated as 2 columns per Linux standard)
-        XTERM,              // Linux xterm / rxvt / gnome-terminal, etc.
-        WINDOWS_TERMINAL,   // Windows Terminal (WSL2 default)
-        CMD_CONSOLE,        // Legacy Windows cmd.exe
-        APPLE_TERMINAL,     // macOS Terminal.app / iTerm2
+        UNKNOWN,          // Unknown terminal (treated as 2 columns per Linux standard)
+        XTERM,            // Linux xterm / rxvt / gnome-terminal, etc.
+        WINDOWS_TERMINAL, // Windows Terminal (WSL2 default)
+        CMD_CONSOLE,      // Legacy Windows cmd.exe
+        APPLE_TERMINAL,   // macOS Terminal.app / iTerm2
     };
 
     static TerminalType detect();

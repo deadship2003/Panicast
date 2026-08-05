@@ -26,24 +26,25 @@ struct RemoteStateSnapshot {
     bool has_media = false;
     int volume = 0;
     double speed = 1.0;
-    double elapsed = 0.0;       // time_pos
-    double duration = 0.0;      // media_duration
+    double elapsed = 0.0;  // time_pos
+    double duration = 0.0; // media_duration
     std::string title;
-    std::string url;            // current_url
+    std::string url; // current_url
     bool has_video = false;
-    int playlist_pos = -1;      // mpv playlist_pos (unused by app pointer model; kept for parity)
+    int playlist_pos = -1; // mpv playlist_pos (unused by app pointer model; kept for parity)
     int playlist_count = 0;
     double net_speed_bps = 0.0;
     int buffering_pct = 0;
     std::string audio_codec;
     // ── app (built under remote_state_mtx_) ──
-    std::string mode;           // "RADIO"/"PODCAST"/"FAVOURITE"/"HISTORY"/"ONLINE"/"ACCOUNT"/"BILIBILI"/"TIKTOK"/"IPTV"
-    std::string play_mode;      // "repeat"/"shuffle"/"cycle"
+    std::string
+        mode; // "RADIO"/"PODCAST"/"FAVOURITE"/"HISTORY"/"ONLINE"/"ACCOUNT"/"BILIBILI"/"TIKTOK"/"IPTV"
+    std::string play_mode; // "repeat"/"shuffle"/"cycle"
     int selected_idx = 0;
-    int current_index = -1;     // -1 = nothing in the implicit playlist
-    std::vector<RemotePlaylistItem> playlist;  // current peers (the implicit play queue)
-    std::string art_url;        // cover art (TreeNode::art_url of the playing node)
-    int sleep_remaining = -1;   // -1 = sleep timer inactive
+    int current_index = -1;                   // -1 = nothing in the implicit playlist
+    std::vector<RemotePlaylistItem> playlist; // current peers (the implicit play queue)
+    std::string art_url;                      // cover art (TreeNode::art_url of the playing node)
+    int sleep_remaining = -1;                 // -1 = sleep timer inactive
     bool subtitle_active = false;
 };
 

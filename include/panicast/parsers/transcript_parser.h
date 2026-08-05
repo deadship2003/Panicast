@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "panicast/subtitle/subtitle_parser.h"  // TranscriptSegment + registry + find_at/find_active
+#include "panicast/subtitle/subtitle_parser.h" // TranscriptSegment + registry + find_at/find_active
 
 namespace panicast
 {
@@ -16,21 +16,24 @@ namespace panicast
 class TranscriptParser {
 public:
     // Parse transcript content into timed segments. type_hint = "json"|"srt"|"vtt"|"lrc"|"" (auto).
-    static std::vector<TranscriptSegment> parse(const std::string& content, const std::string& type_hint = "") {
+    static std::vector<TranscriptSegment> parse(const std::string &content,
+                                                const std::string &type_hint = "") {
         return SubtitleParserRegistry::instance().parse(content, type_hint);
     }
 
     // Fetch a transcript URL (or read a local path) and parse it. Returns empty on failure.
-    static std::vector<TranscriptSegment> load(const std::string& url_or_path);
+    static std::vector<TranscriptSegment> load(const std::string &url_or_path);
 
-    static int find_at(const std::vector<TranscriptSegment>& segs, double time) {
+    static int find_at(const std::vector<TranscriptSegment> &segs, double time) {
         return panicast::find_at(segs, time);
     }
-    static std::vector<int> find_active(const std::vector<TranscriptSegment>& segs, double time) {
+    static std::vector<int> find_active(const std::vector<TranscriptSegment> &segs, double time) {
         return panicast::find_active(segs, time);
     }
 
-    static double parse_timestamp(const std::string& s) { return panicast::parse_timestamp(s); }
+    static double parse_timestamp(const std::string &s) {
+        return panicast::parse_timestamp(s);
+    }
 };
 
-}  // namespace panicast
+} // namespace panicast

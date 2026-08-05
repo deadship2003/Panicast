@@ -3,8 +3,9 @@
 namespace panicast
 {
 
-void draw_box(WINDOW* win) {
-    if (!win) return;  // Guard against NULL (extreme cases like safe_wresize failure)
+void draw_box(WINDOW *win) {
+    if (!win)
+        return; // Guard against NULL (extreme cases like safe_wresize failure)
     // Clear window contents
     werase(win);
 
@@ -13,7 +14,8 @@ void draw_box(WINDOW* win) {
     getmaxyx(win, wh, ww);
 
     // Boundary protection: window must be at least 2x2 to draw a border
-    if (ww < 2 || wh < 2) return;
+    if (ww < 2 || wh < 2)
+        return;
 
     // ════ Draw the four edges (start from corners to ensure closure) ════
     // Top border: from top-left to top-right (excluding corners)
@@ -34,9 +36,9 @@ void draw_box(WINDOW* win) {
     }
 
     // ════ Draw the four corners (drawn last to ensure closure) ════
-    mvwaddch(win, 0, 0, ACS_ULCORNER);       // ┌ top-left
-    mvwaddch(win, 0, ww - 1, ACS_URCORNER);  // ┐ top-right
-    mvwaddch(win, wh - 1, 0, ACS_LLCORNER);  // └ bottom-left
+    mvwaddch(win, 0, 0, ACS_ULCORNER);           // ┌ top-left
+    mvwaddch(win, 0, ww - 1, ACS_URCORNER);      // ┐ top-right
+    mvwaddch(win, wh - 1, 0, ACS_LLCORNER);      // └ bottom-left
     mvwaddch(win, wh - 1, ww - 1, ACS_LRCORNER); // ┘ bottom-right
 }
 
@@ -50,13 +52,13 @@ void draw_box(WINDOW* win) {
 //   split_y: separator line row number, -1 means no separator
 //   split_title_start, split_title_end: separator title region
 // ═══════════════════════════════════════════════════════════════════════════
-void protect_border(WINDOW* win, int ww, int wh,
-                    int title_start, int title_end,
-                    int split_y,
+void protect_border(WINDOW *win, int ww, int wh, int title_start, int title_end, int split_y,
                     int split_title_start, int split_title_end) {
-    if (!win) return;  // Guard against NULL
+    if (!win)
+        return; // Guard against NULL
     // Boundary protection: window must be at least 2x2
-    if (ww < 2 || wh < 2) return;
+    if (ww < 2 || wh < 2)
+        return;
 
     // ════ Step 1: draw the four edges ════
 
@@ -88,15 +90,15 @@ void protect_border(WINDOW* win, int ww, int wh,
     }
 
     // ════ Step 2: draw the four corners (drawn last to ensure closure) ════
-    mvwaddch(win, 0, 0, ACS_ULCORNER);       // ┌ top-left
-    mvwaddch(win, 0, ww - 1, ACS_URCORNER);  // ┐ top-right
-    mvwaddch(win, wh - 1, 0, ACS_LLCORNER);  // └ bottom-left
+    mvwaddch(win, 0, 0, ACS_ULCORNER);           // ┌ top-left
+    mvwaddch(win, 0, ww - 1, ACS_URCORNER);      // ┐ top-right
+    mvwaddch(win, wh - 1, 0, ACS_LLCORNER);      // └ bottom-left
     mvwaddch(win, wh - 1, ww - 1, ACS_LRCORNER); // ┘ bottom-right
 
     // ════ Step 3: separator line (if any) ════
     if (split_y > 0 && split_y < wh - 1) {
         // Draw left and right connectors first
-        mvwaddch(win, split_y, 0, ACS_LTEE);    // ├ left connector
+        mvwaddch(win, split_y, 0, ACS_LTEE);      // ├ left connector
         mvwaddch(win, split_y, ww - 1, ACS_RTEE); // ┤ right connector
 
         // Then draw the horizontal part of the separator line

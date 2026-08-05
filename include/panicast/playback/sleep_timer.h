@@ -11,11 +11,11 @@ namespace panicast
 
 class SleepTimer {
 public:
-    static SleepTimer& instance();
+    static SleepTimer &instance();
 
     void set_duration(int seconds);
     // Supports multiple formats: "5h", "30m", "1:25:15", "90"
-    void set_duration(const std::string& time_str);
+    void set_duration(const std::string &time_str);
 
     bool check_expired();
     int remaining_seconds();
@@ -24,11 +24,11 @@ public:
     void cancel();
 
     // Static parse function, used by main
-    static int parse_time_string(const std::string& time_str);
+    static int parse_time_string(const std::string &time_str);
 
 private:
     SleepTimer() : duration_seconds_(0), active_(false) {}
-    mutable std::mutex mtx_;  // Multi-core concurrency guard (mutable so const is_active can lock)
+    mutable std::mutex mtx_; // Multi-core concurrency guard (mutable so const is_active can lock)
     int duration_seconds_;
     std::chrono::steady_clock::time_point start_time_;
     bool active_;

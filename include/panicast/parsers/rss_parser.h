@@ -19,12 +19,18 @@ namespace panicast
 class RSSParser : public IFeedParser {
 public:
     // Parse RSS/Atom XML into a podcast channel node. feed_url selects the YouTube RSS branch.
-    static TreeNodePtr parse(std::string xml, const std::string& feed_url);
+    static TreeNodePtr parse(std::string xml, const std::string &feed_url);
 
     // ── ParserRegistry self-registration ──
-    static URLType type() { return URLType::RSS_PODCAST; }
-    URLType supports() const override { return URLType::RSS_PODCAST; }
-    TreeNodePtr parse(const ParseInput& in) override { return parse(in.data, in.url); }
+    static URLType type() {
+        return URLType::RSS_PODCAST;
+    }
+    URLType supports() const override {
+        return URLType::RSS_PODCAST;
+    }
+    TreeNodePtr parse(const ParseInput &in) override {
+        return parse(in.data, in.url);
+    }
 
 private:
     static void parse_channel(xmlNodePtr ch, TreeNodePtr c);

@@ -12,7 +12,9 @@ ThreadPool::ThreadPool(size_t n) : stop_(false) {
         workers_.emplace_back([this] { worker_loop(); });
 }
 
-ThreadPool::~ThreadPool() { shutdown(); }
+ThreadPool::~ThreadPool() {
+    shutdown();
+}
 
 void ThreadPool::shutdown() {
     {
@@ -23,8 +25,9 @@ void ThreadPool::shutdown() {
     // Fire-and-forget: DETACH workers (was: join). A worker stuck in a long curl/yt-dlp call
     //   would block join indefinitely → panicast hangs on exit → no terminal restore → no prompt.
     //   The caller _exit()s after ui.cleanup(), so the detached workers die with the process.
-    for (auto& t : workers_)
-        if (t.joinable()) t.detach();
+    for (auto &t : workers_)
+        if (t.joinable())
+            t.detach();
 }
 
 void ThreadPool::wait_idle() {
@@ -39,19 +42,25 @@ void ThreadPool::worker_loop() {
         {
             std::unique_lock<std::mutex> lock(mtx_);
             cv_.wait(lock, [this] { return stop_ || !tasks_.empty(); });
-            if (stop_ && tasks_.empty()) return;
+            if (stop_ && tasks_.empty())
+                return;
             task = std::move(tasks_.front());
             tasks_.pop();
             ++active_;
         }
-        try { task(); } catch (const std::exception& e) {
-            LOG(fmt::format("[ThreadPool] task threw: {}", e.what()));  // Log instead of silently swallowing
-        } catch (...) { LOG("[ThreadPool] task threw unknown exception"); }
+        try {
+            task();
+        } catch (const std::exception &e) {
+            LOG(fmt::format("[ThreadPool] task threw: {}",
+                            e.what())); // Log instead of silently swallowing
+        } catch (...) {
+            LOG("[ThreadPool] task threw unknown exception");
+        }
         {
             std::lock_guard<std::mutex> lock(mtx_);
             --active_;
         }
-        cv_.notify_all();  // Wake up wait_idle waiters
+        cv_.notify_all(); // Wake up wait_idle waiters
     }
 }
 

@@ -15,28 +15,28 @@ namespace panicast
 
 class CacheManager {
 public:
-    static CacheManager& instance();
+    static CacheManager &instance();
 
     // All accesses locked — concurrent mark by the download thread and read by the UI thread would corrupt the set/map (UB)
-    void mark_downloaded(const std::string& url, const std::string& local_file = "");
-    bool is_downloaded(const std::string& url);
+    void mark_downloaded(const std::string &url, const std::string &local_file = "");
+    bool is_downloaded(const std::string &url);
 
     // Incomplete download (.part): status=2, persisted. Marked when a download fails/interrupts,
     //   cleared on successful download.
-    void mark_partial(const std::string& url);
-    bool is_partial(const std::string& url);
+    void mark_partial(const std::string &url);
+    bool is_partial(const std::string &url);
 
-    std::string get_local_file(const std::string& url);
+    std::string get_local_file(const std::string &url);
 
-    void clear_download(const std::string& url);
+    void clear_download(const std::string &url);
 
     // Load all media_cache rows from the DB into the in-memory structures. Called once at startup.
     void load();
 
 private:
     CacheManager() = default;
-    std::set<std::string> downloaded_;  // status == 1
-    std::set<std::string> partial_;     // status == 2
+    std::set<std::string> downloaded_; // status == 1
+    std::set<std::string> partial_;    // status == 2
     std::map<std::string, std::string> local_files_;
     std::mutex mtx_;
 };

@@ -15,26 +15,30 @@ namespace panicast
 
 class ITunesSearch {
 public:
-    static ITunesSearch& instance() { static ITunesSearch is; return is; }
+    static ITunesSearch &instance() {
+        static ITunesSearch is;
+        return is;
+    }
 
     // Supported region list
     static std::vector<std::string> get_regions();
-    static std::string get_region_name(const std::string& region);
+    static std::string get_region_name(const std::string &region);
 
     // Search podcasts (with cache marker)
-    std::vector<TreeNodePtr> search(const std::string& query, const std::string& region = "US", int limit = 50);
+    std::vector<TreeNodePtr> search(const std::string &query, const std::string &region = "US",
+                                    int limit = 50);
 
     // Public parse_result method for external callers
-    TreeNodePtr parse_result(const nlohmann::json& item);
+    TreeNodePtr parse_result(const nlohmann::json &item);
 
 private:
     ITunesSearch() {}
 
     // Save podcast info to cache
-    void save_podcast_to_cache(const nlohmann::json& item);
+    void save_podcast_to_cache(const nlohmann::json &item);
 
     // Fetch with completed SSL config
-    std::string fetch(const std::string& url);
+    std::string fetch(const std::string &url);
 };
 
 } // namespace panicast

@@ -30,7 +30,6 @@ using json = nlohmann::json;
 //   The bilibili_accounts table was created by SCHEMA_VERSION 42.
 // Y24.27: BilibiliAccount struct moved to database.h
 
-
 static std::vector<BilibiliAccount> load_bilibili_accounts() {
     // Y24.27: use DatabaseManager (was direct sqlite3_* — bypassed encapsulation).
     //   P2-S7: sessdata/bili_jct/dedeuserid are stored encrypted (token_seal). Decrypt on load;
@@ -39,15 +38,27 @@ static std::vector<BilibiliAccount> load_bilibili_accounts() {
     std::vector<BilibiliAccount> out;
     bool reencrypt_needed = false;
     const Key32 mk = machine_key();
-    for (auto& a : raw) {
+    for (auto &a : raw) {
         std::string s_enc = a.sessdata, j_enc = a.bili_jct, d_enc = a.dedeuserid;
-        if (s_enc.empty() || !token_open(mk, s_enc, a.sessdata)) { a.sessdata = s_enc; if (!s_enc.empty()) reencrypt_needed = true; }
-        if (j_enc.empty() || !token_open(mk, j_enc, a.bili_jct)) { a.bili_jct = j_enc; if (!j_enc.empty()) reencrypt_needed = true; }
-        if (d_enc.empty() || !token_open(mk, d_enc, a.dedeuserid)) { a.dedeuserid = d_enc; if (!d_enc.empty()) reencrypt_needed = true; }
+        if (s_enc.empty() || !token_open(mk, s_enc, a.sessdata)) {
+            a.sessdata = s_enc;
+            if (!s_enc.empty())
+                reencrypt_needed = true;
+        }
+        if (j_enc.empty() || !token_open(mk, j_enc, a.bili_jct)) {
+            a.bili_jct = j_enc;
+            if (!j_enc.empty())
+                reencrypt_needed = true;
+        }
+        if (d_enc.empty() || !token_open(mk, d_enc, a.dedeuserid)) {
+            a.dedeuserid = d_enc;
+            if (!d_enc.empty())
+                reencrypt_needed = true;
+        }
         out.push_back(a);
     }
     if (reencrypt_needed) {
-        for (const auto& a : out) {
+        for (const auto &a : out) {
             BilibiliAccount enc = a;
             enc.sessdata = a.sessdata.empty() ? "" : token_seal(mk, a.sessdata);
             enc.bili_jct = a.bili_jct.empty() ? "" : token_seal(mk, a.bili_jct);
@@ -59,7 +70,7 @@ static std::vector<BilibiliAccount> load_bilibili_accounts() {
     return out;
 }
 
-static int save_bilibili_account(const BilibiliAccount& a) {
+static int save_bilibili_account(const BilibiliAccount &a) {
     // Y24.27: use DatabaseManager (was direct sqlite3_* — bypassed encapsulation).
     const Key32 mk = machine_key();
     BilibiliAccount enc = a;
@@ -75,12 +86,16 @@ static bool delete_bilibili_account(int id) {
 }
 
 // Write SESSDATA cookies to bilibili_cookie.txt (for yt-dlp --cookies).
-static void write_bilibili_cookies(const BilibiliAccount& a) {
+static void write_bilibili_cookies(const BilibiliAccount &a) {
     std::string path = IniConfig::instance().get_bilibili_cookies_file();
-    if (path.empty()) return;
+    if (path.empty())
+        return;
     std::string content = BilibiliAPI::build_cookies_txt(a.sessdata, a.bili_jct, a.dedeuserid);
     std::ofstream f(path);
-    if (f) { f << content; LOG(fmt::format("[Bilibili] cookies written to {}", path)); }
+    if (f) {
+        f << content;
+        LOG(fmt::format("[Bilibili] cookies written to {}", path));
+    }
 }
 
 // ── Build bilibili_root from DB ──
@@ -96,11 +111,11 @@ void App::load_bilibili_root() {
         hint->parent.reset();
         bilibili_root.push_back(hint);
     } else {
-        for (const auto& a : accounts) {
+        for (const auto &a : accounts) {
             auto node = std::make_shared<TreeNode>();
             node->title = a.uname.empty() ? ("Bili #" + a.uid) : (a.uname + "  <Bili>");
             node->type = NodeType::FOLDER;
-            node->is_account = true;  // reuse is_account flag
+            node->is_account = true; // reuse is_account flag
             node->account_id = a.id;
             node->expanded = false;
             node->children_loaded = false;
@@ -117,12 +132,16 @@ void App::delete_bilibili_account_node(TreeNodePtr node) {
         EVENT_LOG("B: select an account node to delete");
         return;
     }
-    if (!ui.confirm_box("Delete this Bilibili account?")) return;
+    if (!ui.confirm_box("Delete this Bilibili account?"))
+        return;
     int id = node->account_id;
     if (delete_bilibili_account(id)) {
         // Remove the cookies file too (yt-dlp no longer needs it for this account).
         std::string ck = IniConfig::instance().get_bilibili_cookies_file();
-        if (!ck.empty()) { std::error_code e; std::filesystem::remove(ck, e); }
+        if (!ck.empty()) {
+            std::error_code e;
+            std::filesystem::remove(ck, e);
+        }
         EVENT_LOG(fmt::format("B: deleted Bilibili account #{}", id));
     } else {
         EVENT_LOG(fmt::format("B: failed to delete account #{}", id));
@@ -146,19 +165,27 @@ void App::start_bilibili_login() {
     auto qr_rows = render_qr_rows(qr.url);
     int qr_h = qr_available() ? (int)qr_rows.size() : 0;
     int qr_w = qr_h ? (int)qr_rows[0].size() : 0;
-    int text_h = 5;  // title + blank + hint + cancel + blank
+    int text_h = 5; // title + blank + hint + cancel + blank
     int pop_h = std::max(qr_h, 1) + text_h + 4;
     int pop_w = std::max({60, qr_w + 4});
-    if (pop_w > COLS) pop_w = COLS;
-    if (pop_h > LINES) pop_h = LINES;
+    if (pop_w > COLS)
+        pop_w = COLS;
+    if (pop_h > LINES)
+        pop_h = LINES;
     int py = (LINES - pop_h) / 2;
     int px = (COLS - pop_w) / 2;
-    if (py < 0) py = 0;
-    if (px < 0) px = 0;
+    if (py < 0)
+        py = 0;
+    if (px < 0)
+        px = 0;
 
-    WINDOW* win = newwin(pop_h, pop_w, py, px);
-    if (!win) { EVENT_LOG("B: QR window failed"); return; }
-    keypad(win, TRUE); nodelay(win, TRUE);
+    WINDOW *win = newwin(pop_h, pop_w, py, px);
+    if (!win) {
+        EVENT_LOG("B: QR window failed");
+        return;
+    }
+    keypad(win, TRUE);
+    nodelay(win, TRUE);
 
     bool ok = false;
     BilibiliAPI::LoginResult login;
@@ -167,13 +194,15 @@ void App::start_bilibili_login() {
 
     while (std::chrono::steady_clock::now() < deadline) {
         // Draw QR popup — QR + minimal text (no URL display)
-        werase(win); box(win, 0, 0);
+        werase(win);
+        box(win, 0, 0);
         int y = 1;
         mvwprintw(win, y++, 2, "Bilibili Login");
         y++;
         if (qr_h > 0) {
-            for (const auto& row : qr_rows) {
-                if (y >= pop_h - 1) break;
+            for (const auto &row : qr_rows) {
+                if (y >= pop_h - 1)
+                    break;
                 mvwprintw(win, y++, 2, "%s", row.c_str());
             }
         } else {
@@ -185,10 +214,14 @@ void App::start_bilibili_login() {
         wrefresh(win);
 
         int ch = wgetch(win);
-        if (ch == 'q' || ch == 'Q') break;
+        if (ch == 'q' || ch == 'Q')
+            break;
 
         login = BilibiliAPI::poll_qrcode(qr.qrcode_key);
-        if (login.ok) { ok = true; break; }
+        if (login.ok) {
+            ok = true;
+            break;
+        }
         if (login.code == 86101 || login.code == 86090) {
             // waiting / scanned — keep polling
         } else if (!login.error.empty()) {
@@ -197,17 +230,25 @@ void App::start_bilibili_login() {
         }
         for (int s = 0; s < interval * 10; ++s) {
             int c = wgetch(win);
-            if (c == 'q' || c == 'Q') goto done;
+            if (c == 'q' || c == 'Q')
+                goto done;
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 done:
     delwin(win);
     flushinp();
-    keypad(stdscr, TRUE); timeout(30); curs_set(0); noecho();
-    touchwin(stdscr); refresh();
+    keypad(stdscr, TRUE);
+    timeout(30);
+    curs_set(0);
+    noecho();
+    touchwin(stdscr);
+    refresh();
 
-    if (!ok) { EVENT_LOG("B: login cancelled or failed"); return; }
+    if (!ok) {
+        EVENT_LOG("B: login cancelled or failed");
+        return;
+    }
 
     // Fetch user info
     auto nav = BilibiliAPI::fetch_nav(login.sessdata);
@@ -227,10 +268,10 @@ done:
 // ── Cookie import: user provides a cookies.txt path ──
 // Y24.27: import_bilibili_cookies removed (dead code).
 
-
 // ── Expand a Bilibili account node → following list (UP masters) ──
 void App::expand_bilibili_account(TreeNodePtr node) {
-    if (!node || !node->is_account) return;
+    if (!node || !node->is_account)
+        return;
     // Y22: mirror Y-mode — create two lazy children: Subscriptions (followings) + History (history).
     //   Each fetches on first expand (expand_bili_followings / expand_bili_history).
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
@@ -259,13 +300,24 @@ void App::expand_bilibili_account(TreeNodePtr node) {
 
 // Y22: lazy-expand Subscriptions → fetch the account's followings (UP masters) via WBI.
 void App::expand_bili_followings(TreeNodePtr node) {
-    if (!node || !node->is_bili_followings) return;
+    if (!node || !node->is_bili_followings)
+        return;
     int aid = node->account_id;
     auto accounts = load_bilibili_accounts();
     BilibiliAccount acc;
-    for (const auto& a : accounts) if (a.id == aid) { acc = a; break; }
-    if (acc.sessdata.empty()) { EVENT_LOG("B: no SESSDATA for this account"); return; }
-    { std::lock_guard<std::recursive_mutex> lk(tree_mutex); node->loading = true; }
+    for (const auto &a : accounts)
+        if (a.id == aid) {
+            acc = a;
+            break;
+        }
+    if (acc.sessdata.empty()) {
+        EVENT_LOG("B: no SESSDATA for this account");
+        return;
+    }
+    {
+        std::lock_guard<std::recursive_mutex> lk(tree_mutex);
+        node->loading = true;
+    }
     EVENT_LOG(fmt::format("B: fetching followings for {}...", acc.uname));
     std::string sessdata = acc.sessdata;
     std::string uid = acc.uid;
@@ -274,7 +326,10 @@ void App::expand_bili_followings(TreeNodePtr node) {
         {
             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
             node->children.clear();
-            for (auto& c : followings) { c->parent = node; node->children.push_back(c); }
+            for (auto &c : followings) {
+                c->parent = node;
+                node->children.push_back(c);
+            }
             node->children_loaded = true;
             node->expanded = true;
             node->loading = false;
@@ -285,13 +340,24 @@ void App::expand_bili_followings(TreeNodePtr node) {
 
 // Y22: lazy-expand History → fetch the account's watch history via /x/v2/history.
 void App::expand_bili_history(TreeNodePtr node) {
-    if (!node || !node->is_bili_history) return;
+    if (!node || !node->is_bili_history)
+        return;
     int aid = node->account_id;
     auto accounts = load_bilibili_accounts();
     BilibiliAccount acc;
-    for (const auto& a : accounts) if (a.id == aid) { acc = a; break; }
-    if (acc.sessdata.empty()) { EVENT_LOG("B: no SESSDATA for this account"); return; }
-    { std::lock_guard<std::recursive_mutex> lk(tree_mutex); node->loading = true; }
+    for (const auto &a : accounts)
+        if (a.id == aid) {
+            acc = a;
+            break;
+        }
+    if (acc.sessdata.empty()) {
+        EVENT_LOG("B: no SESSDATA for this account");
+        return;
+    }
+    {
+        std::lock_guard<std::recursive_mutex> lk(tree_mutex);
+        node->loading = true;
+    }
     EVENT_LOG(fmt::format("B: fetching history for {}...", acc.uname));
     std::string sessdata = acc.sessdata;
     pool_.submit([this, sessdata, node]() {
@@ -299,7 +365,10 @@ void App::expand_bili_history(TreeNodePtr node) {
         {
             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
             node->children.clear();
-            for (auto& c : hist) { c->parent = node; node->children.push_back(c); }
+            for (auto &c : hist) {
+                c->parent = node;
+                node->children.push_back(c);
+            }
             node->children_loaded = true;
             node->expanded = true;
             node->loading = false;
@@ -311,20 +380,23 @@ void App::expand_bili_history(TreeNodePtr node) {
 // B-fix: 'r' on Subscriptions — force re-fetch the account's followings (UP masters) via WBI.
 //   expand_bili_followings always clears + re-fetches; the loading guard prevents a double fetch.
 void App::refresh_bili_followings(TreeNodePtr node) {
-    if (!node || !node->is_bili_followings || node->loading) return;
+    if (!node || !node->is_bili_followings || node->loading)
+        return;
     expand_bili_followings(node);
 }
 
 // B-fix: 'r' on History — force re-fetch the account's watch history via /x/v2/history.
 void App::refresh_bili_history(TreeNodePtr node) {
-    if (!node || !node->is_bili_history || node->loading) return;
+    if (!node || !node->is_bili_history || node->loading)
+        return;
     expand_bili_history(node);
 }
 
 // B-fix: 'r' on a Bilibili account node — re-expand it (recreate the Subs / History / Search
 //   children as lazy). Each child re-fetches when expanded or via 'r' on it directly.
 void App::refresh_bilibili_account(TreeNodePtr node) {
-    if (!node || !node->is_account) return;
+    if (!node || !node->is_account)
+        return;
     expand_bilibili_account(node);
     EVENT_LOG(fmt::format("B: account '{}' refreshed", node->title));
 }
@@ -341,17 +413,20 @@ void App::subscribe_bilibili_up(TreeNodePtr node) {
     std::string uname = node->channel_name.empty() ? node->title : node->channel_name;
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        for (const auto& child : podcast_root) {
-            if (child->url == node->url) { EVENT_LOG(fmt::format("Already subscribed: {}", uname)); return; }
+        for (const auto &child : podcast_root) {
+            if (child->url == node->url) {
+                EVENT_LOG(fmt::format("Already subscribed: {}", uname));
+                return;
+            }
         }
         auto n = std::make_shared<TreeNode>();
         n->title = uname;
-        n->url = node->url;                 // https://space.bilibili.com/<mid>/video
+        n->url = node->url; // https://space.bilibili.com/<mid>/video
         n->type = NodeType::PODCAST_FEED;
         n->is_youtube = false;
-        n->is_bili_up = true;               // Y23.2: 👤 icon
-        n->art_url = node->art_url;         // avatar URL
-        n->subtext = node->subtext;         // sign
+        n->is_bili_up = true;       // Y23.2: 👤 icon
+        n->art_url = node->art_url; // avatar URL
+        n->subtext = node->subtext; // sign
         n->children_loaded = false;
         n->parent.reset();
         podcast_root.insert(podcast_root.begin(), n);
@@ -366,15 +441,19 @@ void App::subscribe_bilibili_up(TreeNodePtr node) {
 // ── Search Bilibili via the native WBI search/type API (Y21, issue 2) ──
 //   Replaces the yt-dlp `bilisearch:` extractor (fragile/slow, same risk control). Works without
 //   login (public search); uses the first logged-in account's SESSDATA if present.
-void App::perform_bilibili_search(const std::string& preset) {
+void App::perform_bilibili_search(const std::string &preset) {
     std::string q;
     if (!preset.empty()) {
         q = preset;
     } else {
         q = ui.input_box("Search Bilibili");
-        if (UI::is_input_cancelled(q)) { EVENT_LOG("B: search cancelled"); return; }
+        if (UI::is_input_cancelled(q)) {
+            EVENT_LOG("B: search cancelled");
+            return;
+        }
     }
-    if (q.empty()) return;
+    if (q.empty())
+        return;
 
     EVENT_LOG(fmt::format("B: searching Bilibili '{}'...", q));
     // Resolve the search to an account node. E: the root node is gone, so anonymous (no-account)
@@ -385,31 +464,45 @@ void App::perform_bilibili_search(const std::string& preset) {
         if (!bilibili_root.empty() && bilibili_root[0]->is_account)
             acct = bilibili_root[0];
     }
-    if (!acct) { EVENT_LOG("B: login first (press 'a' to add a Bilibili account) to search"); return; }
+    if (!acct) {
+        EVENT_LOG("B: login first (press 'a' to add a Bilibili account) to search");
+        return;
+    }
     std::string query = q;
     pool_.submit([this, query, acct]() {
         // Use the first logged-in account's SESSDATA if available (member-only search); else "".
         std::string sessdata;
         auto accounts = load_bilibili_accounts();
-        if (!accounts.empty()) sessdata = accounts.front().sessdata;
+        if (!accounts.empty())
+            sessdata = accounts.front().sessdata;
 
         // Y23.1/Y23.2: search BOTH UP masters (bili_user) and videos; serialize to JSON (mode-specific),
         //   then the shared finalizer builds typed nodes + caches + adds the 🔍 record. UPs first.
-        auto users  = BilibiliAPI::search_users(sessdata, query);
+        auto users = BilibiliAPI::search_users(sessdata, query);
         auto videos = BilibiliAPI::search_videos(sessdata, query);
 
         json results_json = json::array();
-        for (const auto& u : users) {
-            results_json.push_back({{"kind", "up"}, {"mid", u.mid}, {"uname", u.uname}, {"url", u.url},
-                                    {"upic", u.upic}, {"fans", u.fans}, {"sign", u.sign}});
+        for (const auto &u : users) {
+            results_json.push_back({{"kind", "up"},
+                                    {"mid", u.mid},
+                                    {"uname", u.uname},
+                                    {"url", u.url},
+                                    {"upic", u.upic},
+                                    {"fans", u.fans},
+                                    {"sign", u.sign}});
         }
-        for (const auto& v : videos) {
-            results_json.push_back({{"kind", "video"}, {"bvid", v.bvid}, {"title", v.title}, {"url", v.url},
-                                    {"pic", v.pic}, {"duration", v.duration}});
+        for (const auto &v : videos) {
+            results_json.push_back({{"kind", "video"},
+                                    {"bvid", v.bvid},
+                                    {"title", v.title},
+                                    {"url", v.url},
+                                    {"pic", v.pic},
+                                    {"duration", v.duration}});
         }
         finalize_search("bilibili", acct->account_id, acct, query, results_json);
-        EVENT_LOG(fmt::format("B: found {} users + {} videos for '{}' (cached)", users.size(), videos.size(), query));
+        EVENT_LOG(fmt::format("B: found {} users + {} videos for '{}' (cached)", users.size(),
+                              videos.size(), query));
     });
 }
 
-}  // namespace panicast
+} // namespace panicast

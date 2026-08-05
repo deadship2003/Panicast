@@ -1,7 +1,7 @@
 // Status bar art character rendering: returns art characters based on IconStyle.
 #pragma once
 
-#include "panicast/ui/icons.h"  // IconStyle, g_icon_style
+#include "panicast/ui/icons.h" // IconStyle, g_icon_style
 
 namespace panicast
 {
@@ -20,28 +20,32 @@ namespace panicast
 // ASCII mode: *~ (no emoji, avoids WSL2 width issues)
 class ArtRenderer {
 public:
-    static const char* outer_left() {
+    static const char *outer_left() {
         return (g_icon_style == IconStyle::EMOJI) ? "🎵 ♫ " : "*~ ";
     }
-    static const char* outer_right() {
+    static const char *outer_right() {
         return (g_icon_style == IconStyle::EMOJI) ? " ♫ 🎵" : " ~*";
     }
-    static const char* right_prefix() {
+    static const char *right_prefix() {
         return (g_icon_style == IconStyle::EMOJI) ? "🎵 ♫ " : "*~ ";
     }
-    static const char* right_suffix() {
+    static const char *right_suffix() {
         return (g_icon_style == IconStyle::EMOJI) ? " ♫ 🎵" : " ~*";
     }
-    static const char* bracket_left()  { return "[ "; }
-    static const char* bracket_right() { return " ]"; }
+    static const char *bracket_left() {
+        return "[ ";
+    }
+    static const char *bracket_right() {
+        return " ]";
+    }
 };
 
 // Keep legacy constant names for compatibility (point to Emoji versions, used only by unmigrated code paths)
-constexpr const char* ART_OUTER_LEFT   = "🎵 ♫ ";
-constexpr const char* ART_OUTER_RIGHT  = " ♫ 🎵";
-constexpr const char* ART_BRACKET_LEFT  = "[ ";
-constexpr const char* ART_BRACKET_RIGHT = " ]";
-constexpr const char* ART_RIGHT_PREFIX = "🎵 ♫ ";
-constexpr const char* ART_RIGHT_SUFFIX = " ♫ 🎵";
+constexpr const char *ART_OUTER_LEFT = "🎵 ♫ ";
+constexpr const char *ART_OUTER_RIGHT = " ♫ 🎵";
+constexpr const char *ART_BRACKET_LEFT = "[ ";
+constexpr const char *ART_BRACKET_RIGHT = " ]";
+constexpr const char *ART_RIGHT_PREFIX = "🎵 ♫ ";
+constexpr const char *ART_RIGHT_SUFFIX = " ♫ 🎵";
 
 } // namespace panicast

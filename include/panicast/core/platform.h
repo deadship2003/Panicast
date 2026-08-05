@@ -8,7 +8,7 @@
 namespace panicast
 {
 
-inline struct tm* localtime_local(const std::time_t* t, struct tm* out) {
+inline struct tm *localtime_local(const std::time_t *t, struct tm *out) {
 #if defined(_WIN32)
     return localtime_s(out, t) == 0 ? out : nullptr;
 #else

@@ -11,7 +11,8 @@ namespace panicast
 {
 
 // Safe layout constants (right-panel safe buffer)
-constexpr int SAFE_BORDER_MARGIN = 0;     // Right border safe buffer columns (2b3 note: 0 = content sits 1 cell before border, capped at 1-cell gap, avoids wide-char + margin causing 2 cells)
+constexpr int SAFE_BORDER_MARGIN =
+    0; // Right border safe buffer columns (2b3 note: 0 = content sits 1 cell before border, capped at 1-cell gap, avoids wide-char + margin causing 2 cells)
 
 // Event log timestamp display width
 constexpr int TIMESTAMP_WIDTH = 14;
@@ -44,40 +45,40 @@ public:
     static constexpr int STATUS_BAR_HEIGHT = 3;
     static constexpr int MIN_CONTENT_WIDTH = 10;
     // Safe-buffer constants
-    static constexpr int SAFE_MARGIN = SAFE_BORDER_MARGIN;  // Right border safe buffer columns
+    static constexpr int SAFE_MARGIN = SAFE_BORDER_MARGIN; // Right border safe buffer columns
 
     // Size struct
     struct WindowSize {
         int lines = 0;
         int cols = 0;
-        bool changed = false;  // Whether a change was detected this check
+        bool changed = false; // Whether a change was detected this check
     };
 
     struct PanelMetrics {
-        int left_w = 0;       // Left panel width
-        int right_w = 0;      // Right panel width
-        int top_h = 0;        // Top height (excluding status bar)
-        int content_w = 0;    // Left panel content area width (minus border)
+        int left_w = 0;         // Left panel width
+        int right_w = 0;        // Right panel width
+        int top_h = 0;          // Top height (excluding status bar)
+        int content_w = 0;      // Left panel content area width (minus border)
         int safe_content_w = 0; // Safe content area width (minus border and safe buffer)
-        int right_inner_w = 0;// Right panel inner width
-        int safe_right_w = 0; // Safe right panel width
-        int status_w = 0;     // Status bar width
-        int safe_status_w = 0;// Safe status bar width
+        int right_inner_w = 0;  // Right panel inner width
+        int safe_right_w = 0;   // Safe right panel width
+        int status_w = 0;       // Status bar width
+        int safe_status_w = 0;  // Safe status bar width
     };
 
 private:
     WindowSize last_size_;
     PanelMetrics metrics_;
     float layout_ratio_ = DEFAULT_LAYOUT_RATIO;
-    bool ratio_loaded_ = false;  // Lazily load INI layout_ratio
+    bool ratio_loaded_ = false; // Lazily load INI layout_ratio
 
     // Scroll offset management - centrally manages all scroll state
-    std::map<int, int> line_scroll_offsets_;  // Per-line scroll offset for the left panel
-    int log_scroll_offset_ = 0;                // Log scroll offset
-    int status_scroll_offset_ = 0;             // Status bar URL scroll offset
+    std::map<int, int> line_scroll_offsets_; // Per-line scroll offset for the left panel
+    int log_scroll_offset_ = 0;              // Log scroll offset
+    int status_scroll_offset_ = 0;           // Status bar URL scroll offset
 
 public:
-    static LayoutMetrics& instance();
+    static LayoutMetrics &instance();
 
     // Detect window size change - core coupling entry point
     // Returns: true means size changed and a full redraw is needed
@@ -85,8 +86,7 @@ public:
         int current_lines = LINES;
         int current_cols = COLS;
 
-        last_size_.changed = (current_lines != last_size_.lines ||
-                              current_cols != last_size_.cols);
+        last_size_.changed = (current_lines != last_size_.lines || current_cols != last_size_.cols);
 
         if (last_size_.changed) {
             last_size_.lines = current_lines;
@@ -107,19 +107,25 @@ public:
     void recalculate_metrics() {
         // Lazily load the left/right panel ratio from INI on first use
         if (!ratio_loaded_) {
-            float r = IniConfig::instance().get_float("display", "layout_ratio", DEFAULT_LAYOUT_RATIO);
-            if (r < 0.2f) r = 0.2f;
-            if (r > 0.8f) r = 0.8f;
+            float r =
+                IniConfig::instance().get_float("display", "layout_ratio", DEFAULT_LAYOUT_RATIO);
+            if (r < 0.2f)
+                r = 0.2f;
+            if (r > 0.8f)
+                r = 0.8f;
             layout_ratio_ = r;
             ratio_loaded_ = true;
         }
         metrics_.status_w = last_size_.cols;
         metrics_.top_h = last_size_.lines - STATUS_BAR_HEIGHT;
-        if (metrics_.top_h < 0) metrics_.top_h = 0;  // Tiny-terminal guard
+        if (metrics_.top_h < 0)
+            metrics_.top_h = 0; // Tiny-terminal guard
         // Use integer arithmetic to avoid floating-point precision issues (layout_ratio_ -> percentage)
         int ratio_pct = (int)(layout_ratio_ * 100.0f + 0.5f);
-        if (ratio_pct < 20) ratio_pct = 20;
-        if (ratio_pct > 80) ratio_pct = 80;
+        if (ratio_pct < 20)
+            ratio_pct = 20;
+        if (ratio_pct > 80)
+            ratio_pct = 80;
         metrics_.left_w = last_size_.cols * ratio_pct / 100;
         metrics_.right_w = last_size_.cols - metrics_.left_w;
 
@@ -152,7 +158,8 @@ public:
 
         // Safe status bar width
         metrics_.safe_status_w = metrics_.status_w - SAFE_MARGIN;
-        if (metrics_.safe_status_w < 1) metrics_.safe_status_w = 1;  // Clamp lower bound
+        if (metrics_.safe_status_w < 1)
+            metrics_.safe_status_w = 1; // Clamp lower bound
     }
 
     // Reset all scroll offsets - called when size changes
@@ -163,8 +170,12 @@ public:
     }
 
     // Get layout dimensions
-    const PanelMetrics& get_metrics() const { return metrics_; }
-    const WindowSize& get_window_size() const { return last_size_; }
+    const PanelMetrics &get_metrics() const {
+        return metrics_;
+    }
+    const WindowSize &get_window_size() const {
+        return last_size_;
+    }
 
     // Removed set_layout_ratio (grep verified 0 call sites; layout_ratio_ is set during init)
 
@@ -190,14 +201,20 @@ public:
         line_scroll_offsets_[line_y]++;
     }
 
-    int get_log_scroll_offset() const { return log_scroll_offset_; }
-    void increment_log_scroll_offset() { log_scroll_offset_++; }
+    int get_log_scroll_offset() const {
+        return log_scroll_offset_;
+    }
+    void increment_log_scroll_offset() {
+        log_scroll_offset_++;
+    }
 
     // Removed get_status_scroll_offset / increment_status_scroll_offset (0 call sites)
     // Removed get_status_available_width (0 call sites)
 
     // Direct access to the scroll offset table (for compatibility with existing code)
-    std::map<int, int>& get_line_scroll_offsets() { return line_scroll_offsets_; }
+    std::map<int, int> &get_line_scroll_offsets() {
+        return line_scroll_offsets_;
+    }
 };
 
 } // namespace panicast

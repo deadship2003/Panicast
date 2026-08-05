@@ -9,15 +9,15 @@ namespace panicast
 {
 
 struct IptvChannel {
-    std::string name;   // channel title (text after the last ',' in #EXTINF)
-    std::string url;    // stream URL (the line following #EXTINF)
-    std::string logo;   // tvg-logo attribute (optional)
-    std::string group;  // group-title attribute (optional)
+    std::string name;  // channel title (text after the last ',' in #EXTINF)
+    std::string url;   // stream URL (the line following #EXTINF)
+    std::string logo;  // tvg-logo attribute (optional)
+    std::string group; // group-title attribute (optional)
 };
 
 // Parse an .m3u / .m3u8 playlist body into channels. Lines starting with '#' are directives
 //   (#EXTINF carries name/logo/group; others ignored). The first non-# non-empty line after an
 //   #EXTINF is the stream URL. Returns empty on no/invalid content.
-std::vector<IptvChannel> parse_m3u(const std::string& content);
+std::vector<IptvChannel> parse_m3u(const std::string &content);
 
-}  // namespace panicast
+} // namespace panicast

@@ -11,18 +11,18 @@ namespace panicast
 {
 
 struct Theme {
-    const char* name;
-    bool dark;            // true=dark (bg=BLACK, fg=WHITE); false=light (bg=WHITE, fg=BLACK)
-    int rgb[8][3];        // RGB(0-1000) for COLOR_BLACK..COLOR_WHITE
+    const char *name;
+    bool dark;     // true=dark (bg=BLACK, fg=WHITE); false=light (bg=WHITE, fg=BLACK)
+    int rgb[8][3]; // RGB(0-1000) for COLOR_BLACK..COLOR_WHITE
 };
 
 // 22 terminal palettes (15 original + 7 added Y24.41: One Dark / Rose Pine / Monokai Pro /
 //   Night Owl / Tomorrow Night / Edge Dark / Deep Ocean).
 // Default index = 11 (GitHub Dark). Ctrl+L cycles them.
 static constexpr int THEME_COUNT = 22;
-static constexpr int DEFAULT_THEME_INDEX = 11;  // GitHub Dark (user preference)
+static constexpr int DEFAULT_THEME_INDEX = 11; // GitHub Dark (user preference)
 
 // Returns the static palette table (defined in src/theme/themes.cpp). Edit that file to adjust.
-const Theme* themes();
+const Theme *themes();
 
-}  // namespace panicast
+} // namespace panicast
