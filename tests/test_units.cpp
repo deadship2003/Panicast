@@ -10,6 +10,7 @@
 
 #include "panicast/core/event_bus.h"
 #include "panicast/core/event_log.h"
+#include "panicast/net/proxy_manager.h"
 
 // ─── Since panicast.cpp is a single file, we mirror the pure-function logic for independent testing ───
 // Real integration tests require splitting the modules (v0.6 work)
@@ -371,6 +372,45 @@ TEST(EventBus, LogEventRouting) {
     bus.publish(panicast::LogEvent{"hello-bus"});
     EXPECT_EQ(received, "hello-bus");
     bus.unsubscribe(tok);
+}
+
+// ─── ProxyManager tests (D2: Connectivity layer rule chain) ───────────────────
+TEST(ProxyManager, GlobalSourceIsUsedWhenNoRules) {
+    panicast::ProxyManager pm;
+    pm.setGlobalSource([] { return panicast::ProxyConfig{"socks5h://global:1080"}; });
+    EXPECT_EQ(pm.resolveProxy("https://anything.com").url, "socks5h://global:1080");
+}
+
+TEST(ProxyManager, DirectWhenNoSource) {
+    panicast::ProxyManager pm;
+    EXPECT_FALSE(pm.resolveProxy("https://x.com").enabled());  // direct
+}
+
+TEST(ProxyManager, PlatformOverridesGlobal) {
+    panicast::ProxyManager pm;
+    pm.setGlobalSource([] { return panicast::ProxyConfig{"socks5h://global:1080"}; });
+    pm.setPlatform("youtube", {"http://yt:8080"});
+    EXPECT_EQ(pm.resolveProxy("https://x.com", "youtube").url, "http://yt:8080");
+    EXPECT_EQ(pm.resolveProxy("https://x.com", "bilibili").url, "socks5h://global:1080");
+    pm.clearPlatform("youtube");
+    EXPECT_EQ(pm.resolveProxy("https://x.com", "youtube").url, "socks5h://global:1080");
+}
+
+TEST(ProxyManager, DomainRuleMatches) {
+    panicast::ProxyManager pm;
+    pm.setGlobalSource([] { return panicast::ProxyConfig{"socks5h://global:1080"}; });
+    pm.setDomain("*.googlevideo.com", {"http://gv:8080"});
+    EXPECT_EQ(pm.resolveProxy("https://r1.googlevideo.com/videoplayback").url, "http://gv:8080");
+    EXPECT_EQ(pm.resolveProxy("https://googlevideo.com").url, "http://gv:8080");  // apex matches
+    EXPECT_EQ(pm.resolveProxy("https://other.com").url, "socks5h://global:1080");  // no match -> global
+}
+
+TEST(ProxyManager, PlatformBeatsDomain) {
+    panicast::ProxyManager pm;
+    pm.setGlobalSource([] { return panicast::ProxyConfig{"g"}; });
+    pm.setDomain("*.googlevideo.com", {"gv"});
+    pm.setPlatform("youtube", {"yt"});
+    EXPECT_EQ(pm.resolveProxy("https://r1.googlevideo.com/v", "youtube").url, "yt");  // platform wins
 }
 
 int main(int argc, char **argv) {

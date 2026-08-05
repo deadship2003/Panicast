@@ -256,6 +256,7 @@ add_executable(panicast
     src/net/url_guard.cpp
     src/net/ytdlp_runner.cpp
     src/net/network.cpp
+    src/net/proxy_manager.cpp
     src/net/remote_command_bus.cpp
     src/net/remote_server.cpp
     src/net/remote_session.cpp
@@ -488,7 +489,8 @@ if(BUILD_TESTING)
             tests/test_units.cpp
             src/core/crypto.cpp
             src/core/paths.cpp
-            src/core/logger.cpp)
+            src/core/logger.cpp
+            src/net/proxy_manager.cpp)
         target_link_libraries(test_units PRIVATE GTest::gtest_main Threads::Threads)
         if(fmt_FOUND)
             target_link_libraries(test_units PRIVATE fmt::fmt)

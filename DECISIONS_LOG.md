@@ -1,4 +1,19 @@
 
+## D2 — IProxyManager（Connectivity 层）+ apply_network_proxy 首个消费者（新架构 M0 第 2 人日）
+
+**Context:** 落地"统一网络前端"——所有网络消费者（Parser/Downloader/字幕/AI 云端）经一个 IProxyManager 解析代理，mpv 播放直连。D2 做接口 + 规则链 + 首个消费者；Downloader 等调用点切换在 D3。
+
+**Approach:**
+- `IProxyManager` + `ProxyConfig{url}` + `ProxyManager`（`resolveProxy(url, platform)` 规则链：平台→域名→全局→直连；`host_of` + `domain_matches` 实现 `*.glob` 域名匹配；`mutable std::mutex` 线程安全）。
+- **全局源可注入**（`setGlobalSource(std::function<ProxyConfig()>)`）而非直接读 IniConfig：使 `proxy_manager.cpp` 不依赖 config 系统 → 单测目标可干净链入 proxy_manager.cpp 而不拖入 ini_config 及其依赖。生产由 `network.cpp`（本就依赖 ini_config）在文件作用域静态初始化里把 `[network] proxy`（实时读，Ctrl+N 即时生效）注入。
+- `apply_network_proxy(CURL*)` 改走 `ProxyManager::instance().resolveProxy("")`：首个真实消费者。无平台/域名规则时返回 [network] proxy → 行为零变化。
+
+**Verification:** ctest 30→35（5 个 ProxyManager 用例全过：全局源/无源直连/平台覆盖/域名匹配/平台优先）；增量构建 0-warning；`build/panicast --version` 正常；代理路径经 ProxyManager（Ctrl+N 全局源实时生效）。
+
+**Followups:** D3 切换 network.cpp/bilibili_api.cpp/itunes_search.cpp + ytdlp_runner 调用点到带 url 的 `resolveProxy`，并接入 Downloader；按需填平台/域名规则（如 youtube→代理、*.googlevideo.com→代理）。
+
+---
+
 ## D1 — EventBus 核心 + EventLog 作为首个生产者（新架构 M0 第 1 人日）
 
 **Context:** 新架构迁移第 1 步（开发计划 D1）。引入类型安全事件总线，作为后续替换 `pending_select_`+散落回调（AUDIT 竞态 P1-4/5/8 根因）的承重墙。

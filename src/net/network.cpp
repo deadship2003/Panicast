@@ -1,4 +1,5 @@
 #include "panicast/net/network.h"
+#include "panicast/net/proxy_manager.h"
 
 #include <chrono>
 #include <cstdio>
@@ -15,15 +16,27 @@ namespace panicast
 
 using json = nlohmann::json;
 
+namespace {
+// D2: wire the Connectivity layer's global proxy source to [network] proxy (Ctrl+N value),
+// read live so changes take effect immediately. IniConfig is referenced HERE (network.cpp,
+// which already depends on it) so proxy_manager.cpp stays free of config coupling and links
+// cleanly into the unit-test target.
+[[maybe_unused]] const bool _proxy_source_set = [] {
+    panicast::ProxyManager::instance().setGlobalSource(
+        [] { return panicast::ProxyConfig{panicast::IniConfig::instance().get_proxy()}; });
+    return true;
+}();
+}  // namespace
+
 void apply_network_proxy(CURL *curl) {
     if (!curl)
         return;
-    std::string proxy = IniConfig::instance().get_proxy();
-    if (!proxy.empty()) {
-        // Operator-controlled: pass the proxy verbatim. Use socks5h:// (remote DNS) on
-        // DNS-poisoned networks (e.g. GFW) where www.youtube.com resolves to a bogus IP and
-        // the TLS handshake fails; socks5:// does local DNS. The choice is the operator's.
-        curl_easy_setopt(curl, CURLOPT_PROXY, proxy.c_str());
+    // D2: every curl fetch resolves its proxy through the Connectivity layer. With no
+    // platform/domain rules set this returns the [network] proxy — identical to the previous
+    // direct read, but now through one seam. mpv playback stays direct (not via this path).
+    ProxyConfig cfg = ProxyManager::instance().resolveProxy("");
+    if (cfg.enabled()) {
+        curl_easy_setopt(curl, CURLOPT_PROXY, cfg.url.c_str());
     }
 }
 

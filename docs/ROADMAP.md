@@ -8,9 +8,9 @@
   - `include/panicast/core/event_bus.h`（**header-only**，类型安全 `subscribe<E>/publish<E>` + `unsubscribe(token)`，线程安全；`post/drain` 待迁 `pending_select_` 时加）+ 单测。
   - 首个真实生产者 = `EventLog::push` 顺带 `publish(LogEvent)`（379 处日志全上总线，零行为变化）。
   - 接入 `CMakeLists.txt`。**验收**：编译 0-warning、ctest 含 EventBus 用例、`./build/panicast` 启动+播放正常。
-- [ ] **D2 — IProxyManager 接口 + resolveProxy 规则链**
-  - `include/panicast/net/proxy_manager.h`（`ProxyConfig` + `IProxyManager::resolveProxy(url,platform)` 平台→域名→全局→直连）+ impl（包装现有 `[network] proxy`/`normalize_proxy`）+ 单测。
-  - **验收**：单测过、app 运行、`Ctrl+N` 代理配置仍生效。
+- [x] **D2 — IProxyManager 接口 + resolveProxy 规则链** ✅ 2026-08-05
+  - `include/panicast/net/proxy_manager.h`（`ProxyConfig` + `IProxyManager::resolveProxy(url,platform)` 平台→域名→全局→直连，线程安全）+ `src/net/proxy_manager.cpp` + 单测。全局源**可注入**（`setGlobalSource`，不耦合 IniConfig → 测试可干净链入）；`network.cpp` 把 `[network] proxy` 注入 → Ctrl+N 实时生效。`apply_network_proxy` 已走 ProxyManager（首个消费者，行为零变化）。
+  - **验收**：单测 5 例过、app 运行、Ctrl+N 代理仍生效。
 - [ ] **D3 — 调用点切换到 IProxyManager（含 Downloader）**
   - 把 `apply_network_proxy` 的 3 处（`network.cpp`/`bilibili_api.cpp`/`itunes_search.cpp`）+ `ytdlp_runner`(`--proxy`) 改走 `resolveProxy`；核对 `app_download` 所有下载路径均经 Connectivity。
   - **验收**：编译绿、解析/下载带代理冒烟正常、无回归。

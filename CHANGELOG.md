@@ -4,6 +4,17 @@
 
 ---
 
+## 新架构 D2 — 2026-08-05 — IProxyManager（Connectivity 统一网络前端）
+
+> 新架构增量迁移 M0 第 2 人日。落地"所有网络消费者经统一代理层"的接口（Downloader 切换在 D3）。
+
+### 新增
+- **[Net] IProxyManager + ProxyManager**（`include/panicast/net/proxy_manager.h` / `src/net/proxy_manager.cpp`）：`ProxyConfig{url}` + `resolveProxy(url, platform)` 规则链（平台→域名→全局→直连），线程安全。全局源**可注入**（`setGlobalSource(std::function)`）——proxy_manager.cpp 不依赖 IniConfig，单测可干净链入。
+- **[Net] apply_network_proxy 接入 Connectivity**：`network.cpp` 把 `[network] proxy` 注入 ProxyManager 全局源（Ctrl+N 实时生效），apply_network_proxy 改走 `resolveProxy`——首个真实消费者，行为零变化（无平台/域名规则时即返回 [network] proxy）。
+
+### 测试
+- test_units +5 用例（全局源、无源直连、平台覆盖全局、域名匹配、平台优先于域名）。ctest 30→35 全过；编译 0-warning；`build/panicast --version` 正常。
+
 ## 新架构 D1 — 2026-08-05 — EventBus 核心 + EventLog 首个生产者
 
 > 新架构增量迁移 M0 第 1 人日（开发计划 D1）。引入类型安全事件总线——替换 `pending_select_`+散落回调（竞态 P1-4/5/8 根因）的承重墙。
