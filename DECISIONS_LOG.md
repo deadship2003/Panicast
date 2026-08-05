@@ -1,4 +1,19 @@
 
+## D1 — EventBus 核心 + EventLog 作为首个生产者（新架构 M0 第 1 人日）
+
+**Context:** 新架构迁移第 1 步（开发计划 D1）。引入类型安全事件总线，作为后续替换 `pending_select_`+散落回调（AUDIT 竞态 P1-4/5/8 根因）的承重墙。
+
+**Approach:**
+- header-only `EventBus`（`include/panicast/core/event_bus.h`）：模板 `subscribe<E>/publish<E>`，`type_index` 分桶；订阅者锁内快照、锁外派发（handler 可递归 publish/unsubscribe，不自死锁）。`subscribe` 返回 token，`unsubscribe(token)` 移除。
+- **先只上同步 `publish`**（caller 线程派发）；异步 `post/drain`（跨线程→UI）留到迁移 `pending_select_` 时再加（并发敏感，单列后续人日）。
+- **首个真实生产者 = `EventLog::push`**（每条日志 `publish(LogEvent)`）。选它：①真实（379 处 EVENT_LOG 全上总线）；②安全（EventLog 本身线程安全、无订阅者即空操作、不依赖总线即可工作 → 零 init-order 风险、零行为变化）；③启用未来订阅者（远程日志推送/调试覆盖层）。
+
+**Verification:** ctest 26→30（4 个 EventBus 用例全过）；增量构建 0-warning（event_log.h 改动触发其依赖重编，均通过）；`build/panicast --version` 正常，EventLog 行为不变。
+
+**Followups:** `post/drain`（异步）+ 迁移 `pending_select_` 到总线（修竞态）；更多信号（playback 状态等）逐步上总线。
+
+---
+
 ## N07 — titlebar-as-root data-model refactor (root nodes → vectors) + exit typeahead fix
 
 **User goal:** eliminate the vestigial per-mode root NODE from the data model (option E, "最优雅"). Display redundancy (5-mode border + root row) was already fixed by Step 1 (display iterates items). N07 completes the data-model cleanup.

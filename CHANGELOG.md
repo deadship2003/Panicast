@@ -4,6 +4,17 @@
 
 ---
 
+## 新架构 D1 — 2026-08-05 — EventBus 核心 + EventLog 首个生产者
+
+> 新架构增量迁移 M0 第 1 人日（开发计划 D1）。引入类型安全事件总线——替换 `pending_select_`+散落回调（竞态 P1-4/5/8 根因）的承重墙。
+
+### 新增
+- **[Core] EventBus**（`include/panicast/core/event_bus.h`，header-only）：类型安全 pub/sub，线程安全；`subscribe<E>` 返回 token、`unsubscribe(token)`、`publish<E>` 同步派发（订阅者锁内快照、锁外派发，handler 可递归 publish/unsubscribe 不自死锁）。
+- **[Core] EventLog::push 顺带 publish(LogEvent)**（`src/core/event_log.cpp`，`LogEvent` 定义于 `event_log.h`）：首个真实生产者——所有日志行上总线，未来订阅者（远程日志推送/调试覆盖层）订阅 `LogEvent` 而非轮询 EventLog。无订阅者即空操作，行为零变化、无 init-order 风险。
+
+### 测试
+- test_units +4 用例（subscribe/publish、多订阅者+unsubscribe、无订阅者安全、LogEvent 路由）。ctest 26→30 全过；增量构建 0-warning；`build/panicast --version` 正常。
+
 ## PaniCast-V0.01-F01 — 2026-08-04 — ASR 实时转写修复 + YouTube 播放/下载可靠性
 
 > 修复用户反馈的两个 BUG：①ASR 非异步、播放时卡等 ASR、且未正常唤起 whisper-cli；②YouTube 不能正常播放/下载。
