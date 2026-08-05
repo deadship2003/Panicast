@@ -1,4 +1,21 @@
 
+## robust — mpv 交互命令移到 worker 线程（TUI 永不被 mpv/PA 阻塞）
+
+**Context:** 用户要求"不管 mpv 状态，TUI 都要响应交互"。前一条日志（看 IPTV/mp3 暂停）+ 诊断确认：WSLg PulseAudio 挂死 → 暂停触发 `pa_stream_cork` 超时 → mpv 阻塞 → UI 线程直接调 `mpv_set_property` 冻结。
+
+**Approach:**
+- `get_state()` 已是缓存读（`update_state` 在 event 线程、mpv 读取在 `mtx_` 锁外）→ 不阻塞 UI，无需改。
+- 阻塞点在**命令侧**：`set_pause/set_volume/set_speed/...` 在调用线程（UI）直接 `mpv_set_property`。
+- 修：MPVController 加**命令 worker 线程**（`cmd_thread_` + `cmd_queue_` + cv）。`toggle_pause/set_pause/set_volume/adjust_speed/reset_speed/set_speed` 改 `enqueue_cmd_` 投递；UI 立即返回（state_ 乐观更新：pause/volume/speed）。worker 顺序执行；mpv 卡死时只 worker 阻塞，UI 继续跑。
+- 关停：`stop()` bounded-join（等 `cmd_done_` ≤1.2s）+ detach 回退（与 event 线程同模式，靠 `_exit` 退出）。
+- 编译坑：按值捕获的 lambda 在 const operator() 里 `&capture` 是 const 指针 → mpv 的 `void*` 参数报 const void*→void*；三个 lambda 加 `mutable` 解决。
+
+**Verification:** ctest 38/38；构建 0-warning；冒烟正常。
+
+**Followups:** 其余 mpv 调用（play/seek/loop/keep_open/sub_add）同法迁 worker（按需）；治本修 WSL PA。
+
+---
+
 ## fix — "看视频/暂停时 TUI 输入无响应" = mpv 视频窗口抢键盘焦点（非死锁）
 
 **Context:** 用户报告"暂停后 TUI 不响应"，看 IPTV 时复现。D4（end_file 入队）+ D5（watchdog）按"死锁"方向未根治。用户提供 panicast.log。

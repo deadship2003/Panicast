@@ -4,6 +4,23 @@
 
 ---
 
+## robust — 2026-08-05 — mpv 交互命令移到 worker 线程（TUI 永不被 mpv/PA 阻塞）
+
+> 用户要求：不管 mpv 状态，TUI 都要响应交互。根因（前一条日志）：暂停触发 `pa_stream_cork` 卡在挂死的 PulseAudio → mpv 阻塞 → UI 线程直接调 `mpv_set_property` 冻结。
+
+### 改动
+- **[Playback] MPVController 新增命令 worker 线程**（`cmd_thread_` + 队列 + condition_variable）：`toggle_pause/set_pause/set_volume/adjust_speed/reset_speed/set_speed` 的 mpv 调用改为 `enqueue_cmd_` 投递到 worker；UI 线程立即返回（`state_` 乐观更新）。
+- **效果**：mpv/PA 卡死时，阻塞的只是 worker；**UI 线程继续渲染 + 读输入**（乐观 state_ + event 线程 update_state 刷新）。暂停/音量/速度不再冻 TUI。
+- worker 关停：`stop()` bounded-join（≤1.2s）+ detach 回退（与 event 线程同模式，靠 `_exit` 退出）。
+
+### 验收
+- ctest 38/38、构建 0-warning、冒烟正常。
+- 注：`get_state()` 本就返回缓存（update_state 在 event 线程刷新、mpv 读取在锁外）→ 不阻塞 UI；本次堵的是命令侧（set_pause 等）。
+
+### 局限/后续
+- 其余 mpv 调用（play/loadfile、seek、loop/keep_open、sub_add）仍在调用线程；若也阻塞可同法迁 worker。
+- 治本仍需修 WSL PulseAudio（`wsl --shutdown`）；本改动让 PA 挂死时 TUI 不再冻死。
+
 ## fix — 2026-08-05 — 定位"看视频/暂停时 TUI 输入无响应"= mpv 视频窗口抢键盘焦点
 
 > 用户 panicast.log（看 IPTV 时复现）揭示真正根因，纠正 D4/D5 的"死锁"误判。

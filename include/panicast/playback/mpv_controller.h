@@ -6,8 +6,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <mutex>
+#include <queue>
 #include <string>
 #include <thread>
 #include <vector>
@@ -140,6 +142,17 @@ private:
     std::thread mpv_thread_;
     std::atomic<bool> running_{false};
     std::atomic<bool> mpv_thread_done_{false}; // set by event_loop when it exits (for bounded join)
+    // Command worker: interactive mpv commands (pause/volume/speed/...) execute HERE, off the UI
+    //   thread, so a hung mpv (e.g. a PulseAudio cork timeout on pause) cannot freeze the TUI.
+    //   The UI returns immediately (state_ updated optimistically); the worker runs the mpv call.
+    std::thread cmd_thread_;
+    std::mutex cmd_mtx_;
+    std::condition_variable cmd_cv_;
+    std::queue<std::function<void()>> cmd_queue_;
+    std::atomic<bool> cmd_running_{false};
+    std::atomic<bool> cmd_done_{false};
+    void enqueue_cmd_(std::function<void()> fn);
+    void cmd_loop_();
     std::mutex mtx_;
     State state_;
     bool ytdl_available_ = false;

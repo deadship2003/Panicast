@@ -389,6 +389,9 @@ bool MPVController::initialize() {
 
     running_ = true;
     mpv_thread_ = std::thread(&MPVController::event_loop, this);
+    cmd_running_ = true;
+    cmd_done_ = false;
+    cmd_thread_ = std::thread(&MPVController::cmd_loop_, this);
     return true;
 }
 
@@ -428,6 +431,49 @@ void MPVController::stop() {
         else
             mpv_thread_.detach(); // timed out → fire-and-forget (no hang)
     }
+
+    // Stop the command worker. Bounded join mirroring the event thread: a worker blocked in a
+    //   hung-mpv command can't join promptly → detach (process exits via _exit, so a detached
+    //   worker never outlives a live controller).
+    cmd_running_ = false;
+    cmd_cv_.notify_all();
+    if (cmd_thread_.joinable()) {
+        for (int i = 0; i < 120 && !cmd_done_.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (cmd_done_.load())
+            cmd_thread_.join();
+        else
+            cmd_thread_.detach();
+    }
+}
+
+void MPVController::enqueue_cmd_(std::function<void()> fn) {
+    {
+        std::lock_guard<std::mutex> lock(cmd_mtx_);
+        cmd_queue_.push(std::move(fn));
+    }
+    cmd_cv_.notify_one();
+}
+
+void MPVController::cmd_loop_() {
+    // Runs interactive mpv commands OFF the UI thread so a hung mpv (e.g. a PulseAudio cork
+    //   timeout on pause) cannot freeze the TUI. Commands run one-at-a-time in submission order;
+    //   a blocked command blocks only this worker (the UI keeps running on optimistically-updated
+    //   state_, refreshed by update_state on the event thread).
+    while (cmd_running_.load()) {
+        std::function<void()> fn;
+        {
+            std::unique_lock<std::mutex> lock(cmd_mtx_);
+            cmd_cv_.wait(lock, [this] { return !cmd_running_.load() || !cmd_queue_.empty(); });
+            if (!cmd_queue_.empty()) {
+                fn = std::move(cmd_queue_.front());
+                cmd_queue_.pop();
+            }
+        }
+        if (fn)
+            fn();
+    }
+    cmd_done_.store(true);
 }
 
 void MPVController::play_audio(const std::string &url) {
@@ -689,17 +735,20 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
 void MPVController::toggle_pause() {
     if (!ctx_)
         return;
-    int p = 0;
-    mpv_get_property(ctx_, "pause", MPV_FORMAT_FLAG, &p);
-    p = !p;
-    mpv_set_property(ctx_, "pause", MPV_FORMAT_FLAG, &p);
+    enqueue_cmd_([this] {
+        int p = 0;
+        mpv_get_property(ctx_, "pause", MPV_FORMAT_FLAG, &p);
+        p = !p;
+        mpv_set_property(ctx_, "pause", MPV_FORMAT_FLAG, &p);
+    });
 }
 
 void MPVController::set_pause(bool paused) {
     if (!ctx_)
         return;
     int p = paused ? 1 : 0;
-    mpv_set_property(ctx_, "pause", MPV_FORMAT_FLAG, &p);
+    { std::lock_guard<std::mutex> lock(mtx_); state_.paused = paused; } // optimistic (UI shows immediately)
+    enqueue_cmd_([this, p]() mutable { mpv_set_property(ctx_, "pause", MPV_FORMAT_FLAG, &p); });
 }
 
 void MPVController::set_volume(int vol) {
@@ -709,30 +758,33 @@ void MPVController::set_volume(int vol) {
         vol = 0;
     if (vol > MAX_VOLUME)
         vol = MAX_VOLUME;
+    { std::lock_guard<std::mutex> lock(mtx_); state_.volume = vol; } // optimistic
     double dv = vol; // volume property is actually double, use MPV_FORMAT_DOUBLE
-    mpv_set_property(ctx_, "volume", MPV_FORMAT_DOUBLE, &dv);
-    std::lock_guard<std::mutex> lock(mtx_); // Mutex with update_state writes
-    state_.volume = vol;                    // Update state_ synchronously
+    enqueue_cmd_([this, dv]() mutable { mpv_set_property(ctx_, "volume", MPV_FORMAT_DOUBLE, &dv); });
 }
 
 void MPVController::adjust_speed(bool faster) {
     if (!ctx_)
         return;
-    double s = DEFAULT_SPEED;
-    mpv_get_property(ctx_, "speed", MPV_FORMAT_DOUBLE, &s);
-    s = faster ? s * (1.0 + SPEED_STEP) : s / (1.0 + SPEED_STEP);
-    if (s < MIN_SPEED)
-        s = MIN_SPEED;
-    if (s > MAX_SPEED)
-        s = MAX_SPEED;
-    mpv_set_property(ctx_, "speed", MPV_FORMAT_DOUBLE, &s);
+    enqueue_cmd_([this, faster] {
+        double s = DEFAULT_SPEED;
+        mpv_get_property(ctx_, "speed", MPV_FORMAT_DOUBLE, &s);
+        s = faster ? s * (1.0 + SPEED_STEP) : s / (1.0 + SPEED_STEP);
+        if (s < MIN_SPEED)
+            s = MIN_SPEED;
+        if (s > MAX_SPEED)
+            s = MAX_SPEED;
+        mpv_set_property(ctx_, "speed", MPV_FORMAT_DOUBLE, &s);
+    });
 }
 
 void MPVController::reset_speed() {
     if (!ctx_)
         return;
-    double s = DEFAULT_SPEED;
-    mpv_set_property(ctx_, "speed", MPV_FORMAT_DOUBLE, &s);
+    enqueue_cmd_([this] {
+        double s = DEFAULT_SPEED;
+        mpv_set_property(ctx_, "speed", MPV_FORMAT_DOUBLE, &s);
+    });
 }
 
 void MPVController::set_speed(double s) {
@@ -742,9 +794,8 @@ void MPVController::set_speed(double s) {
         s = MIN_SPEED;
     if (s > MAX_SPEED)
         s = MAX_SPEED;
-    mpv_set_property(ctx_, "speed", MPV_FORMAT_DOUBLE, &s);
-    std::lock_guard<std::mutex> lock(mtx_); // Mutex with update_state writes
-    state_.speed = s;
+    { std::lock_guard<std::mutex> lock(mtx_); state_.speed = s; } // optimistic
+    enqueue_cmd_([this, s]() mutable { mpv_set_property(ctx_, "speed", MPV_FORMAT_DOUBLE, &s); });
 }
 
 void MPVController::set_loop_file(bool loop) {
