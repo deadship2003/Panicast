@@ -22,16 +22,40 @@
   - 端到端 = app 本身（EventLog→EventBus、所有网络→IProxyManager/Connectivity、Media 适配器，D1–D4 已串通）。本日加 **UI 帧时间 watchdog**（测 tree_mutex/playlist_mutex_ 等待 + 整帧耗时，超阈值写 panicast.log）用于精确定位"暂停后输入无响应"剩余卡点。
   - **M0 达成**：最小可演进系统就位（EventBus + Connectivity + Media + 工程基线）。后续 M1+ 增量扩展。
 
-## 里程碑 M1 — Connectivity 全覆盖 + 热键统一
-- [ ] **D6 — Downloader 全面经 Connectivity**（补齐 D3 未覆盖的下载路径 + 测试）。
-- [ ] **D7 — Keymap/Action**：`ui/keymap.h`（键→Action，从 `[keys]` 配置加载）+ 迁移 `app_input.cpp` 主 switch + 修 FX-1 模式循环。**验收**：热键可用、可自定义。
+## 里程碑 M1 — UI 解耦（消息总线 + 抽象层 + UI 纯交互）【主线】
+> 目标（见 `docs/DESIGN.md` 目标架构）：UI 变纯交互层——只发 Action + 订阅事件，不再直接调 Core；消息总线（EventBus/ActionBus）成 UI↔核心唯一通道；抽 Application Services 作功能抽象层。每步 strangler、可编译可运行、有真实消费者（不空跑）。
+
+- [ ] **D6 — Action 类型 + 暂停端到端走总线（输入侧种子）**
+  - 定义 `Action`（`std::variant`：PlayPause / Seek / SetVolume / Navigate / SwitchMode / …）；复用 EventBus 承载（`publish(PlayPauseAction{})`）。
+  - UI 暂停键 → 发 `PlayPauseAction`（不再直接 `player.toggle_pause()`）；App/后续 Service 订阅 → 调既有 `player.toggle_pause()`。
+  - **验收**：编译绿、ctest 绿、暂停仍工作（经总线）；UI 暂停路径不再直调 player。
+- [ ] **D7 — 迁移主要输入到 Action + Keymap 可自定义**
+  - 把 `app_input.cpp` 主 switch 各 case 迁成发 Action；handler 订阅处理。加 `[keys]` 配置（键→Action 可自定义）。
+  - **验收**：迁移的交互（播放/seek/音量/导航/模式）经总线工作；热键可自定义。
+- [ ] **D8 — 抽 PlaybackService（第一个 Application Service）**
+  - 从 `App` 抽出播放逻辑/状态（`current_playlist`/`current_index`/`playback_node`/auto-advance）到 `PlaybackService`：处理播放 Action、调 player。App 委托之。（可多日）
+  - **验收**：播放/自动进阶经 PlaybackService 工作；App 不再直接持播放状态。
+- [ ] **D9 — 事件层（输出侧）：Service 发事件，UI 订阅**
+  - 定义播放/库事件（`PlaybackStateChanged` / `MediaLoaded` / …）；PlaybackService 发；UI 订阅更新展示状态（逐步替代直接 `get_state` 轮询的对应部分）。
+  - **验收**：UI 对应展示经事件更新；输出侧总线闭环。
+- [ ] **D10 — 抽更多 Services + UI 订阅其事件**
+  - `LibraryService` / `SearchService` / `SubtitleService` / `AccountService` … 从 App 抽出（持状态、处理 Action、发事件）；UI 订阅对应事件。（每 Service 一进步、可多日）
+  - **验收**：对应功能经 Service+事件工作。
+- [ ] **D11 — UI 纯交互化：移除 UI 对 Core 的全部直接调用**
+  - UI 只发 Action + 订阅事件；不再直调 player/parse/storage。grep 验证 UI 层无 Core 直调。
+  - **验收**：UI 层零 Core 直调；全功能正常。
+- [ ] **D12 — IFrontend 抽象 + 验证可换 UI**
+  - 定义 `IFrontend`（订阅事件渲染 + 输入→Action）；ncurses UI 实现之。确认 Core 不依赖 ncurses、UI 可换（Qt 可后接）。
+  - **验收**：ncurses 经 IFrontend；UI 可换性就位。→ **M1 达成（UI 解耦）**
 
 ## 里程碑 M2 — Provider 化 + Media 收敛（每 parser 一小步）
-- [ ] **D8…** — 各 parser 确认 Provider 化（youtube/bilibili/itunes/rss/m3u/opml/tiktok）；Media 域从 TreeNode 逐步收敛。每个一进步、保持可运行。
+- [ ] **Dn** — 各 parser 确认 Provider 化（youtube/bilibili/itunes/rss/m3u/opml/tiktok）；Media 域从 TreeNode 逐步收敛。每个一进步、保持可运行。
 
-## 里程碑 M3 — 字幕/ASR + 拆 god-object
-- [ ] **Dn — SubtitleController** 中介者（修 READY/L-key 冲突）；ASR 作 SubtitleProducer。
-- [ ] **Dn — 拆 god-object**：`App`→`AppController`+子控制器；split `app_run.cpp`/`ui.cpp`/`mpv_controller.cpp`/`ini_config.h`。每个拆分一进步、保持可运行。
+## 里程碑 M3 — 字幕/ASR
+- [ ] **Dn** — `SubtitleController` 中介者（修 READY/L-key 冲突）；ASR 作 SubtitleProducer。
+
+## Connectivity 跟进（低优先，按需插入）
+- Downloader 全面经 Connectivity（补 D3 未覆盖路径）+ 首批代理规则（youtube→代理、`*.googlevideo.com`→代理、bilibili→直连）。
 
 ## 规则
 - 每个人日任务完成 → 本文件对应项打 `[x]` + `CHANGELOG.md` 一行 + 架构决策入 `DECISIONS_LOG.md`。
