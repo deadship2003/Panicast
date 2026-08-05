@@ -1,10 +1,10 @@
 # ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║                    PodRadio CI/CD Pipeline                                ║
+# ║                    PaniCast CI/CD Pipeline                                ║
 # ║              Multi-platform Build & Release Automation                    ║
 # ║   Supports: Linux x64/ARM64, macOS x64/ARM64, Windows x64                  ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
-name: PodRadio Build Pipeline
+name: PaniCast Build Pipeline
 
 on:
   push:
@@ -33,13 +33,20 @@ jobs:
             build-essential cmake ninja-build pkg-config \
             libmpv-dev libncurses5-dev libncursesw5-dev \
             libcurl4-openssl-dev libsqlite3-dev libxml2-dev \
-            libfmt-dev nlohmann-json3-dev
+            libfmt-dev nlohmann-json3-dev libgtest-dev clang-format
 
       - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTING=ON
 
       - name: Build
         run: cmake --build build --parallel $(nproc)
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Format check (advisory — legacy not yet clang-formatted)
+        continue-on-error: true
+        run: find src include tests \( -iname '*.cpp' -o -iname '*.h' \) -print0 | xargs -0 -r clang-format --dry-run --Werror
 
       - name: Package
         run: |
@@ -48,7 +55,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: podradio-linux-x64
+          name: panicast-linux-x64
           path: build/*.tar.gz
 
   # ===========================================================================
@@ -81,7 +88,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: podradio-linux-arm64
+          name: panicast-linux-arm64
           path: build/*.tar.gz
 
   # ===========================================================================
@@ -115,7 +122,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: podradio-macos-${{ matrix.arch }}
+          name: panicast-macos-${{ matrix.arch }}
           path: build/*.tar.gz
 
   # ===========================================================================
@@ -147,7 +154,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: podradio-windows-x64
+          name: panicast-windows-x64
           path: build/*.zip
 
   # ===========================================================================
@@ -175,9 +182,9 @@ jobs:
 
       - uses: softprops/action-gh-release@v1
         with:
-          name: PodRadio ${{ github.ref_name }}
+          name: PaniCast ${{ github.ref_name }}
           body: |
-            ## PodRadio ${{ github.ref_name }}
+            ## PaniCast ${{ github.ref_name }}
             
             ### 🎵 Features
             - Terminal-based podcast and radio player
@@ -189,10 +196,10 @@ jobs:
             ### 📥 Downloads
             | Platform | Architecture | Download |
             |----------|-------------|----------|
-            | Linux | x64 | `podradio-linux-x64.tar.gz` |
-            | Linux | ARM64 | `podradio-linux-arm64.tar.gz` |
-            | macOS | x64 | `podradio-macos-x64.tar.gz` |
-            | macOS | ARM64 | `podradio-macos-arm64.tar.gz` |
-            | Windows | x64 | `podradio-windows-x64.zip` |
+            | Linux | x64 | `panicast-linux-x64.tar.gz` |
+            | Linux | ARM64 | `panicast-linux-arm64.tar.gz` |
+            | macOS | x64 | `panicast-macos-x64.tar.gz` |
+            | macOS | ARM64 | `panicast-macos-arm64.tar.gz` |
+            | Windows | x64 | `panicast-windows-x64.zip` |
           files: release/*
           draft: false

@@ -482,8 +482,17 @@ if(BUILD_TESTING)
     # Find GoogleTest (vcpkg provides GTest::gtest_main)
     find_package(GTest QUIET)
     if(GTest_FOUND)
-        add_executable(test_units tests/test_units.cpp src/core/crypto.cpp)
-        target_link_libraries(test_units PRIVATE GTest::gtest_main)
+        # crypto.cpp is dependency-free (no OpenSSL) but transitively needs
+        # paths.cpp (Paths::get_data_dir) + logger.cpp (Logger) + fmt.
+        add_executable(test_units
+            tests/test_units.cpp
+            src/core/crypto.cpp
+            src/core/paths.cpp
+            src/core/logger.cpp)
+        target_link_libraries(test_units PRIVATE GTest::gtest_main Threads::Threads)
+        if(fmt_FOUND)
+            target_link_libraries(test_units PRIVATE fmt::fmt)
+        endif()
         target_include_directories(test_units PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
         target_compile_options(test_units PRIVATE -Wall -Wextra -Wpedantic)
         include(GoogleTest)
