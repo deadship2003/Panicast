@@ -135,6 +135,10 @@ private:
     //   results) sets pending_select_ under tree_mutex; the UI thread consumes it next frame
     //   (sets selected_idx to that node) so interactions stay fluid (network/parse off the UI thread).
     TreeNodePtr pending_select_;
+    // D4: END_FILE reason queued by the mpv event thread; drained on the UI thread each frame
+    //   (see run()). Keeps on_playback_ended OFF the mpv thread so it can't contend with the UI's
+    //   playlist_mutex_ draw lock — the root cause of "TUI freezes a while after pausing".
+    std::atomic<int> pending_end_reason_{-1};
     std::vector<DisplayItem> display_list;
     int selected_idx = 0, view_start = 0;
     bool cur_sort_reversed =

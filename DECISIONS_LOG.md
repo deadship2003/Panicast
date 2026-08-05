@@ -1,4 +1,27 @@
 
+## D4 — Media/MediaID 骨架 + 修复"暂停后 TUI 无响应"（新架构 M0 第 4 人日）
+
+**Context:** D4 落地 Media 领域句柄；用户报告"TUI 暂停播放后过一段时间无响应"，要求在 D4 一并修复。
+
+**Bug 根因分析：**
+- `on_playback_ended`（`app_playback.cpp:66`）通过 `end_file_callback`（`app_run.cpp:73` 注册）在 **mpv 事件线程**执行。它锁 `playlist_mutex_`（:68）并做 `fs::exists`/`URLClassifier::classify`/`pool_.submit`/`player.play` 等一串工作。
+- UI 主循环（`app_run.cpp:338`）draw 时也持有 `playlist_mutex_`。
+- 暂停久了（尤其直播流），流空闲断开 → mpv 触发 END_FILE → mpv 事件线程在 `on_playback_ended` 持 `playlist_mutex_` → UI 线程到 :338 拿不到锁 → 卡在 draw、到不了 :398 读输入 → TUI 无响应。属 AUDIT P1-4/5/8 同源的"跨线程持 UI 锁"问题。
+
+**修复：**
+- mpv 事件线程的 end_file 回调改为只入队：`pending_end_reason_.store(reason)`（`app.h` 新增 `std::atomic<int> pending_end_reason_{-1}`）。
+- UI 主循环每帧 drain（`app_run.cpp` 紧随 `drain_remote_commands()`）：`exchange(-1)` 取出 reason，非 -1 则在 **UI 线程**调 `on_playback_ended(reason)`。
+- 效果：`on_playback_ended` 不再在 mpv 线程持 `playlist_mutex_`，消除与 UI draw 的争用。这正是 EventBus/命令总线把跨线程回调 marshal 到 UI 线程的模式（D1 EventBus 的延伸）。
+
+**Media/MediaID：**
+- `include/panicast/domain/media.h`（header-only）：`MediaID`（弱引用 TreeNode 身份，`==`/`!=`/`valid`/`lock`）+ `Media{id,url,title}` 只读视图 + `media_from_node` adapter。不改 TreeNode；后续逐步收敛。
+
+**Verification:** ctest 35→38（+3 MediaID/Media）；增量构建 0-warning；冒烟正常。
+
+**Followups：** 若个别场景仍偶发卡顿，继续把其它 mpv 线程→App 回调（property observers 等）也 marshal 到 UI 线程（EventBus）；Media 表面随 M2 收敛。
+
+---
+
 ## D3 — 全部网络消费者接入 Connectivity（url-aware resolveProxy + Downloader）（新架构 M0 第 3 人日）
 
 **Context:** D2 落地 IProxyManager 但 apply_network_proxy 只用 resolveProxy("")（无 url，仅全局）。D3 让所有网络消费者传真实 url + platform（启用域名/平台规则），Downloader（含 yt-dlp）也接入。

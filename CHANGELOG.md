@@ -4,6 +4,20 @@
 
 ---
 
+## 新架构 D4 — 2026-08-05 — Media/MediaID 骨架 + 修复"暂停后 TUI 无响应"
+
+> 新架构增量迁移 M0 第 4 人日。落地 Media 领域句柄；顺带修一个跨线程锁争用导致的 TUI 卡死 bug。
+
+### 新增
+- **[Domain] Media / MediaID**（`include/panicast/domain/media.h`，header-only）：`MediaID`（弱引用 TreeNode 身份，可比较/可过期）+ `Media`（只读视图：id+url+title）+ `media_from_node` adapter。不改 TreeNode；后续里程碑逐步收敛 Media 表面、与树解耦。
+
+### 修复
+- **[App] 暂停播放后 TUI 一段时间无响应**（`app.h`/`app_run.cpp`）：根因——`on_playback_ended` 在 **mpv 事件线程**锁 `playlist_mutex_` 执行（`fs::exists`/`classify`/`pool_.submit`/`player.play`），与 UI 主循环 draw 持有的 `playlist_mutex_` 争用；暂停久了直播流空闲断开 → END_FILE → mpv 线程持锁阻塞 UI draw → 卡死（AUDIT P1-4/5/8 同源）。改：mpv 线程 end_file 回调只 `pending_end_reason_.store(reason)`；UI 线程每帧 `exchange(-1)` drain 后在**自己线程**跑 `on_playback_ended` → 消除跨线程锁争用（EventBus 迁移方向）。
+- README 去掉全部历史版本注记（Y24.30/Y01/Y15/Y11/Y13/Y24.11 等），公开文档按全新项目呈现。
+
+### 验收
+- ctest 35→38（+3：MediaID 身份/过期、Media 视图）；增量构建 0-warning；`build/panicast --version` 正常。
+
 ## 新架构 D3 — 2026-08-05 — 全部网络消费者接入 Connectivity（含 Downloader）
 
 > 新架构增量迁移 M0 第 3 人日。apply_network_proxy 改 url-aware，4 个 curl 调用点 + yt-dlp 全部经 IProxyManager。

@@ -52,7 +52,7 @@
 
 ### 🚀 一键部署
 
-Y24.30 发布包自带 **quickjs-ng** JS 运行时（`vendor/quickjs/`，~2MB）与部署脚本，解压后一条命令搞定依赖+运行时+编译+安装：
+发布包自带 **quickjs-ng** JS 运行时（`vendor/quickjs/`，~2MB）与部署脚本，解压后一条命令搞定依赖+运行时+编译+安装：
 
 ```bash
 tar xzf PaniCast-V0.01.tar.gz
@@ -103,12 +103,12 @@ cmake --build build --parallel $(nproc)
 sudo cmake --install build
 ```
 
-> **Y01 新增依赖 `libqrencode`**（用于 Y 模式 Google 帐号扫码登录渲染二维码）。
+> **依赖 `libqrencode`**（用于 Y 模式 Google 帐号扫码登录渲染二维码）。
 > 未安装时构建仍可成功，Y 模式登录回退为纯文本 user_code（无 QR 图片）。
 > apt: `libqrencode-dev` · pacman: `qrencode` · dnf: `qrencode-devel` · brew: `qrencode` · vcpkg: `qrencode`.
 
-> **Y24.30 运行时依赖：JS 运行时**（YouTube 播放/下载必需）。yt-dlp 2026.07+ 需要一个 JavaScript 运行时来求解 YouTube 的 nsig「n 挑战」，否则只能取到缩略图、音视频格式全部缺失（报错 `Requested format is not available` / `n challenge solving failed`）。
-> **Y24.30 推荐 `quickjs-ng`（`qjs`，~2MB）**：冷启动比 deno 快约 10×，可消除首次播放 YouTube 的初始卡顿。在 `config.ini（~/.config/panicast/）` 设 `[youtube] js_runtime = quickjs`（默认），并确保 `qjs` 在 `PATH`。
+> **运行时依赖：JS 运行时**（YouTube 播放/下载必需）。yt-dlp 2026.07+ 需要一个 JavaScript 运行时来求解 YouTube 的 nsig「n 挑战」，否则只能取到缩略图、音视频格式全部缺失（报错 `Requested format is not available` / `n challenge solving failed`）。
+> **推荐 `quickjs-ng`（`qjs`，~2MB）**：冷启动比 deno 快约 10×，可消除首次播放 YouTube 的初始卡顿。在 `config.ini（~/.config/panicast/）` 设 `[youtube] js_runtime = quickjs`（默认），并确保 `qjs` 在 `PATH`。
 > ⚠️ **`node` 不可用**：yt-dlp 内置的 EJS 求解器把 Node 20（Debian/Ubuntu `apt install nodejs` 所装版本）标记为 `unsupported`（需 Node ≥22）。Node ≥22 + `--js-runtimes node` 也可用，但二进制 ~120MB，不如 quickjs 轻。
 > **quickjs 安装**：从 [quickjs-ng releases](https://github.com/quickjs-ng/quickjs/releases) 取 ≥0.12.0 的 `qjs` 放到 `PATH`，并 `pip install -U "yt-dlp[default]"`（带入 yt-dlp-ejs；quickjs 不能从 npm 拉 EJS）。
 > **deno 回退**：装不了 yt-dlp-ejs 时，`[youtube] js_runtime = deno` 并 `curl -fsSL https://deno.land/install.sh | sh`（~106MB，deno 自动从 npm 拉 EJS）。这是**运行时**依赖（yt-dlp 播放时调用），不影响编译，但未安装时 YouTube 无法播放。
@@ -175,7 +175,7 @@ PaniCast 的 YouTube 支持有两种**互相独立**的模式，可单独使用�
 
 ---
 
-## 📺 B 模式（Bilibili，Y15）
+## 📺 B 模式（Bilibili）
 
 B 模式支持 Bilibili 视频的登录、浏览、搜索、播放和下载。**不需要 quickjs/deno**（B 站无 nsig 挑战），比 Y 模式更轻量。
 
@@ -225,7 +225,7 @@ cookies_file = bilibili_cookie.txt   # 默认 <数据目录>/bilibili_cookie.txt
 | 扫码/Cookie 关系 | 扫码=获取 OAuth token | 扫码=获取 SESSDATA cookie |
 
 
-## 🎵 T 模式（TikTok / 抖音，Y24.11）
+## 🎵 T 模式（TikTok / 抖音）
 
 终端播客播放器对短视频平台的支持。**匿名，无登录**。区域显示在状态栏边框（`🎵 TIKTOK [US]` / `🎵 抖音 [CN]`），根节点标签静态。
 
@@ -267,7 +267,7 @@ Y 模式扫码登录需要一个 Google OAuth "Desktop app / TV and Limited Inpu
 
 ---
 
-## 💬 YouTube 字幕（软字幕，Y11）
+## 💬 YouTube 字幕（软字幕）
 
 YouTube 视频的字幕默认**不加载**（`resolve_youtube_url` 用 `yt-dlp -g` 只取视频+音频流，不取字幕）。要启用软字幕（可缩放/移位/居中），在 `config.ini（~/.config/panicast/）` 设：
 
@@ -291,9 +291,9 @@ sub_auto = true      # 无手动字幕时用自动生成字幕
 
 ---
 
-## 🎤 转写字幕（whisper.cpp，Y24.30）
+## 🎤 转写字幕（whisper.cpp）
 
-无字幕的节目可用 whisper.cpp 离线转写生成 SRT 字幕（回放自动加载）。**实时转写为 Y24.30（建设中）**。
+无字幕的节目可用 whisper.cpp 离线转写生成 SRT 字幕（回放自动加载）。**实时转写（建设中）**。
 
 ### 安装依赖（用户自装）
 **Arch**：
@@ -333,7 +333,7 @@ max_concurrent = 3                                     # 离线并发上限，[1
 
 ---
 
-## 🎨 主题（15 套，Y13）
+## 🎨 主题（15 套）
 
 15 套 GitHub 流行终端配色，全深色 + **软前景**（无纯白 #ffffff，不刺眼）。`Ctrl+L` 循环切换，`[display] theme_index` 持久化（默认 0）：
 
@@ -553,10 +553,10 @@ panicast -v                 # 显示版本
 | `F` | 收藏夹 |
 | `H` | 历史记录 |
 | `O` | 在线搜索 |
-| `Y` | 帐号模式（Google 帐号，Y01） |
+| `Y` | 帐号模式（Google 帐号） |
 | `M` | 循环切换模式 |
 
-### Y 模式（Google 帐号）— Y01 新增
+### Y 模式（Google 帐号）
 
 Y 模式用于管理多个 Google 帐号，每个帐号的 YouTube 订阅与观看记录互相独立。登录走 SmartTube
 同款方案（Google OAuth 设备授权 + 终端二维码扫码）。所有数据仍存在同一个 `panicast.db`，OAuth

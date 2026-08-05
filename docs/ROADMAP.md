@@ -14,9 +14,10 @@
 - [x] **D3 — 调用点切到带 url 的 resolveProxy + Downloader** ✅ 2026-08-05
   - `apply_network_proxy(curl, url, platform)` 改 url-aware；4 个 curl 调用点（`network.cpp` configure_curl / `bilibili_api` / `itunes_search` / `app_download`）传真实 url+platform；`ytdlp_runner` 的 `--proxy` 改走 `ProxyManager::resolveProxy`。所有网络消费者现均经 Connectivity（mpv 播放仍直连）。
   - **验收**：编译 0-warning、ctest 35/35、冒烟正常；代理路径无回归。（yt-dlp 的 url/platform 感知路由为后续精化项。）
-- [ ] **D4 — Media/MediaID 骨架（不改 TreeNode）**
-  - `include/panicast/domain/media.h`（`MediaID` + Media 视图/adapter，复用 `TreeNodePtr` 作底层）+ 单测。
-  - **验收**：编译绿、app 行为零变化。
+- [x] **D4 — Media/MediaID 骨架 + 修"暂停后 TUI 无响应"** ✅ 2026-08-05
+  - `include/panicast/domain/media.h`（header-only：`MediaID` 弱引用 TreeNode 身份 + `Media` 视图 + `media_from_node` adapter，不改 TreeNode）+ 3 单测。
+  - **Bug 修复**：`on_playback_ended` 原在 mpv 事件线程锁 `playlist_mutex_` 跑（暂停久了流断开→END_FILE→与 UI draw 锁争用→TUI 卡死）。改为 mpv 线程只入队 `pending_end_reason_`，UI 线程每帧 drain 后在自己线程跑 → 消除跨线程锁争用。
+  - **验收**：编译 0-warning、ctest 35→38、冒烟正常。
 - [ ] **D5 — M0 端到端样例 + 收尾**
   - 一条最小路径走新抽象（RSS → parser provider → MediaID → Connectivity 解析 → playback 播放）+ 集成冒烟测试；写 ADR + CHANGELOG。
   - **验收**：样例跑通、全 ctest 绿、app 全功能正常。→ **M0 达成（最小可演进系统）**

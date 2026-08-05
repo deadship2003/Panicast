@@ -70,7 +70,7 @@ void App::run() {
         LOG("MPV initialization failed");
 
     // Register playback-ended callback to auto-play the next track
-    player.set_end_file_callback([this](int reason) { on_playback_ended(reason); });
+    player.set_end_file_callback([this](int reason) { pending_end_reason_.store(reason); });
     LOG("[AUTOPLAY] End-file callback registered");
 
     // Y07: startup runtime-dependency pre-check for YouTube playback. Warn once in the LOG
@@ -194,6 +194,14 @@ void App::run() {
         // N01: drain remote commands on the UI thread (server→bus→here). Non-blocking; no-op
         //   when the queue is empty or remote control is disabled.
         drain_remote_commands();
+        // D4: run the playback-ended handler on the UI thread. The mpv event thread only QUEUES
+        //   END_FILE here — previously it ran on_playback_ended on the mpv thread under
+        //   playlist_mutex_, contending with this loop's draw lock (also playlist_mutex_) and
+        //   freezing the TUI a while after pause (a paused live stream drops → END_FILE → the
+        //   mpv thread blocks the UI's draw). Draining here runs the handler on the UI thread.
+        int _end_reason = pending_end_reason_.exchange(-1);
+        if (_end_reason != -1)
+            on_playback_ended(_end_reason);
         // N02: refresh the state snapshot cache for remote query commands (status/currentsong).
         update_remote_state_cache();
 

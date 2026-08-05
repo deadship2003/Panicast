@@ -11,6 +11,7 @@
 #include "panicast/core/event_bus.h"
 #include "panicast/core/event_log.h"
 #include "panicast/net/proxy_manager.h"
+#include "panicast/domain/media.h"
 
 // ─── Since panicast.cpp is a single file, we mirror the pure-function logic for independent testing ───
 // Real integration tests require splitting the modules (v0.6 work)
@@ -411,6 +412,41 @@ TEST(ProxyManager, PlatformBeatsDomain) {
     pm.setDomain("*.googlevideo.com", {"gv"});
     pm.setPlatform("youtube", {"yt"});
     EXPECT_EQ(pm.resolveProxy("https://r1.googlevideo.com/v", "youtube").url, "yt");  // platform wins
+}
+
+// ─── Media / MediaID tests (D4: domain handle adapter over TreeNode) ──────────
+TEST(MediaID, IdentityEquality) {
+    auto n1 = std::make_shared<panicast::TreeNode>();
+    auto n2 = std::make_shared<panicast::TreeNode>();
+    panicast::MediaID a(n1), b(n1), c(n2);
+    EXPECT_EQ(a, b);   // same underlying node
+    EXPECT_NE(a, c);   // different nodes
+    EXPECT_TRUE(a.valid());
+    EXPECT_TRUE(a.lock().get() == n1.get());
+}
+
+TEST(MediaID, ExpiresWithNode) {
+    panicast::MediaID id;
+    {
+        auto n = std::make_shared<panicast::TreeNode>();
+        id = panicast::MediaID(n);
+        EXPECT_TRUE(id.valid());
+    }
+    EXPECT_FALSE(id.valid());  // node destroyed → expired
+}
+
+TEST(Media, FromNodeCopiesUrlTitle) {
+    auto n = std::make_shared<panicast::TreeNode>();
+    n->url = "https://example.com/track";
+    n->title = "Track";
+    auto m = panicast::media_from_node(n);
+    EXPECT_EQ(m.url, "https://example.com/track");
+    EXPECT_EQ(m.title, "Track");
+    EXPECT_TRUE(m.id.valid());
+
+    auto empty = panicast::media_from_node(nullptr);
+    EXPECT_FALSE(empty.id.valid());
+    EXPECT_TRUE(empty.url.empty());
 }
 
 int main(int argc, char **argv) {
