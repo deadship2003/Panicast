@@ -139,6 +139,9 @@ private:
     //   (see run()). Keeps on_playback_ended OFF the mpv thread so it can't contend with the UI's
     //   playlist_mutex_ draw lock — the root cause of "TUI freezes a while after pausing".
     std::atomic<int> pending_end_reason_{-1};
+    // D6: EventBus action-subscription tokens (UI→Core). Kept for the App's lifetime (the app
+    //   exits via _exit, so no explicit unsubscribe needed).
+    std::vector<size_t> action_subs_;
     std::vector<DisplayItem> display_list;
     int selected_idx = 0, view_start = 0;
     bool cur_sort_reversed =

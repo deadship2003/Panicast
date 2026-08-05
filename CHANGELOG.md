@@ -4,6 +4,20 @@
 
 ---
 
+## 新架构 D6 — 2026-08-05 — Action 类型 + 暂停走消息总线（UI 解耦种子）
+
+> M1（UI 解耦）第一步。UI 输入首次经消息总线，不再直调 Core。
+
+### 新增
+- **[App] `include/panicast/app/actions.h`**：`PlayPauseAction`（后续 Action 类型随 D7 迁移加入）。Action = UI→Core 输入方向，复用 EventBus 承载（`publish(PlayPauseAction{})`）。
+- **暂停走总线**：`app_input.cpp` Space/'p' 键改为 `EventBus::publish(PlayPauseAction{})`（不再直调 `player.toggle_pause()`）；`App::run()` 订阅 `PlayPauseAction` → 调 `player.toggle_pause()`（已是 worker 异步）。
+
+### 意义
+- 首个 **UI→Core 经总线**闭环（输入侧）。UI 暂停路径不再直接碰 player——"UI 纯交互层"解耦的第一步（见 `docs/DESIGN.md` 目标架构）。后续 D7 迁移更多输入、D8 抽 PlaybackService 接管这些 handler。
+
+### 验收
+- ctest 38/38、构建 0-warning、冒烟正常；暂停经总线工作。
+
 ## robust — 2026-08-05 — mpv 交互命令移到 worker 线程（TUI 永不被 mpv/PA 阻塞）
 
 > 用户要求：不管 mpv 状态，TUI 都要响应交互。根因（前一条日志）：暂停触发 `pa_stream_cork` 卡在挂死的 PulseAudio → mpv 阻塞 → UI 线程直接调 `mpv_set_property` 冻结。

@@ -25,10 +25,9 @@
 ## 里程碑 M1 — UI 解耦（消息总线 + 抽象层 + UI 纯交互）【主线】
 > 目标（见 `docs/DESIGN.md` 目标架构）：UI 变纯交互层——只发 Action + 订阅事件，不再直接调 Core；消息总线（EventBus/ActionBus）成 UI↔核心唯一通道；抽 Application Services 作功能抽象层。每步 strangler、可编译可运行、有真实消费者（不空跑）。
 
-- [ ] **D6 — Action 类型 + 暂停端到端走总线（输入侧种子）**
-  - 定义 `Action`（`std::variant`：PlayPause / Seek / SetVolume / Navigate / SwitchMode / …）；复用 EventBus 承载（`publish(PlayPauseAction{})`）。
-  - UI 暂停键 → 发 `PlayPauseAction`（不再直接 `player.toggle_pause()`）；App/后续 Service 订阅 → 调既有 `player.toggle_pause()`。
-  - **验收**：编译绿、ctest 绿、暂停仍工作（经总线）；UI 暂停路径不再直调 player。
+- [x] **D6 — Action 类型 + 暂停端到端走总线（输入侧种子）** ✅ 2026-08-05
+  - `include/panicast/app/actions.h`（`PlayPauseAction` 等 Action 类型，复用 EventBus 承载）；UI 暂停键 → `publish(PlayPauseAction{})`（不再直调 `player.toggle_pause()`）；`App::run()` 订阅 → 调既有 `player.toggle_pause()`（已是 worker 异步）。
+  - **验收**：编译 0-warning、ctest 38/38、冒烟正常；UI 暂停路径不再直调 player（经总线）。首个输入侧 UI 解耦闭环。
 - [ ] **D7 — 迁移主要输入到 Action + Keymap 可自定义**
   - 把 `app_input.cpp` 主 switch 各 case 迁成发 Action；handler 订阅处理。加 `[keys]` 配置（键→Action 可自定义）。
   - **验收**：迁移的交互（播放/seek/音量/导航/模式）经总线工作；热键可自定义。

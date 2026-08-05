@@ -1,4 +1,20 @@
 
+## D6 — Action 类型 + 暂停走消息总线（UI 解耦输入侧种子）（M1 第 1 人日）
+
+**Context:** M1（UI 解耦）启动。目标（`docs/DESIGN.md`）：UI 变纯交互层（只发 Action + 订阅事件），消息总线成 UI↔核心唯一通道。D6 是输入侧种子——证明 UI→Core 经总线。
+
+**Approach:**
+- `include/panicast/app/actions.h`：定义 Action 类型（`PlayPauseAction`）。复用 **EventBus** 承载 Action（输入方向与事件共用同一总线；Action 是 UI→Core，Event 是 Core→UI，都是 publish/subscribe）。
+- `app_input.cpp`：Space/'p' 暂停键改为 `EventBus::publish(PlayPauseAction{})`，不再直调 `player.toggle_pause()`。
+- `App::run()`：`EventBus::subscribe<PlayPauseAction>([this](auto&){ player.toggle_pause(); })`，token 存 `action_subs_`。player.toggle_pause 已是 worker 异步（前 robust 提交）。
+- 效果：UI 暂停路径不再直接碰 player——首个 UI→Core 总线闭环。
+
+**Verification:** ctest 38/38；构建 0-warning；冒烟正常；暂停经总线工作。
+
+**Followups:** D7 迁移更多输入（play/seek/volume/导航/模式）到 Action + Keymap 可自定义；D8 抽 PlaybackService 接管这些 Action handler；D9 加事件层（输出侧）。
+
+---
+
 ## robust — mpv 交互命令移到 worker 线程（TUI 永不被 mpv/PA 阻塞）
 
 **Context:** 用户要求"不管 mpv 状态，TUI 都要响应交互"。前一条日志（看 IPTV/mp3 暂停）+ 诊断确认：WSLg PulseAudio 挂死 → 暂停触发 `pa_stream_cork` 超时 → mpv 阻塞 → UI 线程直接调 `mpv_set_property` 冻结。

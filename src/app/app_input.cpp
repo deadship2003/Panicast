@@ -1,4 +1,6 @@
 #include "panicast/app/app.h"
+#include "panicast/app/actions.h"
+#include "panicast/core/event_bus.h"
 
 #include <map>
 
@@ -534,8 +536,8 @@ void App::handle_input(int ch, int marked_count) {
         go_back();
         break;
     case ' ': // Space pause/resume
-    case 'p': // p key alias (documented but not implemented in old code)
-        player.toggle_pause();
+    case 'p': // p key alias
+        EventBus::instance().publish(PlayPauseAction{}); // D6: via message bus, not direct call
         break;
     case '+': // volume up
         player.set_volume(player.get_state().volume + VOLUME_STEP);

@@ -1,5 +1,7 @@
 #include <unistd.h> // _exit (skip destructors on clean exit)
 #include "panicast/app/app.h"
+#include "panicast/app/actions.h"
+#include "panicast/core/event_bus.h"
 #include "panicast/net/bilibili_api.h"
 #include "panicast/net/tiktok_region.h"
 #include "panicast/parsers/bilibili_parser.h"
@@ -72,6 +74,12 @@ void App::run() {
     // Register playback-ended callback to auto-play the next track
     player.set_end_file_callback([this](int reason) { pending_end_reason_.store(reason); });
     LOG("[AUTOPLAY] End-file callback registered");
+
+    // D6: UI-decoupling seed — pause goes through the message bus. The UI emits PlayPauseAction
+    //   (app_input.cpp Space/'p') instead of calling player.toggle_pause() directly; this handler
+    //   subscribes + does the actual toggle. First input-side bus wiring (see docs/DESIGN.md).
+    action_subs_.push_back(EventBus::instance().subscribe<PlayPauseAction>(
+        [this](const PlayPauseAction &) { player.toggle_pause(); }));
 
     // Y07: startup runtime-dependency pre-check for YouTube playback. Warn once in the LOG
     //   panel so a missing dependency is obvious immediately, instead of a cryptic
