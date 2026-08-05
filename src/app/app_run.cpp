@@ -151,6 +151,7 @@ void App::run() {
     }
 
     while (running) {
+        const auto frame_start_ = std::chrono::steady_clock::now();
         // Check SIGINT (CTRL+C) exit request
         if (g_exit_requested) {
             g_exit_requested = false; // reset flag
@@ -256,7 +257,12 @@ void App::run() {
 
         bool is_loading = false;
         {
+            const auto _tw0 = std::chrono::steady_clock::now();
             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            const long _tree_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - _tw0).count();
+            if (_tree_wait_ms > 80)
+                LOG(fmt::format("[WATCHDOG] waited {}ms for tree_mutex", _tree_wait_ms));
             display_list.clear();
             flatten_items(cur_items());
             for (const auto &item : display_list) {
@@ -343,7 +349,12 @@ void App::run() {
         std::vector<int> next_snap;
         std::string cur_url_snap;
         {
+            const auto _pw0 = std::chrono::steady_clock::now();
             std::lock_guard<std::mutex> pl_draw_lock(playlist_mutex_); // released before input
+            const long _pl_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - _pw0).count();
+            if (_pl_wait_ms > 80)
+                LOG(fmt::format("[WATCHDOG] waited {}ms for playlist_mutex_", _pl_wait_ms));
             {
                 current_index_snap = current_index;
                 int n = static_cast<int>(current_playlist.size());
@@ -410,6 +421,11 @@ void App::run() {
             handle_input(static_cast<int>(wch), marked); // ASCII only
         }
         // wrc == ERR (no input) or non-ASCII char → drop silently
+        const long _frame_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - frame_start_).count();
+        if (_frame_ms > 150)
+            LOG(fmt::format("[WATCHDOG] slow frame: {}ms (tree/pl wait logged above if >80ms)",
+                            _frame_ms));
     }
 
     // Shut down the thread pool and join all background load tasks before exiting,

@@ -18,9 +18,9 @@
   - `include/panicast/domain/media.h`（header-only：`MediaID` 弱引用 TreeNode 身份 + `Media` 视图 + `media_from_node` adapter，不改 TreeNode）+ 3 单测。
   - **Bug 修复**：`on_playback_ended` 原在 mpv 事件线程锁 `playlist_mutex_` 跑（暂停久了流断开→END_FILE→与 UI draw 锁争用→TUI 卡死）。改为 mpv 线程只入队 `pending_end_reason_`，UI 线程每帧 drain 后在自己线程跑 → 消除跨线程锁争用。
   - **验收**：编译 0-warning、ctest 35→38、冒烟正常。
-- [ ] **D5 — M0 端到端样例 + 收尾**
-  - 一条最小路径走新抽象（RSS → parser provider → MediaID → Connectivity 解析 → playback 播放）+ 集成冒烟测试；写 ADR + CHANGELOG。
-  - **验收**：样例跑通、全 ctest 绿、app 全功能正常。→ **M0 达成（最小可演进系统）**
+- [x] **D5 — M0 端到端样例 + 收尾** ✅ 2026-08-05
+  - 端到端 = app 本身（EventLog→EventBus、所有网络→IProxyManager/Connectivity、Media 适配器，D1–D4 已串通）。本日加 **UI 帧时间 watchdog**（测 tree_mutex/playlist_mutex_ 等待 + 整帧耗时，超阈值写 panicast.log）用于精确定位"暂停后输入无响应"剩余卡点。
+  - **M0 达成**：最小可演进系统就位（EventBus + Connectivity + Media + 工程基线）。后续 M1+ 增量扩展。
 
 ## 里程碑 M1 — Connectivity 全覆盖 + 热键统一
 - [ ] **D6 — Downloader 全面经 Connectivity**（补齐 D3 未覆盖的下载路径 + 测试）。

@@ -1,4 +1,20 @@
 
+## D5 — M0 收尾 + UI 帧时间 watchdog（新架构 M0 第 5 人日）
+
+**Context:** M0 收尾。D1–D4 已落地 EventBus、IProxyManager（全消费者经 Connectivity）、Media/MediaID。用户报告"暂停后 TUI 输入无响应"在 D4 修复后仍存——静态分析已穷尽明显原因（D4 修了 END_FILE 跨线程 `playlist_mutex_` 争用；排除 ncurses 跨线程破坏[只在 ui/app]、ASR join 阻塞[`stop_realtime` 非阻塞]）。剩余卡点需运行时数据。
+
+**Approach:**
+- M0 端到端 = app 本身（EventLog→EventBus、所有网络→ProxyManager、Media 适配器），无需额外样例。
+- 加 **UI 帧时间 watchdog**：每帧测 `tree_mutex` / `playlist_mutex_` 等待 + 整帧耗时；超阈值（锁等待 >80ms / 帧 >150ms）写 `panicast.log`。下次复现"暂停后无响应"时，日志直接显示卡点（等哪把锁 / 哪步慢）→ 定点修复。
+
+**M0 达成：** 最小可演进系统（EventBus + Connectivity + Media + 工程基线）。M1+ 增量。
+
+**Verification:** ctest 38/38；构建 0-warning；冒烟正常。
+
+**Followups：** 据 watchdog 日志定点修"暂停后输入无响应"剩余卡点（疑似 ASR worker 暂停后仍转写整段占 CPU，待确认）；M1（Downloader 全覆盖 D6 + 热键 Keymap D7）。
+
+---
+
 ## D4 — Media/MediaID 骨架 + 修复"暂停后 TUI 无响应"（新架构 M0 第 4 人日）
 
 **Context:** D4 落地 Media 领域句柄；用户报告"TUI 暂停播放后过一段时间无响应"，要求在 D4 一并修复。

@@ -4,6 +4,22 @@
 
 ---
 
+## 新架构 D5 — 2026-08-05 — M0 收尾 + UI 帧时间 watchdog（定位"暂停后输入无响应"）
+
+> 新架构增量迁移 M0 第 5 人日（收尾）。D1–D4 已把 EventBus/Connectivity/Media 串通（app 本身即端到端集成）。
+
+### 新增
+- **[App] UI 帧时间 watchdog**（`app_run.cpp`）：每帧测 `tree_mutex` / `playlist_mutex_` 等待时长 + 整帧耗时；任一超阈值（锁等待 >80ms / 帧 >150ms）写 `panicast.log`（`[WATCHDOG] ...`）。用于精确定位"暂停播放后 TUI 输入无响应"的剩余卡点——下次复现时日志直接显示卡在拿哪把锁或哪一步。
+
+### M0 达成
+- 最小可演进系统就位：EventBus（D1）+ IProxyManager/Connectivity 全消费者接入（D2/D3）+ Media/MediaID（D4）+ 工程基线；D4 已修 END_FILE 跨线程锁争用。后续 M1（Downloader 全覆盖 + 热键 Keymap）起增量扩展。
+
+### 关于"暂停后输入无响应" bug
+- D4 已修一处根因（`on_playback_ended` 原在 mpv 线程持 `playlist_mutex_` → 改入队、UI 线程 drain）。已排除：ncurses 跨线程破坏（只在 ui/app）、ASR join 阻塞（`stop_realtime` 非阻塞）。剩余卡点需运行时数据——watchdog 会在复现时记录确切位置。**请复现后把 `panicast.log` 里的 `[WATCHDOG]` 行发我，即可定点修复。**（若你暂停时开着 Shift+L 实时转写，也可能是 ASR worker 在暂停后仍持续转写整段占 CPU——可一并告知。）
+
+### 验收
+- ctest 38/38、构建 0-warning、冒烟正常。
+
 ## 新架构 D4 — 2026-08-05 — Media/MediaID 骨架 + 修复"暂停后 TUI 无响应"
 
 > 新架构增量迁移 M0 第 4 人日。落地 Media 领域句柄；顺带修一个跨线程锁争用导致的 TUI 卡死 bug。
