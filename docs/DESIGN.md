@@ -22,6 +22,50 @@ Core(基础设施,无业务) → Domain(Media/MediaID,纯净) → Runtime(Networ
    - **交互动作**：统一抽象为 `Action`/`Command`（与 ncurses/Qt 无关）；前端只做两件事——订阅事件做渲染、把用户输入（TUI 按键 / Qt 按钮/菜单）映射成 Action。
    - **铁律**：Core/Domain/Runtime **禁止依赖** ncurses/Qt 任何 UI 库；UI 是可插拔前端（ncurses 现、Qt 将来）。`App` god-object 的 UI 耦合必须逐步切除（M3）。
 
+## 目标架构：消息总线 + 抽象层 + UI 解耦（核心设计意图）
+
+**UI（交互层）必须与其它层解耦——只经消息总线通信。** 这是新架构的核心目标；当前代码尚未达标，是后续重构的主线。
+
+```
+┌─ Frontend / UI（交互层，可换：ncurses TUI / Qt / Web）────────┐
+│  · 订阅事件 → 渲染（纯展示，无业务状态）                       │
+│  · 用户输入 → Action → 发总线（无直接业务调用）                │
+└───────────────┬──────────────────────────────────────────────┘
+                │  事件 ↓（Core→UI）/ Action ↑（UI→Core）
+┌───────────────┴──────────────────────────────────────────────┐
+│ Message Bus（消息总线 = EventBus + ActionBus）—— UI↔核心唯一通道 │
+└───────────────┬──────────────────────────────────────────────┘
+                │
+┌───────────────┴──────────────────────────────────────────────┐
+│ Application Services（功能抽象层）                             │
+│  PlaybackService / LibraryService / SearchService /            │
+│  SubtitleService / AccountService / …                         │
+│  · 订阅 Action → 执行业务 → 发事件；持业务状态；不碰 UI 库     │
+└───────────────┬──────────────────────────────────────────────┘
+                │
+┌───────────────┴──────────────────────────────────────────────┐
+│ Domain（Media/MediaID）+ Runtime（Playback/Connectivity/Download）+ Core（EventBus/Repo/ThreadPool）│
+└───────────────────────────────────────────────────────────────┘
+```
+
+**解耦铁律：**
+- UI **只**做两件事：订阅事件渲染、把输入映射成 Action 发总线。**禁止**直接调 Core/Domain/Service 方法、**禁止**持业务状态。
+- Core/Services **不**依赖任何 UI 库（ncurses/Qt）；只发事件、收 Action。
+- 消息总线是 UI↔核心的**唯一**通道 → UI 可换（TUI/Qt/Web），核心不动。
+
+**当前差距（精确）：**
+- UI（App/ui）**直接调** player/parse/storage —— 不经总线/Service。
+- EventBus **几乎闲置**（仅 LogEvent 一处）—— 不是 UI↔Core 通道。
+- **无 Action/Command 层**：`handle_input` 硬编码 `switch` → 直接方法调用。
+- `App` god-object 混 UI + 逻辑 + 状态 —— 没分出 Services；UI 未解耦 → 换 UI 要重写 App。
+
+**达标路径（重构主线，每步可编译可运行、strangler）：**
+1. **EventBus 成事件骨干**：Services 发领域事件（`PlaybackStateChanged`/`MediaLoaded`/`LibraryUpdated`…），UI 订阅渲染（替代每帧轮询 `get_state` + 直接读 state）。
+2. **Action 层**（D7 Keymap 升级）：UI 按键 → Action → 总线；Services 订阅处理（替代 `handle_input` switch → 直接调用）。
+3. **Application Services（功能抽象层）**：从 `App` god-object 抽出 `PlaybackService`/`LibraryService`/… —— 持业务状态、处理 Action、发事件。UI 只跟总线说话。
+4. **UI 纯交互化**：只订阅事件渲染 + 按键→Action。无逻辑、无直接 Core 调用。
+5. Core/Domain/Runtime 不变（已 ncurses-clean）。
+
 ## 砍掉的过度设计（避免重蹈覆辙）
 - "永久冻结 / 唯一事实来源 / 对标 Linux Kernel" 修辞——零工程价值。
 - "12 框架一次冻结"——按需演进，用到哪个立哪个。
