@@ -75,21 +75,11 @@ void App::run() {
     player.set_end_file_callback([this](int reason) { pending_end_reason_.store(reason); });
     LOG("[AUTOPLAY] End-file callback registered");
 
-    // D6: UI-decoupling seed — pause goes through the message bus. The UI emits PlayPauseAction
-    //   (app_input.cpp Space/'p') instead of calling player.toggle_pause() directly; this handler
-    //   subscribes + does the actual toggle. First input-side bus wiring (see docs/DESIGN.md).
-    action_subs_.push_back(EventBus::instance().subscribe<PlayPauseAction>(
-        [this](const PlayPauseAction &) { player.toggle_pause(); }));
-    // D7: build the Keymap (key→Action) + subscribe the migrated input Actions (volume/nav).
+    // D8: PlaybackService (first Application Service) owns the playback Action handlers
+    //   (pause/volume) — subscribed via playback_.init(). Nav Actions stay here for now.
+    playback_.init();
+    // D7: Keymap (key→Action) + nav input Actions.
     build_keymap();
-    action_subs_.push_back(EventBus::instance().subscribe<VolumeUpAction>(
-        [this](const VolumeUpAction &) {
-            player.set_volume(player.get_state().volume + VOLUME_STEP);
-        }));
-    action_subs_.push_back(EventBus::instance().subscribe<VolumeDownAction>(
-        [this](const VolumeDownAction &) {
-            player.set_volume(player.get_state().volume - VOLUME_STEP);
-        }));
     action_subs_.push_back(EventBus::instance().subscribe<NavUpAction>(
         [this](const NavUpAction &) { nav_up(); }));
     action_subs_.push_back(EventBus::instance().subscribe<NavDownAction>(

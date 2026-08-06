@@ -1,4 +1,20 @@
 
+## D8a — PlaybackService 接管播放 Action（第一个 Application Service）（M1 第 3 人日，D8 增量1）
+
+**Context:** M1 UI 解耦第 3 步。D6/D7 把 UI 输入迁到总线；D8 起抽 Application Service（功能抽象层）——先做增量1：PlaybackService 接管播放类 Action（不碰复杂状态）。
+
+**Approach:**
+- `PlaybackService`（`playback_service.h/.cpp`）：持 `MPVController& player_`；`init()` 订阅 PlayPause/VolumeUp/VolumeDown → `on_play_pause/on_volume_up/down` → 调 player（已是 worker 异步）。
+- App：`PlaybackService playback_{player};`（成员，player 之前声明→构造序正确）；`run()` 调 `playback_.init()` 取代 App 内联的 3 个订阅。
+- pause/音量路径：UI→Keymap→Action→总线→**PlaybackService**→player。nav 仍在 App（非播放）。
+- 故意不在此增量迁复杂状态（current_playlist/auto-advance/play_current/on_playback_ended 与 tree_mutex/pool/subtitle 深耦合）——留 D8b，分步降风险。
+
+**Verification:** ctest 38/38；构建 0-warning；冒烟正常。
+
+**Followups:** D8b 迁播放状态+逻辑入 PlaybackService（注入依赖）；D9 事件层；D10 更多 Services。
+
+---
+
 ## D7 — Keymap + 迁移 pause/音量/导航到 Action（UI 解耦）（M1 第 2 人日）
 
 **Context:** M1 UI 解耦第 2 步。D6 证明单点（pause）走总线；D7 引入 Keymap（键→Action）+ 迁移更多输入。

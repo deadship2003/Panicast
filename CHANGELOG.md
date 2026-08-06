@@ -4,6 +4,20 @@
 
 ---
 
+## 新架构 D8a — 2026-08-05 — PlaybackService 接管播放 Action（第一个 Application Service）
+
+> M1（UI 解耦）第 3 步（D8 增量1）。功能抽象层起步：PlaybackService 处理播放类 Action。
+
+### 新增
+- **[App] `include/panicast/app/playback_service.h` + `src/app/playback_service.cpp`**：`PlaybackService`（持 `MPVController&`，`init()` 订阅 `PlayPause/VolumeUp/VolumeDownAction` → handler 调 player）。
+- App `PlaybackService playback_{player};` 成员；`run()` 调 `playback_.init()` 取代 App 内联的 pause/音量订阅。
+
+### 意义
+- pause/音量现经 **UI→Keymap→Action→总线→PlaybackService→player**——首个 **Application Service（功能抽象层）** 就位。复杂播放状态（current_playlist/auto-advance）迁入留待 D8b。
+
+### 验收
+- ctest 38/38、构建 0-warning、冒烟正常。
+
 ## 新架构 D7 — 2026-08-05 — Keymap + 迁移 pause/音量/导航到 Action（UI 解耦）
 
 > M1（UI 解耦）第 2 步。引入键→Action 映射，5 个常用交互经总线，UI 不再直调 Core。

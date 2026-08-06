@@ -5,6 +5,7 @@
 #pragma once
 
 #include "panicast/app/keymap.h"
+#include "panicast/app/playback_service.h"
 
 #include <string>
 #include <vector>
@@ -122,6 +123,7 @@ public:
 private:
     UI ui;
     MPVController player;
+    PlaybackService playback_{player}; // D8: first Application Service (owns playback Actions)
     // E refactor: the 8 per-mode "roots" are now the mode's TOP-LEVEL ITEM LISTS (std::vector),
     //   NOT TreeNode container nodes. The root NODE is eliminated; items live directly in the
     //   vector. (Name kept as xxx_root for historical reasons — it's the mode's root list.)

@@ -32,9 +32,13 @@
   - `include/panicast/app/actions.h`（`Action = std::variant<PlayPause/VolumeUp/Down/NavUp/Down>` + `publish_action`）+ `include/panicast/app/keymap.h`（`Keymap` 键→Action）；`build_keymap()` 绑默认键；`handle_input` 先查 Keymap（命中→`publish_action`→return）再 switch。
   - pause/音量±/导航 k-j 现经总线（UI 不再直调 player.toggle_pause/set_volume/nav_up/down）；handler 订阅。Keymap 集中化→可重绑（`[keys]` INI 覆盖为后续）。
   - **验收**：编译 0-warning、ctest 38/38、冒烟正常；5 个交互经总线工作。（page/seek/模式/复杂流程待续。）
-- [ ] **D8 — 抽 PlaybackService（第一个 Application Service）**
-  - 从 `App` 抽出播放逻辑/状态（`current_playlist`/`current_index`/`playback_node`/auto-advance）到 `PlaybackService`：处理播放 Action、调 player。App 委托之。（可多日）
-  - **验收**：播放/自动进阶经 PlaybackService 工作；App 不再直接持播放状态。
+- [x] **D8a — PlaybackService 接管播放 Action（第一个 Service，增量1）** ✅ 2026-08-05
+  - `include/panicast/app/playback_service.h` + `src/app/playback_service.cpp`：PlaybackService 持 player ref，`init()` 订阅 PlayPause/VolumeUp/VolumeDown → handler。App `playback_{player}` 成员 + `playback_.init()` 取代 App 内联订阅。
+  - pause/音量现经 UI→Keymap→Action→总线→**PlaybackService**→player（nav 仍在 App）。首个 Application Service 就位。
+  - **验收**：编译 0-warning、ctest 38/38、冒烟正常。
+- [ ] **D8b — 播放状态/逻辑迁入 PlaybackService（增量2，待续）**
+  - 把 `current_playlist`/`current_index`/`playback_node`/`shuffle_queue_`/`play_mode`/`playback_pending_` + `play_current`/`on_playback_ended` 迁入 PlaybackService（注入 tree_mutex/pool 等依赖）。
+  - **验收**：播放/自动进阶经 PlaybackService；App 不再直接持播放状态。
 - [ ] **D9 — 事件层（输出侧）：Service 发事件，UI 订阅**
   - 定义播放/库事件（`PlaybackStateChanged` / `MediaLoaded` / …）；PlaybackService 发；UI 订阅更新展示状态（逐步替代直接 `get_state` 轮询的对应部分）。
   - **验收**：UI 对应展示经事件更新；输出侧总线闭环。
