@@ -4,6 +4,8 @@
 //   declaration (members + method declarations + short one-liner inline helpers + static helpers).
 #pragma once
 
+#include "panicast/app/keymap.h"
+
 #include <string>
 #include <vector>
 #include <memory>
@@ -142,6 +144,10 @@ private:
     // D6: EventBus action-subscription tokens (UI→Core). Kept for the App's lifetime (the app
     //   exits via _exit, so no explicit unsubscribe needed).
     std::vector<size_t> action_subs_;
+    // D7: key → Action map. Bound keys go through the message bus (UI→Action→handler), not
+    //   direct Core calls. Built by build_keymap() (legacy defaults).
+    Keymap keymap_;
+    void build_keymap();
     std::vector<DisplayItem> display_list;
     int selected_idx = 0, view_start = 0;
     bool cur_sort_reversed =

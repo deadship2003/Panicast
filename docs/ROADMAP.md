@@ -28,9 +28,10 @@
 - [x] **D6 — Action 类型 + 暂停端到端走总线（输入侧种子）** ✅ 2026-08-05
   - `include/panicast/app/actions.h`（`PlayPauseAction` 等 Action 类型，复用 EventBus 承载）；UI 暂停键 → `publish(PlayPauseAction{})`（不再直调 `player.toggle_pause()`）；`App::run()` 订阅 → 调既有 `player.toggle_pause()`（已是 worker 异步）。
   - **验收**：编译 0-warning、ctest 38/38、冒烟正常；UI 暂停路径不再直调 player（经总线）。首个输入侧 UI 解耦闭环。
-- [ ] **D7 — 迁移主要输入到 Action + Keymap 可自定义**
-  - 把 `app_input.cpp` 主 switch 各 case 迁成发 Action；handler 订阅处理。加 `[keys]` 配置（键→Action 可自定义）。
-  - **验收**：迁移的交互（播放/seek/音量/导航/模式）经总线工作；热键可自定义。
+- [x] **D7 — Keymap + 迁移 pause/音量/导航到 Action** ✅ 2026-08-05
+  - `include/panicast/app/actions.h`（`Action = std::variant<PlayPause/VolumeUp/Down/NavUp/Down>` + `publish_action`）+ `include/panicast/app/keymap.h`（`Keymap` 键→Action）；`build_keymap()` 绑默认键；`handle_input` 先查 Keymap（命中→`publish_action`→return）再 switch。
+  - pause/音量±/导航 k-j 现经总线（UI 不再直调 player.toggle_pause/set_volume/nav_up/down）；handler 订阅。Keymap 集中化→可重绑（`[keys]` INI 覆盖为后续）。
+  - **验收**：编译 0-warning、ctest 38/38、冒烟正常；5 个交互经总线工作。（page/seek/模式/复杂流程待续。）
 - [ ] **D8 — 抽 PlaybackService（第一个 Application Service）**
   - 从 `App` 抽出播放逻辑/状态（`current_playlist`/`current_index`/`playback_node`/auto-advance）到 `PlaybackService`：处理播放 Action、调 player。App 委托之。（可多日）
   - **验收**：播放/自动进阶经 PlaybackService 工作；App 不再直接持播放状态。

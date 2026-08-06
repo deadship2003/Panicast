@@ -334,6 +334,17 @@ void App::open_command_window() {
     EVENT_LOG(fmt::format(": mode set → {}", name));
 }
 
+// D7: bind the legacy default keys to Actions (the Keymap is the single source of key bindings;
+//   a future [keys] INI override lands here). Bound keys skip the handle_input switch entirely.
+void App::build_keymap() {
+    keymap_.bind(' ', PlayPauseAction{});
+    keymap_.bind('p', PlayPauseAction{});
+    keymap_.bind('+', VolumeUpAction{});
+    keymap_.bind('-', VolumeDownAction{});
+    keymap_.bind('k', NavUpAction{});
+    keymap_.bind('j', NavDownAction{});
+}
+
 void App::handle_input(int ch, int marked_count) {
     // ch is already filtered by the main loop's wget_wch: only ASCII (<128) and special keys
     //   (KEY_CODE_YES) reach here; non-ASCII IME input is dropped before dispatch. Text-input
@@ -387,6 +398,13 @@ void App::handle_input(int ch, int marked_count) {
             visual_mode_ = false;
             EVENT_LOG("Visual cancelled");
         }
+        return;
+    }
+
+    // D7: Keymap — bound keys go through the message bus (UI→Action→handler), not direct calls.
+    //   Unbound keys fall through to the switch (complex flows not yet migrated).
+    if (const Action *_ka = keymap_.lookup(ch)) {
+        publish_action(*_ka);
         return;
     }
 
@@ -499,12 +517,7 @@ void App::handle_input(int ch, int marked_count) {
     case ':': // command window — set global play_mode (r/s/c or full word)
         open_command_window();
         break;
-    case 'k':
-        nav_up();
-        break;
-    case 'j':
-        nav_down();
-        break;
+    // 'k'/'j' (nav up/down) → Keymap → NavUp/NavDownAction (D7)
     case 'l':
     case '\n': { // Enter/l: play the selected episode (its peers become the list); expand folders
         // enter_node handles: marked→play first marked; folder/feed→expand;
@@ -535,16 +548,8 @@ void App::handle_input(int ch, int marked_count) {
     case 'h':
         go_back();
         break;
-    case ' ': // Space pause/resume
-    case 'p': // p key alias
-        EventBus::instance().publish(PlayPauseAction{}); // D6: via message bus, not direct call
-        break;
-    case '+': // volume up
-        player.set_volume(player.get_state().volume + VOLUME_STEP);
-        break;
-    case '-':
-        player.set_volume(player.get_state().volume - VOLUME_STEP);
-        break;
+    // Space/'p' (pause) → Keymap → PlayPauseAction (D6/D7)
+    // '+'/'-' (volume) → Keymap → VolumeUp/DownAction (D7)
     case ']':
         player.adjust_speed(true);
         break;

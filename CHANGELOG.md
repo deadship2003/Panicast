@@ -4,6 +4,23 @@
 
 ---
 
+## 新架构 D7 — 2026-08-05 — Keymap + 迁移 pause/音量/导航到 Action（UI 解耦）
+
+> M1（UI 解耦）第 2 步。引入键→Action 映射，5 个常用交互经总线，UI 不再直调 Core。
+
+### 新增
+- **[App] `include/panicast/app/actions.h`**（重写）：`Action = std::variant<PlayPause/VolumeUp/VolumeDown/NavUp/NavDown>` + `publish_action`（`std::visit`→`EventBus::publish`）。
+- **[App] `include/panicast/app/keymap.h`**：`Keymap`（键 int → Action），`bind/lookup/contains`。键绑定单一来源，可重绑。
+- **[App] `build_keymap()`**：绑默认键（space/p→PlayPause、+/-→VolumeUp/Down、k/j→NavUp/Down）。
+- **handle_input**：switch 前先查 Keymap（命中→`publish_action`→return）；移除 pause/音量/导航 旧 case。
+
+### 效果
+- pause / 音量± / 导航(k/j) 5 个交互现走 **键→Keymap→Action→总线→handler**；UI 不再直调 `player.toggle_pause/set_volume` / `nav_up/down`。键绑定集中在 Keymap（可重绑，`[keys]` INI 覆盖为后续）。
+
+### 验收
+- ctest 38/38、构建 0-warning、冒烟正常。
+- 注：page/seek/模式切换/复杂流程（搜索/账号/bilibili）仍走 switch，待续。
+
 ## 新架构 D6 — 2026-08-05 — Action 类型 + 暂停走消息总线（UI 解耦种子）
 
 > M1（UI 解耦）第一步。UI 输入首次经消息总线，不再直调 Core。

@@ -1,4 +1,21 @@
 
+## D7 — Keymap + 迁移 pause/音量/导航到 Action（UI 解耦）（M1 第 2 人日）
+
+**Context:** M1 UI 解耦第 2 步。D6 证明单点（pause）走总线；D7 引入 Keymap（键→Action）+ 迁移更多输入。
+
+**Approach:**
+- `actions.h` 重写为 `using Action = std::variant<PlayPause/VolumeUp/Down/NavUp/Down>` + `publish_action`（`std::visit` → `EventBus::publish` 活跃类型）。Action 是**数据**（可放 Keymap / 将来序列化进 `[keys]`），不是函数。
+- `keymap.h`：`Keymap`（`unordered_map<int,Action>`）—— 键绑定单一来源、可重绑。
+- `App::build_keymap()`：绑默认（space/p、+/-、k/j）。`handle_input` switch 前先 `keymap_.lookup` → 命中则 `publish_action`+return；移除 pause/音量/导航 旧 case。
+- `App::run()`：`build_keymap()` + 订阅 VolumeUp/Down/NavUp/Down → handler（`player.set_volume` / `nav_up/down`）。PlayPause 订阅 D6 已有。
+- 效果：5 个交互经 键→Keymap→Action→总线→handler；UI 不直调 Core。Keymap 集中化→`[keys]` INI 覆盖有单一落点（后续）。
+
+**Verification:** ctest 38/38；构建 0-warning；冒烟正常；5 交互经总线工作。
+
+**Followups:** page/seek/模式/复杂流程（搜索/账号/bilibili）迁 Action；`[keys]` INI 覆盖；D8 抽 PlaybackService 接管 handler。
+
+---
+
 ## D6 — Action 类型 + 暂停走消息总线（UI 解耦输入侧种子）（M1 第 1 人日）
 
 **Context:** M1（UI 解耦）启动。目标（`docs/DESIGN.md`）：UI 变纯交互层（只发 Action + 订阅事件），消息总线成 UI↔核心唯一通道。D6 是输入侧种子——证明 UI→Core 经总线。
