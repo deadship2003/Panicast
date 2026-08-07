@@ -37,10 +37,11 @@ App::App() {
 }
 
 // P1-8: explicit destructor — stop the mpv event thread and join the pool BEFORE any member
-//   is destroyed. current_playlist/playlist_mutex_ are declared after pool_/player, so they
-//   destruct first; without this, the mpv event thread could still fire on_playback_ended
-//   (touching current_playlist) during stack unwinding → use-after-free. Order: player.stop()
-//   joins the mpv event thread, then pool_.shutdown() joins workers.
+//   is destroyed. The playlist queue (current_playlist / playlist_mutex_) now lives in
+//   PlaybackService (D8b-1), declared right after player_; without this explicit stop the mpv
+//   event thread could still fire on_playback_ended (touching the queue) during stack unwinding
+//   → use-after-free. Order: player.stop() joins the mpv event thread, then pool_.shutdown()
+//   joins workers.
 App::~App() {
     running = false;
     // N01: stop the remote control server FIRST (joins accept + worker threads) and disable
@@ -80,8 +81,8 @@ void App::run() {
     playback_.init();
     // D7: Keymap (key→Action) + nav input Actions.
     build_keymap();
-    action_subs_.push_back(EventBus::instance().subscribe<NavUpAction>(
-        [this](const NavUpAction &) { nav_up(); }));
+    action_subs_.push_back(
+        EventBus::instance().subscribe<NavUpAction>([this](const NavUpAction &) { nav_up(); }));
     action_subs_.push_back(EventBus::instance().subscribe<NavDownAction>(
         [this](const NavDownAction &) { nav_down(); }));
 
@@ -272,7 +273,8 @@ void App::run() {
             const auto _tw0 = std::chrono::steady_clock::now();
             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
             const long _tree_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - _tw0).count();
+                                           std::chrono::steady_clock::now() - _tw0)
+                                           .count();
             if (_tree_wait_ms > 80)
                 LOG(fmt::format("[WATCHDOG] waited {}ms for tree_mutex", _tree_wait_ms));
             display_list.clear();
@@ -357,21 +359,23 @@ void App::run() {
         // Snapshot the playing pointer + the INFO play-context (history 3 + next 3)
         //   under the lock. P1.2 (Y23.5): hold the lock during draw ONLY (not during input —
         //   handle_input → play_current → locks playlist_mutex_ → would deadlock if held).
-        int current_index_snap = current_index;
+        int current_index_snap = playback_.current_index();
         std::vector<int> next_snap;
         std::string cur_url_snap;
         {
             const auto _pw0 = std::chrono::steady_clock::now();
-            std::lock_guard<std::mutex> pl_draw_lock(playlist_mutex_); // released before input
+            std::lock_guard<std::mutex> pl_draw_lock(
+                playback_.playlist_mutex()); // released before input
             const long _pl_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - _pw0).count();
+                                         std::chrono::steady_clock::now() - _pw0)
+                                         .count();
             if (_pl_wait_ms > 80)
                 LOG(fmt::format("[WATCHDOG] waited {}ms for playlist_mutex_", _pl_wait_ms));
             {
-                current_index_snap = current_index;
-                int n = static_cast<int>(current_playlist.size());
+                current_index_snap = playback_.current_index();
+                int n = static_cast<int>(playback_.playlist().size());
                 if (current_index_snap >= 0 && current_index_snap < n) {
-                    cur_url_snap = current_playlist[current_index_snap].url;
+                    cur_url_snap = playback_.playlist()[current_index_snap].url;
                     if (play_mode == PlayMode::REPEAT) {
                         for (int k = 0; k < 3; ++k)
                             next_snap.push_back(current_index_snap);
@@ -380,7 +384,7 @@ void App::run() {
                             next_snap.push_back((current_index_snap + k) % n);
                     } else { // SHUFFLE — pre-generated lookahead
                         int cnt = 0;
-                        for (int idx : shuffle_queue_) {
+                        for (int idx : playback_.shuffle_queue()) {
                             next_snap.push_back(idx);
                             if (++cnt == 3)
                                 break;
@@ -416,8 +420,8 @@ void App::run() {
             // Y24.7: L-mode poll already ran above (handoff + activation); no separate call needed.
             ui.draw(mode, display_list, selected_idx, state, view_start, app_state, playback_node,
                     marked, search_query, current_match_idx, total_matches, sel_node, downloads,
-                    visual_mode_, visual_start_, current_playlist, current_index_snap, play_mode,
-                    hist_titles, next_snap);
+                    visual_mode_, visual_start_, playback_.playlist(), current_index_snap,
+                    play_mode, hist_titles, next_snap);
         } // release pl_draw_lock before input processing (avoids deadlock with play_current)
 
         // Wide-char input: wget_wch cleanly distinguishes special keys (KEY_CODE_YES) from
@@ -434,7 +438,8 @@ void App::run() {
         }
         // wrc == ERR (no input) or non-ASCII char → drop silently
         const long _frame_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - frame_start_).count();
+                                   std::chrono::steady_clock::now() - frame_start_)
+                                   .count();
         if (_frame_ms > 150)
             LOG(fmt::format("[WATCHDOG] slow frame: {}ms (tree/pl wait logged above if >80ms)",
                             _frame_ms));

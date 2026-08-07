@@ -178,29 +178,16 @@ private:
     //   occupied (active + within their completion display window), further items wait here and
     //   are promoted as slots free. Keeps the download list capped and the INFO panel uncluttered.
     std::deque<TreeNodePtr> pending_downloads_;
-    // Dedicated playlist lock, protecting on_playback_ended callback thread access
-    std::mutex playlist_mutex_;
     std::string search_query;
     std::vector<TreeNodePtr> search_matches;
     int current_match_idx = -1, total_matches = 0;
     bool visual_mode_ = false;
     int visual_start_ = -1;
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // Implicit "playlist" = the peers (siblings) of the currently playing episode.
-    // No persisted list, no L popup. When Enter/l plays an episode, its parent's
-    //   playable children are snapshotted into current_playlist; current_index points
-    //   to the played item; on END_FILE the pointer advances per play_mode.
-    //   SHUFFLE uses shuffle_queue_ (a pre-generated lookahead) so the INFO area can
-    //   show the real upcoming tracks.
-    // current_playlist is shared with on_playback_ended (mpv thread) → playlist_mutex_.
-    // ═════════════════════════════════════════════════════════════════════════
-    std::vector<PlaylistItem> current_playlist;
-    int current_index = -1; // playing pointer (index into current_playlist)
-    // SHUFFLE lookahead: upcoming random indices (pre-generated so INFO can preview them).
-    // on END_FILE the front is consumed and a new random index is pushed to keep 3 ahead.
-    std::deque<int> shuffle_queue_;
-
+    // D8b-1: the implicit-playlist QUEUE STATE (current_playlist / current_index /
+    //   shuffle_queue_ / playlist_mutex_) moved into PlaybackService. App still holds the
+    //   global play_mode (a setting written from several input sites) and the playback
+    //   RUNTIME handles (playback_node / playback_pending_ / playback_mode_).
     PlayMode play_mode = PlayMode::CYCLE; // global play mode (persisted in INI [playback] mode)
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -212,13 +199,10 @@ private:
     void on_playback_ended(int reason);
     std::vector<std::string> resolve_youtube_url(const std::string &url, bool has_video)
         const; // F23: standalone YouTube -g resolve (pool-safe). Y09 1A: returns 1-2 stream URLs (DASH=2).
-    int random_peer_index(int avoid) const;
-    void refill_shuffle_queue();
+    // D8b-1: random_peer_index / refill_shuffle_queue / clear_playlist moved to
+    //   PlaybackService. play_current / on_playback_ended / build_peer_list remain here
+    //   (they touch playback RUNTIME handles still in App); they reach the queue via playback_.
     void play_current(int idx);
-    // N04-fix: clear the implicit peer playlist while keeping the current track playing.
-    //   on_playback_ended() treats an empty playlist as "nothing to advance", so auto-advance
-    //   simply stops; mpv is untouched and the current track keeps playing.
-    void clear_playlist();
     int build_peer_list(TreeNodePtr node);
     // Y24.27: build episode child nodes from DB cache — extracted from 7 duplicated sites.
     // Y24.27: unified mode switch (was duplicated 4x — R/P/F/H/O/Y inline + M cycle + B + T).

@@ -36,9 +36,13 @@
   - `include/panicast/app/playback_service.h` + `src/app/playback_service.cpp`：PlaybackService 持 player ref，`init()` 订阅 PlayPause/VolumeUp/VolumeDown → handler。App `playback_{player}` 成员 + `playback_.init()` 取代 App 内联订阅。
   - pause/音量现经 UI→Keymap→Action→总线→**PlaybackService**→player（nav 仍在 App）。首个 Application Service 就位。
   - **验收**：编译 0-warning、ctest 38/38、冒烟正常。
-- [ ] **D8b — 播放状态/逻辑迁入 PlaybackService（增量2，待续）**
-  - 把 `current_playlist`/`current_index`/`playback_node`/`shuffle_queue_`/`play_mode`/`playback_pending_` + `play_current`/`on_playback_ended` 迁入 PlaybackService（注入 tree_mutex/pool 等依赖）。
-  - **验收**：播放/自动进阶经 PlaybackService；App 不再直接持播放状态。
+- [x] **D8b-1 — 播放队列状态迁入 PlaybackService（D8 增量2a）** ✅ 2026-08-07
+  - `current_playlist`/`current_index`/`shuffle_queue_`/`playlist_mutex_` + `clear_playlist`/`refill_shuffle_queue`/`random_peer_index` 迁入 PlaybackService（私有状态 + 公开访问 API `playlist_mutex()/playlist()/current_index()/set_current_index()/shuffle_queue()`）；锁语义零变化。
+  - `play_mode`/`playback_node`/`playback_pending_(_start_)`/`playback_mode_` 故意留 App（运行时手柄，D9 事件层替代直接读时再迁）；`play_current`/`on_playback_ended`/`build_peer_list` 仍是 App 方法经 `playback_.` 访问队列。
+  - **验收**：ctest 38/38、构建 0-warning、冒烟正常；PlaybackService 为播放队列唯一所有者（D4 不变量保持：on_playback_ended 仍只在 UI 线程）。
+- [ ] **D8b-2 — play_current/on_playback_ended 迁入 PlaybackService（D8 增量2b，待续）**
+  - 把 `play_current`/`on_playback_ended`/`build_peer_list` 迁入 PlaybackService（注入 pool/subtitle/transcription 依赖 + mode/history 回调缝）；同时迁 `playback_node`/`playback_pending_(_start_)`/`playback_mode_`（与 play_current 同写、须一起迁避免 App 反向依赖）。
+  - **验收**：播放/自动进阶逻辑经 PlaybackService；App 仅持 `play_mode`（设置）。
 - [ ] **D9 — 事件层（输出侧）：Service 发事件，UI 订阅**
   - 定义播放/库事件（`PlaybackStateChanged` / `MediaLoaded` / …）；PlaybackService 发；UI 订阅更新展示状态（逐步替代直接 `get_state` 轮询的对应部分）。
   - **验收**：UI 对应展示经事件更新；输出侧总线闭环。

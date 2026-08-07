@@ -1,4 +1,19 @@
 
+## D8b-1 — 播放队列状态迁入 PlaybackService（M1 第 4 人日，D8 增量2a）
+
+**Context:** D8a 起了功能抽象层（PlaybackService 接管 Action）。D8b 要把播放状态/逻辑也迁入，但摸底发现耦合面很大：`play_current`/`on_playback_ended` 除队列状态外还触 mode/playback_mode_/playback_pending_(_start_)/transcription_engine_/subtitle_mgr_/pool_/record_play_history→load_history_to_root/collect_playable_items；`playback_node` 被 app_input 21× 读取（ASR/字幕）+ UI 读；`playback_pending_` 驱动 app_run 每帧状态机。一次性全迁 ≈100+ 引用、跨 11 文件（含 UI 与 remote_protocol），且 on_playback_ended 的 playlist_mutex_ 跨线程路径正是 D4 修的"暂停后 TUI 冻结"现场——盲迁有回退风险。
+
+**Approach（分两刀，先迁所有权、再迁逻辑）:**
+- **D8b-1（本刀）：只迁队列状态的所有权 + 纯队列逻辑。** `current_playlist`/`current_index`/`shuffle_queue_`/`playlist_mutex_` → PlaybackService 私有；`clear_playlist`/`refill_shuffle_queue`/`random_peer_index`（三者只依赖队列状态、无跨切依赖）→ PlaybackService。公开访问 API（`playlist_mutex()/playlist()/current_index()/set_current_index()/shuffle_queue()`）让仍留在 App 的 `play_current`/`on_playback_ended`/`build_peer_list` + app_run 绘制 + app_remote 快照经 `playback_` 访问。**锁语义零变化**（同一 mutex、同样 guard 点、同样"调用方持锁"契约——refill_shuffle_queue 不自锁）。
+- **故意不迁** `play_mode`（全局设置，app_input/app_remote/app_run 多点写）、`playback_node`/`playback_pending_(_start_)`/`playback_mode_`（运行时手柄，读取点多且 app_run 状态机敏感）——这些在 D9（事件层替代直接读）时迁更自然；现在迁只是把 ~50 个读取点改名、不增价值。`play_current`/`on_playback_ended`/`build_peer_list` 留 D8b-2（需注入 pool/subtitle/transcription + mode/history 回调缝）。
+- **D4 不变量保持**：on_playback_ended 仍是 App 方法，调用点 app_run 的 `pending_end_reason_` drain（UI 线程）未动→它绝不跑在 mpv 事件线程。
+
+**Verification:** ctest 38/38；构建 0-warning；冒烟（pty 下 TUI 全渲染、无崩溃签名）。
+
+**Followups:** D8b-2 迁 play_current/on_playback_ended（注入依赖/回调）；D9 事件层（PlaybackStateChanged 等）取代 app_run/app_input 对 playback_node/pending 的直接读，届时把这些运行时手柄也迁入。
+
+---
+
 ## D8a — PlaybackService 接管播放 Action（第一个 Application Service）（M1 第 3 人日，D8 增量1）
 
 **Context:** M1 UI 解耦第 3 步。D6/D7 把 UI 输入迁到总线；D8 起抽 Application Service（功能抽象层）——先做增量1：PlaybackService 接管播放类 Action（不碰复杂状态）。

@@ -47,25 +47,14 @@ bool App::is_playable_node(TreeNodePtr node) {
     return node->type == NodeType::RADIO_STREAM || node->type == NodeType::PODCAST_EPISODE;
 }
 
-// N04-fix: clear the implicit peer playlist while keeping the current track playing.
-//   The mpv handle is untouched (the current track keeps playing); on_playback_ended()
-//   sees an empty current_playlist and returns without advancing, so auto-advance stops.
-void App::clear_playlist() {
-    std::lock_guard<std::mutex> pl_lock(playlist_mutex_);
-    current_playlist.clear();
-    shuffle_queue_.clear();
-    current_index = -1;
-    EVENT_LOG("Playlist cleared (keep playing)");
-}
-
 // Playback-ended callback (fires on the MPV event thread).
 // Pointer-driven model: a single track is loaded into mpv at a time; when it ends
 //   normally (reason=0), the app advances current_index per play_mode and plays the
 //   next track. REPEAT relies on mpv loop_file (no app action).
-//   SHUFFLE consumes the pre-generated shuffle_queue_ front and refills it.
+//   SHUFFLE consumes the pre-generated playback_.shuffle_queue() front and refills it.
 void App::on_playback_ended(int reason) {
     transcription_engine_.stop_realtime(); // Y24.20: stop realtime transcription on track end
-    std::lock_guard<std::mutex> pl_lock(playlist_mutex_);
+    std::lock_guard<std::mutex> pl_lock(playback_.playlist_mutex());
     if (reason != 0) {
         playback_pending_ = false; // Y23.9: error/stop → clear pending (back to BROWSING)
         // Y24.8: human-readable reason (was raw "reason=X, ignored"). reason 0=EOF (advances),
@@ -75,7 +64,7 @@ void App::on_playback_ended(int reason) {
         return;
     }
 
-    int size = static_cast<int>(current_playlist.size());
+    int size = static_cast<int>(playback_.playlist().size());
     if (size == 0) {
         LOG("[AUTOPLAY] Peer list empty, nothing to advance");
         return;
@@ -88,32 +77,32 @@ void App::on_playback_ended(int reason) {
     }
 
     // Compute the next pointer
-    int next = current_index;
+    int next = playback_.current_index();
     if (play_mode == PlayMode::CYCLE) {
-        next = (current_index < 0) ? 0 : (current_index + 1) % size;
+        next = (playback_.current_index() < 0) ? 0 : (playback_.current_index() + 1) % size;
     } else { // PlayMode::SHUFFLE — consume the lookahead queue
-        if (shuffle_queue_.empty())
-            refill_shuffle_queue();
-        if (!shuffle_queue_.empty()) {
-            next = shuffle_queue_.front();
-            shuffle_queue_.pop_front();
+        if (playback_.shuffle_queue().empty())
+            playback_.refill_shuffle_queue();
+        if (!playback_.shuffle_queue().empty()) {
+            next = playback_.shuffle_queue().front();
+            playback_.shuffle_queue().pop_front();
         }
         // ensure valid + not stuck on the same item when there's a choice
-        if (size > 1 && next == current_index) {
+        if (size > 1 && next == playback_.current_index()) {
             next = (next + 1) % size;
         }
         // keep 3 ahead
-        refill_shuffle_queue();
+        playback_.refill_shuffle_queue();
     }
 
-    current_index = next;
+    playback_.set_current_index(next);
 
     // Y11 bugfix: update playback_node to the NEXT track's source node, else the INFO area
     //   keeps showing the PREVIOUS track's title/info after auto-advance (on_playback_ended
     //   plays inline without play_current, which is the only place playback_node was set).
     //   Set on this (event) thread the same way current_index is; the TreeNode is retained by
     //   the tree, so the shared_ptr reassignment is safe in practice (matches existing pattern).
-    playback_node = current_playlist[next].node;
+    playback_node = playback_.playlist()[next].node;
     playback_mode_ = mode; // Y24.54: save mode for N = jump-to-playing
     // Y24.55: keep IPTV context flag in sync on auto-advance (same reasoning as play_current).
     player.set_iptv_context(mode == AppMode::IPTV);
@@ -123,8 +112,8 @@ void App::on_playback_ended(int reason) {
 
     // Play the next track inline (must NOT call play_current — it also locks
     //   playlist_mutex_ (non-recursive) and would deadlock).
-    std::string orig_url = current_playlist[next].url;
-    bool has_video = current_playlist[next].is_video;
+    std::string orig_url = playback_.playlist()[next].url;
+    bool has_video = playback_.playlist()[next].is_video;
 
     // F23: async YouTube resolve — don't block the mpv event thread
     std::string local = CacheManager::instance().get_local_file(orig_url);
@@ -138,9 +127,9 @@ void App::on_playback_ended(int reason) {
     } else {
         URLType ut = URLClassifier::classify(orig_url);
         // P1-4: snapshot title/duration here (under playlist_mutex_) — the pool lambda must
-        //   not read current_playlist[next] later, by which time the UI thread may have reset it.
-        std::string title = current_playlist[next].title;
-        int duration = current_playlist[next].duration;
+        //   not read playback_.playlist()[next] later, by which time the UI thread may have reset it.
+        std::string title = playback_.playlist()[next].title;
+        int duration = playback_.playlist()[next].duration;
         if (URLClassifier::is_youtube(ut)) {
             EVENT_LOG("Resolving YouTube stream via yt-dlp -g (async)...");
             pool_.submit([this, orig_url, has_video, next, title, duration]() {
@@ -178,11 +167,12 @@ void App::on_playback_ended(int reason) {
         }
     }
 
-    record_play_history(orig_url, current_playlist[next].title, current_playlist[next].duration);
+    record_play_history(orig_url, playback_.playlist()[next].title,
+                        playback_.playlist()[next].duration);
 
     EVENT_LOG(fmt::format("[AUTOPLAY] {} -> idx {} '{}'",
                           play_mode == PlayMode::SHUFFLE ? "SHUFFLE" : "CYCLE", next,
-                          current_playlist[next].title));
+                          playback_.playlist()[next].title));
 }
 
 // F23: Extract YouTube URL resolution into a standalone method (callable from pool threads).
@@ -306,34 +296,6 @@ std::vector<std::string> App::resolve_youtube_url(const std::string &url, bool h
     return {}; // empty → caller skips playback (single resolve path, no fallback)
 }
 
-// Pick one random index in [0, size) avoiding `avoid` when possible.
-int App::random_peer_index(int avoid) const {
-    int size = static_cast<int>(current_playlist.size());
-    if (size <= 0)
-        return -1;
-    if (size == 1)
-        return 0;
-    static thread_local std::mt19937 gen(std::random_device{}());
-
-    std::uniform_int_distribution<int> dist(0, size - 1);
-    int idx = dist(gen);
-    if (idx == avoid)
-        idx = (idx + 1) % size;
-    return idx;
-}
-
-// Keep shuffle_queue_ at 3 entries (pre-generated upcoming random indices).
-// Called under playlist_mutex_.
-void App::refill_shuffle_queue() {
-    while (shuffle_queue_.size() < 3) {
-        int last = shuffle_queue_.empty() ? current_index : shuffle_queue_.back();
-        int idx = random_peer_index(last);
-        if (idx < 0)
-            break;
-        shuffle_queue_.push_back(idx);
-    }
-}
-
 // Play a single item by index (pointer-driven model).
 // F23: YouTube URLs resolved async in pool_ (non-blocking); local/non-YouTube play immediately.
 void App::play_current(int idx) {
@@ -345,18 +307,18 @@ void App::play_current(int idx) {
     int duration = 0;
     TreeNodePtr pn; // F35: source node of the playing item (for INFO title)
     {
-        std::lock_guard<std::mutex> pl_lock(playlist_mutex_);
-        if (idx < 0 || idx >= static_cast<int>(current_playlist.size()))
+        std::lock_guard<std::mutex> pl_lock(playback_.playlist_mutex());
+        if (idx < 0 || idx >= static_cast<int>(playback_.playlist().size()))
             return;
-        current_index = idx;
-        orig_url = current_playlist[idx].url;
-        has_video = current_playlist[idx].is_video;
-        title = current_playlist[idx].title;
-        duration = current_playlist[idx].duration;
-        pn = current_playlist[idx].node;
+        playback_.set_current_index(idx);
+        orig_url = playback_.playlist()[idx].url;
+        has_video = playback_.playlist()[idx].is_video;
+        title = playback_.playlist()[idx].title;
+        duration = playback_.playlist()[idx].duration;
+        pn = playback_.playlist()[idx].node;
         if (play_mode == PlayMode::SHUFFLE) {
-            shuffle_queue_.clear();
-            refill_shuffle_queue();
+            playback_.shuffle_queue().clear();
+            playback_.refill_shuffle_queue();
         }
     }
     // F35: track the playing node on the main thread (for all 3 play paths, incl. YouTube
@@ -492,7 +454,7 @@ void App::play_current(int idx) {
 // Peer-list construction (the implicit playlist = siblings of the played episode)
 // ═════════════════════════════════════════════════════════════════════════
 
-// Build current_playlist from the playable siblings (peers) of `node` under its
+// Build playback_.playlist() from the playable siblings (peers) of `node` under its
 //   parent, honoring the parent's sort_reversed order. current_index is set to the
 //   position of `node` itself (so playback starts there). If `node` has no parent /
 //   no siblings, the list contains just `node`.
@@ -576,18 +538,18 @@ int App::build_peer_list(TreeNodePtr node) {
         }
     }
 
-    std::lock_guard<std::mutex> pl_lock(playlist_mutex_);
-    current_playlist = std::move(peers);
-    current_index = target_idx;
-    shuffle_queue_.clear();
+    std::lock_guard<std::mutex> pl_lock(playback_.playlist_mutex());
+    playback_.playlist() = std::move(peers);
+    playback_.set_current_index(target_idx);
+    playback_.shuffle_queue().clear();
     if (play_mode == PlayMode::SHUFFLE)
-        refill_shuffle_queue();
-    LOG(fmt::format("[PEERS] Built {} peers, current at idx {}", current_playlist.size(),
-                    current_index));
-    return current_index;
+        playback_.refill_shuffle_queue();
+    LOG(fmt::format("[PEERS] Built {} peers, current at idx {}", playback_.playlist().size(),
+                    playback_.current_index()));
+    return playback_.current_index();
 }
 
-// Play an episode node: snapshot its peers into current_playlist and play it.
+// Play an episode node: snapshot its peers into playback_.playlist() and play it.
 // Used by Enter/l in the main view.
 void App::play_episode(TreeNodePtr node) {
     if (!is_playable_node(node))

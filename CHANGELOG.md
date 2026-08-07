@@ -4,6 +4,29 @@
 
 ---
 
+## 新架构 D8b-1 — 2026-08-07 — PlaybackService 接管播放队列状态（UI 解耦 · D8 增量2a）
+
+> M1（UI 解耦）第 4 步（D8 增量2 的第一刀）。把播放"队列状态"的所有权迁入 PlaybackService；复杂播放逻辑（play_current/on_playback_ended）留 D8b-2。
+
+### 迁入 PlaybackService（队列状态 + 纯队列逻辑）
+- **状态**：`current_playlist` / `current_index` / `shuffle_queue_` / `playlist_mutex_`（4 个成员，原 App 私有）→ PlaybackService 私有。
+- **方法**：`clear_playlist` / `refill_shuffle_queue` / `random_peer_index`（3 个，纯队列逻辑、无跨切依赖）→ PlaybackService。
+- **公开访问 API**：`playlist_mutex()` / `playlist()` / `current_index()` / `set_current_index()` / `shuffle_queue()` / `clear_playlist()` / `refill_shuffle_queue()`——调用方先锁 `playlist_mutex()` 再访问，**锁语义与重构前完全一致**（同一把 mutex、同样的 guard 点；`refill_shuffle_queue` 仍不自锁、由调用方持锁）。
+
+### 仍在 App（故意外延到 D9 事件层再迁）
+- `play_mode`（全局设置，多输入点写）、`playback_node`（app_input 21× ASR 读取 + UI 读）、`playback_pending_(_start_)`（app_run 每帧状态机）、`playback_mode_`——运行时手柄。`play_current`/`on_playback_ended`/`build_peer_list` 仍是 App 方法，经 `playback_.` 访问队列。
+- **D4 不变量保持**：`on_playback_ended` 仍是 App 方法，调用点（app_run 的 `pending_end_reason_` drain，UI 线程）未动→它绝不跑在 mpv 事件线程，"暂停后 TUI 冻结"修复不回退。
+
+### 调用点
+- `clear_playlist()` 两处外部调用（app_input 'C' 键、app_remote "clear_playlist" 命令）→ `playback_.clear_playlist()`。
+- app_run 绘制快照、app_remote 状态快照/next-prev、app_playback 三函数：队列访问全改 `playback_.`。
+
+### 验收
+- ctest 38/38、构建 0-warning、冒烟正常（pty 下 TUI 全渲染、无崩溃）。
+
+### 意义
+- PlaybackService 现为播放队列的**唯一所有者**（App 不再直接持队列状态）——D9 事件层的前置（服务拥状态才能发事件）。
+
 ## 新架构 D8a — 2026-08-05 — PlaybackService 接管播放 Action（第一个 Application Service）
 
 > M1（UI 解耦）第 3 步（D8 增量1）。功能抽象层起步：PlaybackService 处理播放类 Action。

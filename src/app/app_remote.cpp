@@ -148,12 +148,12 @@ void App::update_remote_state_cache() {
     s.mode = mode_str(mode);
     s.play_mode = play_mode_str(play_mode);
     s.selected_idx = selected_idx;
-    s.current_index = current_index;
+    s.current_index = playback_.current_index();
 
     {
-        std::lock_guard<std::mutex> lk(playlist_mutex_);
-        s.playlist.reserve(current_playlist.size());
-        for (const auto &it : current_playlist) {
+        std::lock_guard<std::mutex> lk(playback_.playlist_mutex());
+        s.playlist.reserve(playback_.playlist().size());
+        for (const auto &it : playback_.playlist()) {
             s.playlist.push_back({it.title, it.duration, it.is_video});
         }
     }
@@ -229,9 +229,10 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
         return;
     } // play selected (Enter)
     if (a == "next" || a == "previous") {
-        int size = static_cast<int>(current_playlist.size());
-        if (current_index >= 0 && size > 0) {
-            int idx = a == "next" ? (current_index + 1) % size : (current_index - 1 + size) % size;
+        int size = static_cast<int>(playback_.playlist().size());
+        if (playback_.current_index() >= 0 && size > 0) {
+            int idx = a == "next" ? (playback_.current_index() + 1) % size
+                                  : (playback_.current_index() - 1 + size) % size;
             play_current(idx);
             EVENT_LOG(fmt::format("Remote: {}", a));
         } else {
@@ -495,7 +496,7 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
     }
     // ── Playlist ──
     if (a == "queue_clear" || a == "clear_playlist") {
-        clear_playlist();
+        playback_.clear_playlist();
         return;
     }
     // ── Subtitle / ASR ──

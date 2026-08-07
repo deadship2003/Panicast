@@ -704,7 +704,7 @@ void App::handle_input(int ch, int marked_count) {
         clear_all_marks();
         break; // uppercase V cancels all selections
     case 'C':
-        clear_playlist();
+        playback_.clear_playlist();
         break; // N04-fix: clear peer playlist, keep playing
     case 'T': { // Y24.11: T mode (TikTok/Douyin) — was tree-lines toggle (now default ON, no keybind)
         switch_mode(AppMode::TIKTOK);
