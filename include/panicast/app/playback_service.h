@@ -7,10 +7,15 @@
 //     resolve_youtube_url. pool_ / subtitle / transcription deps are injected late via attach()
 //     (declared AFTER playback_ in App, so they can't be construction-time references).
 // The mpv command worker (in MPVController) executes player calls off the UI thread.
-// State changes are announced on the EventBus (D9): PlaybackTrackChanged / PlaybackBufferingChanged
-//   / HistoryChanged (playback_events.h). App subscribes and updates its runtime handles
-//   (playback_node / playback_pending_ / playback_mode_); the UI / remote will subscribe directly
-//   in later increments. play_mode is a setting kept in App, passed into each call.
+// State ownership (D9-2): the "what's playing" runtime handles — playback_node_ / playback_mode_ —
+//   live HERE as private state, queried via the playback_node() / playback_mode() accessors; App
+//   reads them through these instead of mirroring its own copy. playback_pending_(_start_) (the
+//   BUFFERING handle, also written by app_run's per-frame state machine) still lives in App — D9-3.
+//   State CHANGES are announced on the EventBus (D9): PlaybackTrackChanged / PlaybackBufferingChanged
+//   / HistoryChanged (playback_events.h). The track/buffering events are the reactor channel for
+//   future direct UI/remote subscribers (D10+); App no longer mirrors them (it polls the accessor
+//   from its frame loop). HistoryChanged is consumed by App to rebuild the history tree. play_mode
+//   is a setting kept in App, passed into each call.
 //   (D8/D9 — UI-decoupling M1.)
 #pragma once
 
@@ -72,6 +77,17 @@ public:
     // NOT self-locking — caller must hold playlist_mutex_ (matches original contract).
     void refill_shuffle_queue();
 
+    // ── Track state (D9-2, moved out of App) ─────────────────────────────────
+    // The "what's playing" runtime handles, now service-owned (single writer = this service, in
+    //   play_current / on_playback_ended). Read-only accessors for the UI draw loop, 'N' jump-back,
+    //   remote state cache and ASR. playback_node() may return nullptr (nothing playing yet).
+    TreeNodePtr playback_node() const {
+        return playback_node_;
+    }
+    AppMode playback_mode() const {
+        return playback_mode_;
+    }
+
     // ── Playback / autoplay logic (D8b-2, moved from app_playback.cpp) ────────
     // Inject the services declared after playback_ in App (they can't be construction-time refs).
     //   State changes are announced on the EventBus (D9 — see playback_events.h), NOT via callbacks:
@@ -100,6 +116,10 @@ private:
     std::vector<PlaylistItem> current_playlist_;
     int current_index_ = -1;        // playing pointer (index into current_playlist_)
     std::deque<int> shuffle_queue_; // SHUFFLE lookahead (pre-generated upcoming indices)
+
+    // ── Track state (D9-2, moved out of App) ─────────────────────────────────
+    TreeNodePtr playback_node_;              // source node of the playing item (INFO title, ASR)
+    AppMode playback_mode_ = AppMode::RADIO; // mode when playback started (for N = jump-to-playing)
 
     // Pick one random index in [0, size) avoiding `avoid` when possible.
     int random_peer_index(int avoid) const;

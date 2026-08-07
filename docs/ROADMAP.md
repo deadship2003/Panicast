@@ -51,9 +51,13 @@
   - PlaybackService 在 `play_current`/`on_playback_ended`/`record_play_history` 处 `EventBus::publish` 这些事件（替代 D8b-2 的 4 个 `attach()` 回调）；`attach()` 瘦身为只注入 pool_/subtitle/transcription 三指针。
   - App 在 `run()` 订阅三事件 → 更新 `playback_node`/`playback_mode_`、`playback_pending_(_start_)`、`load_history_to_root`（订阅 token 入 `action_subs_`）。总线**同步派发** → 线程/顺序与回调完全等价（行为零变化）。
   - **验收**：ctest 39/39（+`PlaybackEvents.DeliveredOnBus` 用例）、构建 0-warning、pty 冒烟 exit 0；输出侧 service→App 事件通道建立，D8b-2 回调缝删除。
-- [ ] **D9-2 — 事件驱动 UI 展示 + 运行时手柄私有化（D9 增量2，待续）**
-  - D9-1 的事件让 UI 可经事件/快照读状态 → 把 `playback_node`/`playback_pending_(_start_)`/`playback_mode_` 迁入 PlaybackService 私有化；UI/remote 订阅 `PlaybackTrackChanged` 等更新展示，逐步替代 app_run 每帧 `player.get_state()` 轮询的对应部分。
-  - **验收**：UI 对应展示经事件更新；输出侧总线闭环（service→UI）。
+- [x] **D9-2 — "在播"手柄私有化（D9 增量2a）** ✅ 2026-08-07
+  - `playback_node`/`playback_mode_` 迁入 PlaybackService 作私有状态（`playback_node_`/`playback_mode_`），在 `play_current`/`on_playback_ended` 直接写入；新增只读访问器 `playback_node()`/`playback_mode()`。App 删除这两个镜像成员 + `PlaybackTrackChanged` 订阅，改经访问器读（draw / `'N'` jump / remote / ASR 各读取点）。`PlaybackTrackChanged` 保留 publish（未来 remote/UI 直订的 reactor 通道，单测覆盖）。
+  - `playback_pending_(_start_)`（BUFFERING 手柄，还被 app_run 每帧状态机直写 + 30s 超时）暂留 App → **D9-3**（同 D8b-1/D8b-2 的"干净一刀 + 敏感一刀分拆"原则）。
+  - **验收**：ctest 39/39、构建 0-warning、pty 冒烟 exit 0；PlaybackService 为"在播曲目"状态唯一所有者，App 经访问器读、不再镜像。
+- [ ] **D9-3 — BUFFERING 手柄私有化 + 状态机收尾（D9 增量2b，待续）**
+  - 把 `playback_pending_(_start_)` 迁入 PlaybackService（私有 + `playback_pending()`/`playback_pending_since()`/`clear_playback_pending()` 接口），app_run 每帧状态机的 pending 读/写改走 service；评估把 30s 超时逻辑也收进 service。删除 App 的 `PlaybackBufferingChanged` 订阅 + pending 成员。
+  - **验收**：ctest 绿、构建 0-warning、冒烟正常；PlaybackService 持全部播放运行时状态，App 不再直接写任何播放手柄。
 - [ ] **D10 — 抽更多 Services + UI 订阅其事件**
   - `LibraryService` / `SearchService` / `SubtitleService` / `AccountService` … 从 App 抽出（持状态、处理 Action、发事件）；UI 订阅对应事件。（每 Service 一进步、可多日）
   - **验收**：对应功能经 Service+事件工作。

@@ -4,6 +4,33 @@
 
 ---
 
+## 新架构 D9-2 — 2026-08-07 — "在播"手柄迁入 PlaybackService 私有化（UI 解耦 · D9 增量2a）
+
+> M1（UI 解耦）第 7 步。把"在播曲目"运行时手柄 `playback_node`/`playback_mode_` 的所有权从 App 迁入 PlaybackService（私有 + 只读访问器）；App 删除镜像成员与 `PlaybackTrackChanged` 订阅，改经访问器读。行为零变化。BUFFERING 手柄 `playback_pending_(_start_)` 还被 app_run 每帧状态机直写，留 D9-3。
+
+### PlaybackService（拥有"在播"状态）
+- 新增私有成员 `playback_node_`（TreeNodePtr）/ `playback_mode_`（AppMode，默认 RADIO）；在 `play_current`、`on_playback_ended`（自动进阶设 next_node 时）直接写入——替代 D9-1 把 `publish(PlaybackTrackChanged)` 当"写回"手段。
+- 新增只读访问器 `playback_node() const` / `playback_mode() const`（队列访问器之后的 `Track state` 节）。
+- `PlaybackTrackChanged` **保留 publish**：意义从"App 镜像写回"转为"外部 reactor（remote 现在播放推送 / 未来 UI 直订）通道"；单测 `PlaybackEvents.DeliveredOnBus` 仍覆盖。同步语义不变。
+
+### App（删镜像、经访问器读）
+- `app.h`：删 `TreeNodePtr playback_node;` 与 `AppMode playback_mode_`；注释更新为"track 手柄已迁入服务、App 只剩 BUFFERING 的 pending_(_start_)"。
+- `app_run.cpp`：删 `PlaybackTrackChanged` 订阅块；`ui.draw(...)` 改传 `playback_.playback_node()`；保存 player state 处标题改 `playback_.playback_node()` 读。`PlaybackBufferingChanged`/`HistoryChanged` 订阅保留。
+- `app_navigation.cpp`（`jump_to_playing` / `'N'`）：缓存 `auto pn = playback_.playback_node(); auto pm = playback_.playback_mode();` 后用之。
+- `app_input.cpp`：`:asr`（1×）、复制 URL 回退（1×）、`'L'` 字幕块（块首缓存 `pn`，含 `find_local_srt` lambda 经 `[&]` 捕获）改访问器。
+- `app_remote.cpp`：状态快照 `art_url`、`asr_start` 处理改访问器。
+
+### 等价性 / 线程
+- 服务在 `play_current`/`on_playback_ended`（仍只在 UI 线程跑，D4 不变量保持）直接写私有成员——与 D9-1 经同步事件在 UI 线程更新 App 镜像，线程/时机一致。读取点（draw/输入/nav/remote）原本就在 UI 线程读，改访问器不引入新线程访问。行为零变化。
+
+### 范围分拆
+- 完整"运行时手柄私有化 + UI 展示经事件"耦合大，且 `playback_pending_(_start_)` 还被 app_run 每帧状态机直写（D4 现场附近）。本刀只私有化**单写者**的两个 track 手柄（干净、低风险）；pending_ + 状态机收尾留 **D9-3**（同 D8b-1/D8b-2 分拆原则）。
+
+### 测试
+- ctest 39/39（无新增——访问器是机械改名、无新逻辑；`PlaybackEvents.DeliveredOnBus` 仍守护保留的 track 事件）；构建 0-warning（-Wall -Wextra -Wpedantic）；pty 冒烟 exit 0 + clean endwin。
+
+---
+
 ## 新架构 D9-1 — 2026-08-07 — 播放事件上总线，替代 D8b-2 回调缝（UI 解耦 · D9 增量1）
 
 > M1（UI 解耦）第 6 步。建立输出侧（Core→App）事件通道：PlaybackService 经 EventBus 发播放状态事件，App 订阅——删除 D8b-2 的临时回调缝。总线同步派发，行为零变化。

@@ -243,7 +243,7 @@ void App::open_command_window() {
         if (pst.has_media && !transcription_engine_.realtime_running()) {
             std::string url = pst.current_url;
             bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
-            transcription_engine_.start_realtime(playback_node, url, is_streaming);
+            transcription_engine_.start_realtime(playback_.playback_node(), url, is_streaming);
             EVENT_LOG("Force ASR (skipping online transcript)");
         } else {
             EVENT_LOG("ASR: nothing playing or already running");
@@ -360,8 +360,11 @@ void App::handle_input(int ch, int marked_count) {
                              : nullptr;
         if (cn && !cn->url.empty())
             url = cn->url; // cursor object (preferred)
-        else if (playback_node && !playback_node->url.empty())
-            url = playback_node->url; // fallback
+        else {
+            auto pn = playback_.playback_node();
+            if (pn && !pn->url.empty())
+                url = pn->url; // fallback
+        }
         if (url.empty()) {
             EVENT_LOG("No URL to copy");
         } else if (Utils::copy_to_clipboard(url)) {
@@ -722,16 +725,17 @@ void App::handle_input(int ch, int marked_count) {
     case 'L': { // Y24.43: unified subtitle flow (local-first; L never stops ASR)
         auto pst = player.get_state();
         if (pst.has_media) {
+            auto pn = playback_.playback_node();
             bool vo_open = player.is_video_window_open();
             std::string url = pst.current_url;
             bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
 
             // Resolve a local ASR SRT sidecar for the playing node ("" if none).
             auto find_local_srt = [&]() -> std::string {
-                if (!playback_node)
+                if (!pn)
                     return "";
                 std::string dl_dir = Utils::get_download_dir();
-                std::string base = Utils::sanitize_filename(playback_node->title);
+                std::string base = Utils::sanitize_filename(pn->title);
                 std::string srt = dl_dir + "/" + base + ".srt";
                 std::string local = CacheManager::instance().get_local_file(url);
                 if (!local.empty()) {
@@ -743,7 +747,7 @@ void App::handle_input(int ch, int marked_count) {
                 }
                 if (std::filesystem::exists(srt)) {
                     if (!local.empty())
-                        playback_node->local_file = local;
+                        pn->local_file = local;
                     return srt;
                 }
                 return "";
@@ -759,19 +763,19 @@ void App::handle_input(int ch, int marked_count) {
                 }
                 std::string srt = find_local_srt();
                 if (!srt.empty()) {
-                    playback_node->has_asr_srt = true;
-                    playback_node->asr_srt_path = srt;
+                    pn->has_asr_srt = true;
+                    pn->asr_srt_path = srt;
                     player.sub_add(srt);
                     EVENT_LOG(fmt::format("L: local ASR SRT -> video window: {}", srt));
                     break;
                 }
-                if (playback_node && playback_node->has_subtitle &&
-                    !playback_node->subtitle_url.empty()) {
-                    player.sub_add(playback_node->subtitle_url);
+                if (pn && pn->has_subtitle &&
+                    !pn->subtitle_url.empty()) {
+                    player.sub_add(pn->subtitle_url);
                     EVENT_LOG("L: online transcript -> video window");
                     break;
                 }
-                transcription_engine_.start_realtime(playback_node, url, is_streaming,
+                transcription_engine_.start_realtime(pn, url, is_streaming,
                                                      /*is_video=*/true);
                 player.show_osd("Starting ASR transcription...", 3000);
                 break;
@@ -798,22 +802,22 @@ void App::handle_input(int ch, int marked_count) {
             }
             std::string srt = find_local_srt();
             if (!srt.empty()) {
-                playback_node->has_asr_srt = true;
-                playback_node->asr_srt_path = srt;
-                playback_node->subtitle_url = srt;
-                playback_node->subtitle_type = "srt";
-                subtitle_mgr_.load_async(playback_node, pool_);
+                pn->has_asr_srt = true;
+                pn->asr_srt_path = srt;
+                pn->subtitle_url = srt;
+                pn->subtitle_type = "srt";
+                subtitle_mgr_.load_async(pn, pool_);
                 EVENT_LOG(fmt::format("L: local ASR SRT -> LYRIC: {}", srt));
                 break;
             }
-            if (playback_node && playback_node->has_subtitle &&
-                !playback_node->subtitle_url.empty()) {
-                subtitle_mgr_.load_async(playback_node, pool_);
+            if (pn && pn->has_subtitle &&
+                !pn->subtitle_url.empty()) {
+                subtitle_mgr_.load_async(pn, pool_);
                 EVENT_LOG("L: online transcript -> LYRIC");
                 break;
             }
             // No source -> audio ASR (is_video=false so it feeds LYRIC; video-without-VO reuses audio flow).
-            transcription_engine_.start_realtime(playback_node, url, is_streaming,
+            transcription_engine_.start_realtime(pn, url, is_streaming,
                                                  /*is_video=*/false);
             break;
         }

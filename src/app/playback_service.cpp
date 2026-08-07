@@ -193,7 +193,9 @@ void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_
     //   the same way current_index_ is; the TreeNode is retained by the tree, so the shared_ptr
     //   reassignment is safe in practice (matches existing pattern).
     TreeNodePtr next_node = current_playlist_[next].node;
-    EventBus::instance().publish(  // Y24.54: node + the mode saved for jump-back 'N'
+    playback_node_ = next_node;   // D9-2: authoritative track state (queried via playback_node())
+    playback_mode_ = mode;
+    EventBus::instance().publish(  // D9: notify external reactors (remote 'now playing'/UI)
         PlaybackTrackChanged{next_node, mode});
     // Y24.55: keep IPTV context flag in sync on auto-advance (same reasoning as play_current).
     player_.set_iptv_context(mode == AppMode::IPTV);
@@ -415,7 +417,9 @@ void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
     //   resolves the stream async — the TITLE is the node title, known immediately). Previously
     //   playback_node was always reset to nullptr, so INFO Title fell back to mpv media-title
     //   (stream URL/ICY for radio, not the station name).
-    EventBus::instance().publish(  // Y24.54: node + the mode saved for jump-back 'N'
+    playback_node_ = pn;           // D9-2: authoritative track state (queried via playback_node())
+    playback_mode_ = mode;
+    EventBus::instance().publish(  // D9: notify external reactors (remote 'now playing'/UI)
         PlaybackTrackChanged{pn, mode});
     // Y24.55: flag IPTV context so mpv_controller emits IPTV: messages alongside MPV: behavior for
     //   the same event (off-air, audio-only, slow, load/AO/VO/decode failures).

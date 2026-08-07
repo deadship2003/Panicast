@@ -1,4 +1,23 @@
 
+## D9-2 — "在播"手柄迁入 PlaybackService 私有化（M1 第 7 人日，D9 增量2a）
+
+**Context:** D9-1 把 D8b-2 回调缝换成总线事件后，"在播曲目"运行时手柄（`playback_node`/`playback_mode_`）仍是 App 成员、由 `PlaybackTrackChanged` 订阅镜像——App 事实持有状态、服务只 publish。这与"PlaybackService 是播放 Application Service、应拥有其全部状态"的 M1 目标不符。ROADMAP D9-2 原设想一把迁全部 4 个手柄（含 `playback_pending_(_start_)`）+ UI 展示事件化。
+
+**Approach（只私有化两个单写者 track 手柄；pending_ 留 D9-3）:**
+- `playback_node_`/`playback_mode_` 迁入 PlaybackService 私有；在 `play_current`/`on_playback_ended` 直接写（替 publish 作写回）；新增只读访问器 `playback_node()`/`playback_mode()`。
+- App 删两个镜像成员 + `PlaybackTrackChanged` 订阅；所有读取点（draw/`'N'`/remote/ASR/复制 URL）改 `playback_.playback_node()`/`playback_.playback_mode()`。`'L'` 字幕块缓存局部 `pn`（含 `find_local_srt` lambda 经 `[&]` 捕获）。
+- **`PlaybackTrackChanged` 保留 publish**：意义转为"外部 reactor（remote 推送 / 未来 UI 直订）通道"，单测守护。即 own-state + notify 模式——访问器供帧驱动的 draw 同步查、事件供异步 reactor。
+
+**Why-not 一把迁 4 个手柄：** `playback_pending_(_start_)` 还被 app_run 每帧状态机**直写**（mpv 报 has_media→清 pending、30s 超时→清 pending），且 30s 超时逻辑嵌在状态机里。一把迁需给服务加 `clear_playback_pending()`/`playback_pending_since()` 等、改状态机读写、可能还要把超时逻辑搬进服务——动 D4 现场、耦合大。两个 track 手柄是**单写者**（只服务写）、读取点纯机械改名，干净低风险。按 D8b-1/D8b-2 的"干净一刀 + 敏感一刀分拆"原则，pending_ + 状态机收尾单列 **D9-3**。**不删事件**：删了会在 D10 remote 需要时重加、且破坏 D9-1 单测；保留 + 注释"暂无生产订阅方、D10+ 直订"更稳。
+
+**等价性：** 服务在 UI 线程（D4 不变量保持）直接写私有成员，与 D9-1 经同步事件在 UI 线程更新 App 镜像——线程/时机一致；读取点本就在 UI 线程、改访问器不引入跨线程访问。行为零变化。
+
+**Verification:** ctest 39/39；构建 0-warning（-Wall -Wextra -Wpedantic）；pty 冒烟（exit 0 + clean endwin）。
+
+**Followups:** D9-3——`playback_pending_(_start_)` 迁入服务（私有 + 清/读接口），app_run 状态机读写改走 service、评估收进 30s 超时逻辑，删 App 的 `PlaybackBufferingChanged` 订阅；随后 D10 抽更多 Services + UI/remote 直订事件。
+
+---
+
 ## D9-1 — 播放事件上总线，替代 D8b-2 回调缝（M1 第 6 人日，D9 增量1）
 
 **Context:** D8b-2 把播放逻辑迁入 PlaybackService，运行时手柄（playback_node/playback_pending_(_start_)/playback_mode_）经 4 个 `attach()` 回调写回 App——这是临时缝，文档标注"D9 事件层替代"。D9 起做输出侧事件层（Core→UI）。完整 D9（UI 展示全经事件、替代每帧 `player.get_state()` 轮询）很大；先做最自然的一刀：把 D8b-2 回调缝换成类型化总线事件，建立 service→App 事件通道。

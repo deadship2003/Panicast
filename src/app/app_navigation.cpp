@@ -10,14 +10,16 @@ namespace panicast
 //   so node pointers stay valid), expand ancestors so it's visible, and let the run loop's
 //   pending_select_ mechanism select + scroll to it.
 void App::jump_to_playing() {
-    if (!playback_node) {
+    auto pn = playback_.playback_node();
+    if (!pn) {
         EVENT_LOG("Nothing playing — press N while a track is playing");
         return;
     }
+    const auto pm = playback_.playback_mode();
     // Switch mode + root directly (skip switch_mode's load_*_root to preserve the tree state
     //   and node pointers — the tree is already built from the user's last visit).
-    mode = playback_mode_;
-    switch (playback_mode_) {
+    mode = pm;
+    switch (pm) {
     case AppMode::RADIO:
         break;
     case AppMode::PODCAST:
@@ -41,7 +43,7 @@ void App::jump_to_playing() {
     selected_idx = 0;
     // Expand all ancestors so the node appears in the flattened display_list.
     {
-        auto p = playback_node->parent.lock();
+        auto p = pn->parent.lock();
         while (p) {
             p->expanded = true;
             p = p->parent.lock();
@@ -49,8 +51,8 @@ void App::jump_to_playing() {
     }
     // pending_select_ is consumed by the run loop (app_run.cpp): it searches display_list for
     //   this node, sets selected_idx, and the existing view_start scroll makes it visible.
-    pending_select_ = playback_node;
-    EVENT_LOG(fmt::format("Jumped to playing: '{}'", playback_node->title));
+    pending_select_ = pn;
+    EVENT_LOG(fmt::format("Jumped to playing: '{}'", pn->title));
 }
 
 void App::nav_page_down() {

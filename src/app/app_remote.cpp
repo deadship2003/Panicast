@@ -158,8 +158,8 @@ void App::update_remote_state_cache() {
         }
     }
 
-    if (playback_node) {
-        s.art_url = playback_node->art_url;
+    if (auto pn = playback_.playback_node()) {
+        s.art_url = pn->art_url;
     }
     if (SleepTimer::instance().is_active()) {
         s.sleep_remaining = SleepTimer::instance().remaining_seconds();
@@ -508,10 +508,11 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
     // N04-fix: subtitle_offset removed (z/Z direct keys + INI offset removed; use :z/:Z mpv sub-delay).
     if (a == "asr_start") {
         auto pst = player.get_state();
-        if (pst.has_media && playback_node && !transcription_engine_.realtime_running()) {
+        auto pn = playback_.playback_node();
+        if (pst.has_media && pn && !transcription_engine_.realtime_running()) {
             const std::string &url = pst.current_url;
             bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
-            transcription_engine_.start_realtime(playback_node, url, is_streaming);
+            transcription_engine_.start_realtime(pn, url, is_streaming);
             EVENT_LOG("Remote: ASR start");
         } else {
             EVENT_LOG("Remote: ASR start — nothing playing or already running");

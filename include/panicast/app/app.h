@@ -132,7 +132,6 @@ private:
     // E: per-mode "loaded" flags (were the root node's children_loaded before root removal)
     bool radio_loaded = false, podcast_loaded = false, account_loaded = false,
          bilibili_loaded = false, tiktok_loaded = false, iptv_loaded = false;
-    TreeNodePtr playback_node;
     std::string
         tiktok_region_; // Y24.11: current T-mode region code (US/JP/...), persisted in INI [tiktok] region
     // Y11: async interaction selection. A pool task that builds a new node (e.g. YouTube search
@@ -156,8 +155,6 @@ private:
         false; // E: reverse state for top-level (cur_items) sort — was on the root node
     bool running = true;
     AppMode mode = AppMode::RADIO;
-    AppMode playback_mode_ =
-        AppMode::RADIO; // Y24.54: mode when playback started (for N = jump-to-playing)
     std::recursive_mutex tree_mutex;
     // Thread pool replaces detached threads; App destructor safely joins.
     // Sized to MAX_CONCURRENT_DOWNLOADS so up to 10 downloads can truly run at once.
@@ -185,9 +182,11 @@ private:
     int visual_start_ = -1;
 
     // D8b-1: the implicit-playlist QUEUE STATE (current_playlist / current_index /
-    //   shuffle_queue_ / playlist_mutex_) moved into PlaybackService. App still holds the
-    //   global play_mode (a setting written from several input sites) and the playback
-    //   RUNTIME handles (playback_node / playback_pending_ / playback_mode_).
+    //   shuffle_queue_ / playlist_mutex_) moved into PlaybackService. D9-2: the "what's playing"
+    //   track handles (playback_node / playback_mode_) moved in too — read via
+    //   playback_.playback_node() / playback_.playback_mode(). App still holds the global play_mode
+    //   (a setting written from several input sites) and the BUFFERING handle
+    //   playback_pending_(_start_) (also written by the run-loop state machine → D9-3).
     PlayMode play_mode = PlayMode::CYCLE; // global play mode (persisted in INI [playback] mode)
 
     // ═════════════════════════════════════════════════════════════════════════

@@ -80,19 +80,16 @@ void App::run() {
     // D8: PlaybackService (first Application Service) owns the playback Action handlers
     //   (pause/volume) — subscribed via playback_.init(). Nav Actions stay here for now.
     playback_.init();
-    // D8b-2: inject pool_/subtitle/transcription + the runtime-handle write callbacks. play_current
-    //   / on_playback_ended live in PlaybackService now and write playback_node /
-    //   playback_pending_(_start_) / playback_mode_ back through these lambdas (D9's event layer
-    //   will replace this seam and let the handles move into the service). Must run before the loop.
+    // D8b-2: inject pool_/subtitle/transcription (declared after playback_ in App, so they can't
+    //   be construction-time references). play_current / on_playback_ended live in PlaybackService
+    //   now and own the track handles (playback_node_ / playback_mode_) directly (D9-2) — App reads
+    //   them via playback_.playback_node() / playback_.playback_mode(). Must run before the loop.
     playback_.attach(pool_, subtitle_mgr_, transcription_engine_);
-    // D9: subscribe to playback state events (replaces the D8b-2 attach() callback seam). The bus
-    //   is synchronous, so these update App's handles on the publisher's thread — same threading
-    //   as the old callbacks (UI thread for track/buffering; pool thread for history).
-    action_subs_.push_back(EventBus::instance().subscribe<PlaybackTrackChanged>(
-        [this](const PlaybackTrackChanged &e) {
-            playback_node = e.node;
-            playback_mode_ = e.mode;
-        }));
+    // D9: subscribe to the playback state events App still consumes locally. The bus is
+    //   synchronous, so these run on the publisher's thread (UI thread for buffering; pool thread
+    //   for history). D9-2: PlaybackTrackChanged no longer needs an App subscriber — the track
+    //   handles moved into the service (App reads the accessor); the event stays published as the
+    //   reactor channel for future direct UI/remote subscribers (D10+).
     action_subs_.push_back(EventBus::instance().subscribe<PlaybackBufferingChanged>(
         [this](const PlaybackBufferingChanged &e) {
             if (e.pending) {
@@ -443,7 +440,8 @@ void App::run() {
             // INFO area renders the 7-line play context from playlist/current_index/
             //   play_mode + hist_titles + next_snap.
             // Y24.7: L-mode poll already ran above (handoff + activation); no separate call needed.
-            ui.draw(mode, display_list, selected_idx, state, view_start, app_state, playback_node,
+            ui.draw(mode, display_list, selected_idx, state, view_start, app_state,
+                    playback_.playback_node(),
                     marked, search_query, current_match_idx, total_matches, sel_node, downloads,
                     visual_mode_, visual_start_, playback_.playlist(), current_index_snap,
                     play_mode, hist_titles, next_snap);
@@ -483,7 +481,8 @@ void App::run() {
 
     // Save player state
     auto player_state = player.get_state();
-    std::string current_title = playback_node ? playback_node->title : "";
+    const auto cur_node = playback_.playback_node();
+    std::string current_title = cur_node ? cur_node->title : "";
     int mode_int = static_cast<int>(mode);
     DatabaseManager::instance().save_player_state(
         player_state.volume, player_state.speed, player_state.paused, player_state.current_url,
