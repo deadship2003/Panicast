@@ -233,7 +233,7 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
         if (playback_.current_index() >= 0 && size > 0) {
             int idx = a == "next" ? (playback_.current_index() + 1) % size
                                   : (playback_.current_index() - 1 + size) % size;
-            play_current(idx);
+            playback_.play_current(idx, mode, play_mode);
             EVENT_LOG(fmt::format("Remote: {}", a));
         } else {
             EVENT_LOG(fmt::format("Remote: {} — empty playlist", a));

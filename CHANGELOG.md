@@ -4,6 +4,41 @@
 
 ---
 
+## 新架构 D8b-2 — 2026-08-07 — PlaybackService 接管播放/自动进阶逻辑（UI 解耦 · D8 增量2b）
+
+> M1（UI 解耦）第 5 步（D8 增量2 的第二刀）。把播放**逻辑**迁入 PlaybackService（队列状态已在 D8b-1 内）；运行时手柄经回调缝写回 App，读取点留 D9。
+
+### 迁入 PlaybackService（播放逻辑）
+- **方法**：`play_current` / `on_playback_ended` / `record_play_history` / `resolve_youtube_url`（4 个）→ PlaybackService。迁入后队列状态是其私有成员，直接访问（不再经 `playback_.` 访问器）。
+- **静态助手**：`is_mpv_sub_url` / `basename_of`（play_current 字幕处理用）→ `playback_service.cpp` 文件内匿名命名空间。
+
+### 依赖后注入 `attach()`（解决声明序）
+- `pool_` / `subtitle_mgr_` / `transcription_engine_` 在 app.h 中声明于 `playback_`（行 126）**之后**（行 164/405/406），无法作构造期引用 → PlaybackService 持指针，`App::run()` 在 `playback_.init()` 后调 `playback_.attach(pool_, subtitle_mgr_, transcription_engine_, <4 回调>)` 注入。
+- 迁移的方法对运行时手柄**只写不读**，故 4 个 `std::function` 回调即够：
+  - `set_playback_node(TreeNodePtr)` → `App::playback_node =`
+  - `set_pending(bool)`（true 时一并盖 `playback_pending_start_ = now`）→ `App::playback_pending_(_start_)`
+  - `set_playback_mode(AppMode)` → `App::playback_mode_ =`
+  - `on_history_changed()` → `App::load_history_to_root()`（原 `record_play_history` 直调，现解耦）
+
+### 仍在 App（Option Y：回调缝，D9 事件层替代后迁入私有化）
+- 运行时手柄 `playback_node` / `playback_pending_(_start_)` / `playback_mode_` 物理位置不动；读取点（app_input 21×、app_run 每帧状态机、nav/remote）零改动——避免 ~50 个低价值改名。
+- `play_mode` 是设置（多点写），留 App，按调用以形参传 `play_current(idx, mode, play_mode)` / `on_playback_ended(reason, mode, play_mode)`。
+- `build_peer_list` / `is_playable_node` / `play_episode` 留 App（树逻辑）；`play_episode` 末尾改 `playback_.play_current(idx, mode, play_mode)`。
+- 移除 `load_transcript` / `probe_local_sidecar` 两个薄委托（仅被迁移的方法用，PlaybackService 直调 `subtitle_mgr_`）。
+
+### 调用点
+- `on_playback_ended`：app_run 的 D4 drain `on_playback_ended(_end_reason)` → `playback_.on_playback_ended(_end_reason, mode, play_mode)`（仍 UI 线程）。
+- `play_current`：`App::play_episode` + app_remote next/prev → `playback_.play_current(idx, mode, play_mode)`。
+
+### 注意（lambda 捕获）
+- `play_current` 的 YouTube 异步 pool lambda 原靠 `this->play_mode`（成员）读 play_mode；迁入后 play_mode 是形参 → **显式捕获** `play_mode`（`[this, …, play_mode]`）。on_playback_ended 的异步 lambda 不用 play_mode，无需此改动。
+
+### 验收
+- ctest 38/38、构建 0-warning、pty 冒烟（启动→attach→主循环渲染→q/y 退出，exit 0 + clean endwin）。
+
+### 意义
+- PlaybackService 现拥播放**逻辑**（D8b-1 已拥队列状态）→ App 只剩运行时手柄 + 设置 + 树逻辑。回调缝是临时桥，D9 事件层（PlaybackStateChanged 等）一上即可把手柄迁入服务并私有化、去掉回调。
+
 ## 新架构 D8b-1 — 2026-08-07 — PlaybackService 接管播放队列状态（UI 解耦 · D8 增量2a）
 
 > M1（UI 解耦）第 4 步（D8 增量2 的第一刀）。把播放"队列状态"的所有权迁入 PlaybackService；复杂播放逻辑（play_current/on_playback_ended）留 D8b-2。

@@ -40,9 +40,12 @@
   - `current_playlist`/`current_index`/`shuffle_queue_`/`playlist_mutex_` + `clear_playlist`/`refill_shuffle_queue`/`random_peer_index` 迁入 PlaybackService（私有状态 + 公开访问 API `playlist_mutex()/playlist()/current_index()/set_current_index()/shuffle_queue()`）；锁语义零变化。
   - `play_mode`/`playback_node`/`playback_pending_(_start_)`/`playback_mode_` 故意留 App（运行时手柄，D9 事件层替代直接读时再迁）；`play_current`/`on_playback_ended`/`build_peer_list` 仍是 App 方法经 `playback_.` 访问队列。
   - **验收**：ctest 38/38、构建 0-warning、冒烟正常；PlaybackService 为播放队列唯一所有者（D4 不变量保持：on_playback_ended 仍只在 UI 线程）。
-- [ ] **D8b-2 — play_current/on_playback_ended 迁入 PlaybackService（D8 增量2b，待续）**
-  - 把 `play_current`/`on_playback_ended`/`build_peer_list` 迁入 PlaybackService（注入 pool/subtitle/transcription 依赖 + mode/history 回调缝）；同时迁 `playback_node`/`playback_pending_(_start_)`/`playback_mode_`（与 play_current 同写、须一起迁避免 App 反向依赖）。
-  - **验收**：播放/自动进阶逻辑经 PlaybackService；App 仅持 `play_mode`（设置）。
+- [x] **D8b-2 — play_current/on_playback_ended 迁入 PlaybackService（D8 增量2b）** ✅ 2026-08-07
+  - `play_current`/`on_playback_ended`/`record_play_history`/`resolve_youtube_url` 迁入 PlaybackService（**逻辑迁入**；队列状态已在 D8b-1 内）；`build_peer_list`/`is_playable_node`/`play_episode` 留 App（树逻辑）。
+  - **依赖后注入 `attach()`**：`pool_`/`subtitle_mgr_`/`transcription_engine_` 在 App 中声明于 `playback_` 之后、无法构造期引用 → 经 `attach()` 注入指针；运行时手柄（`playback_node`/`playback_pending_(_start_)`/`playback_mode_`）经 **4 个回调**写回 App（set_playback_node / set_pending / set_playback_mode / on_history_changed）。
+  - **回调缝（Option Y）**：迁移的方法对运行时手柄只**写**不读 → 回调即够；读取点（app_input 21× playback_node、app_run 状态机读 pending、nav/remote）暂不动，避免 ~50 个低价值改名（D9 事件层替代直接读时再迁入并私有化）。`play_mode` 是设置、留 App、按调用传入（play_current/on_playback_ended 各加 mode+play_mode 形参）。
+  - **D4 不变量保持**：`on_playback_ended` 现为 PlaybackService 方法，但仍只在 UI 线程跑（app_run 的 `pending_end_reason_` drain 调 `playback_.on_playback_ended(reason,mode,play_mode)`），绝不跑在 mpv 事件线程。
+  - **验收**：ctest 38/38、构建 0-warning、pty 冒烟（启动→attach→主循环渲染→q/y 退出，exit 0 + clean endwin）。
 - [ ] **D9 — 事件层（输出侧）：Service 发事件，UI 订阅**
   - 定义播放/库事件（`PlaybackStateChanged` / `MediaLoaded` / …）；PlaybackService 发；UI 订阅更新展示状态（逐步替代直接 `get_state` 轮询的对应部分）。
   - **验收**：UI 对应展示经事件更新；输出侧总线闭环。

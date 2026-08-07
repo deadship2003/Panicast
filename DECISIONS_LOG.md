@@ -1,4 +1,23 @@
 
+## D8b-2 — 播放/自动进阶逻辑迁入 PlaybackService，运行时手柄经回调缝（M1 第 5 人日，D8 增量2b）
+
+**Context:** D8b-1 把队列状态所有权迁入 PlaybackService 后，D8b-2 本应把 `play_current`/`on_playback_ended` 及其同写的运行时手柄（`playback_node`/`playback_pending_(_start_)`/`playback_mode_`）一并迁入。原 ROADMAP 设想"手柄与 play_current 同写、须一起迁避免 App 反向依赖"。但摸底发现：这些手柄在迁移的方法里**只写不读**——读取全在 App（app_input 21× 读 playback_node、app_run 每帧状态机读 playback_pending_、nav/remote）。若把手柄物理迁入服务，需新增 ~50 个 `playback_.playback_node()` 之类访问器读取点改名，纯属 churn（D9 事件层本就要用事件替代这些直接读）。
+
+**Approach（Option Y：迁逻辑、留手柄、回调缝搭桥）:**
+- **迁逻辑**：`play_current`/`on_playback_ended`/`record_play_history`/`resolve_youtube_url` + 静态助手 `is_mpv_sub_url`/`basename_of` → PlaybackService。队列状态已是私有成员，直接访问。`build_peer_list`/`is_playable_node`/`play_episode`（树逻辑）留 App。
+- **依赖后注入**：`pool_`/`subtitle_mgr_`/`transcription_engine_` 声明于 `playback_` 之后 → 无法构造期引用，PlaybackService 持指针、经 `attach()` 在 `App::run()`（`playback_.init()` 之后）注入。
+- **回调缝**：迁移方法对运行时手柄只写 → 4 个 `std::function`（set_playback_node / set_pending[true 时盖 start] / set_playback_mode / on_history_changed[→ load_history_to_root]）写回 App。手柄物理位置不动、读取点零改动。
+- **play_mode** 是设置（多点写），留 App，作形参传 `play_current(idx,mode,play_mode)`/`on_playback_ended(reason,mode,play_mode)`。**坑**：play_current 的 YouTube 异步 pool lambda 原隐式读 `this->play_mode`（成员），迁入后须**显式捕获** play_mode。
+- **D4 不变量保持**：on_playback_ended 现为 PlaybackService 方法，但调用点（app_run 的 `pending_end_reason_` drain）未换线程 → 仍只在 UI 线程跑。
+
+**Why-not 全迁手柄：** 全迁 = ~50 读取点改名 + 给服务加一堆 getter，零行为收益、还动 app_run 状态机（D4 现场附近，敏感）。回调缝仅 4 个 `std::function`，是临时桥——D9 事件层（PlaybackStateChanged 等）一上，UI 改订事件、手柄即可迁入私有化、回调删除。把 churn 推迟到它真正该发生的 D9。
+
+**Verification:** ctest 38/38；构建 0-warning（-Wall -Wextra -Wpedantic）；pty 冒烟（启动→attach→主循环渲染→q/y 退出，exit 0 + clean endwin 序列）。
+
+**Followups:** D9 事件层——PlaybackService 发 PlaybackStateChanged 等、UI 订阅；随后把 playback_node/playback_pending_(_start_)/playback_mode_ 迁入服务私有化、删 attach() 回调缝。
+
+---
+
 ## D8b-1 — 播放队列状态迁入 PlaybackService（M1 第 4 人日，D8 增量2a）
 
 **Context:** D8a 起了功能抽象层（PlaybackService 接管 Action）。D8b 要把播放状态/逻辑也迁入，但摸底发现耦合面很大：`play_current`/`on_playback_ended` 除队列状态外还触 mode/playback_mode_/playback_pending_(_start_)/transcription_engine_/subtitle_mgr_/pool_/record_play_history→load_history_to_root/collect_playable_items；`playback_node` 被 app_input 21× 读取（ASR/字幕）+ UI 读；`playback_pending_` 驱动 app_run 每帧状态机。一次性全迁 ≈100+ 引用、跨 11 文件（含 UI 与 remote_protocol），且 on_playback_ended 的 playlist_mutex_ 跨线程路径正是 D4 修的"暂停后 TUI 冻结"现场——盲迁有回退风险。

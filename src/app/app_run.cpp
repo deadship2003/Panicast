@@ -79,6 +79,23 @@ void App::run() {
     // D8: PlaybackService (first Application Service) owns the playback Action handlers
     //   (pause/volume) — subscribed via playback_.init(). Nav Actions stay here for now.
     playback_.init();
+    // D8b-2: inject pool_/subtitle/transcription + the runtime-handle write callbacks. play_current
+    //   / on_playback_ended live in PlaybackService now and write playback_node /
+    //   playback_pending_(_start_) / playback_mode_ back through these lambdas (D9's event layer
+    //   will replace this seam and let the handles move into the service). Must run before the loop.
+    playback_.attach(
+        pool_, subtitle_mgr_, transcription_engine_,
+        [this](TreeNodePtr node) { playback_node = node; },
+        [this](bool pending) {
+            if (pending) {
+                playback_pending_ = true;
+                playback_pending_start_ = std::chrono::steady_clock::now();
+            } else {
+                playback_pending_ = false;
+            }
+        },
+        [this](AppMode m) { playback_mode_ = m; },
+        [this]() { load_history_to_root(); });
     // D7: Keymap (key→Action) + nav input Actions.
     build_keymap();
     action_subs_.push_back(
@@ -215,7 +232,7 @@ void App::run() {
         //   mpv thread blocks the UI's draw). Draining here runs the handler on the UI thread.
         int _end_reason = pending_end_reason_.exchange(-1);
         if (_end_reason != -1)
-            on_playback_ended(_end_reason);
+            playback_.on_playback_ended(_end_reason, mode, play_mode);
         // N02: refresh the state snapshot cache for remote query commands (status/currentsong).
         update_remote_state_cache();
 

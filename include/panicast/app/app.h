@@ -196,13 +196,10 @@ private:
 
     // ── app_playback.cpp ───────────────────────────────────────────────────────
     bool is_playable_node(TreeNodePtr node);
-    void on_playback_ended(int reason);
-    std::vector<std::string> resolve_youtube_url(const std::string &url, bool has_video)
-        const; // F23: standalone YouTube -g resolve (pool-safe). Y09 1A: returns 1-2 stream URLs (DASH=2).
-    // D8b-1: random_peer_index / refill_shuffle_queue / clear_playlist moved to
-    //   PlaybackService. play_current / on_playback_ended / build_peer_list remain here
-    //   (they touch playback RUNTIME handles still in App); they reach the queue via playback_.
-    void play_current(int idx);
+    // D8b-2: on_playback_ended / play_current / record_play_history / resolve_youtube_url moved to
+    //   PlaybackService (it now owns playback + autoplay logic); it reaches App's runtime handles
+    //   via the attach() callback seam. build_peer_list stays here (tree logic); play_episode calls
+    //   playback_.play_current(idx, mode, play_mode).
     int build_peer_list(TreeNodePtr node);
     // Y24.27: build episode child nodes from DB cache — extracted from 7 duplicated sites.
     // Y24.27: unified mode switch (was duplicated 4x — R/P/F/H/O/Y inline + M cycle + B + T).
@@ -214,7 +211,6 @@ private:
                                      std::string>> &episodes,
         bool is_opml = false);
     void play_episode(TreeNodePtr node);
-    void record_play_history(const std::string &url, const std::string &title, int duration = 0);
 
     // ── app_download.cpp ───────────────────────────────────────────────────────
     void download_node(int marked_count);
@@ -389,10 +385,9 @@ private:
     SubtitleManager subtitle_mgr_;
     TranscriptionEngine
         transcription_engine_; // Y24.19: whisper.cpp offline (later realtime) transcription
-    void load_transcript(
-        TreeNodePtr node); // delegates to subtitle_mgr_.load_async (kept for call-site clarity)
-    void probe_local_sidecar(TreeNodePtr node); // delegates to subtitle_mgr_.probe_sidecar
     // Y24.7: transcript load/offset/status moved to SubtitleManager (subtitle_mgr_).
+    //   (D8b-2: the load_transcript/probe_local_sidecar delegates were removed — PlaybackService
+    //   calls subtitle_mgr_ directly now.)
     // Y23.9: BUFFERING state — keep BUFFERING until mpv reports has_media (or timeout/error).
     bool playback_pending_ = false;
     std::chrono::steady_clock::time_point playback_pending_start_;
