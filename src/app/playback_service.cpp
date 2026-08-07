@@ -9,6 +9,7 @@
 #include <fmt/format.h>
 
 #include "panicast/app/actions.h"
+#include "panicast/app/playback_events.h"
 #include "panicast/config/ini_config.h"
 #include "panicast/core/constants.h"
 #include "panicast/core/event_bus.h"
@@ -123,21 +124,14 @@ std::string basename_of(const std::string &p) {
 }
 } // namespace
 
-// D8b-2 late injection — wire the services declared after playback_ in App + the runtime-handle
-//   write callbacks. Called once from App::run right after playback_.init().
+// D8b-2 late injection — wire the services declared after playback_ in App (they can't be
+//   construction-time refs). State changes go on the EventBus (D9), so no callbacks here.
+//   Called once from App::run right after playback_.init().
 void PlaybackService::attach(ThreadPool &pool, SubtitleManager &subtitle_mgr,
-                             TranscriptionEngine &transcription_engine,
-                             std::function<void(TreeNodePtr)> set_playback_node,
-                             std::function<void(bool)> set_pending,
-                             std::function<void(AppMode)> set_playback_mode,
-                             std::function<void()> on_history_changed) {
+                             TranscriptionEngine &transcription_engine) {
     pool_ = &pool;
     subtitle_mgr_ = &subtitle_mgr;
     transcription_engine_ = &transcription_engine;
-    set_playback_node_ = std::move(set_playback_node);
-    set_pending_ = std::move(set_pending);
-    set_playback_mode_ = std::move(set_playback_mode);
-    on_history_changed_ = std::move(on_history_changed);
 }
 
 // Playback-ended handler. Runs ONLY on the UI thread (D4 invariant): the mpv event thread merely
@@ -151,7 +145,8 @@ void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_
     transcription_engine_->stop_realtime(); // Y24.20: stop realtime transcription on track end
     std::lock_guard<std::mutex> pl_lock(playlist_mutex_);
     if (reason != 0) {
-        set_pending_(false); // Y23.9: error/stop → clear pending (back to BROWSING)
+        EventBus::instance().publish(  // Y23.9: error/stop → clear pending (back to BROWSING)
+            PlaybackBufferingChanged{false});
         // Y24.8: human-readable reason (was raw "reason=X, ignored"). reason 0=EOF (advances),
         //   2=stop, 3=quit, 4=error, 5=redirect — none advance the queue.
         LOG(fmt::format("[AUTOPLAY] End file: {} — not advancing",
@@ -198,12 +193,13 @@ void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_
     //   the same way current_index_ is; the TreeNode is retained by the tree, so the shared_ptr
     //   reassignment is safe in practice (matches existing pattern).
     TreeNodePtr next_node = current_playlist_[next].node;
-    set_playback_node_(next_node);
-    set_playback_mode_(mode); // Y24.54: save mode for N = jump-to-playing
+    EventBus::instance().publish(  // Y24.54: node + the mode saved for jump-back 'N'
+        PlaybackTrackChanged{next_node, mode});
     // Y24.55: keep IPTV context flag in sync on auto-advance (same reasoning as play_current).
     player_.set_iptv_context(mode == AppMode::IPTV);
     subtitle_mgr_->load_async(next_node, *pool_); // Y23.4: load transcript for the advanced track (method B)
-    set_pending_(true);                           // Y23.9: BUFFERING until mpv loads the next track
+    EventBus::instance().publish(  // Y23.9: BUFFERING until mpv loads the next track
+        PlaybackBufferingChanged{true});
 
     // Play the next track inline (must NOT call play_current — it also locks playlist_mutex_
     //   (non-recursive) and would deadlock).
@@ -419,8 +415,8 @@ void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
     //   resolves the stream async — the TITLE is the node title, known immediately). Previously
     //   playback_node was always reset to nullptr, so INFO Title fell back to mpv media-title
     //   (stream URL/ICY for radio, not the station name).
-    set_playback_node_(pn);
-    set_playback_mode_(mode); // Y24.54: save mode for N = jump-to-playing
+    EventBus::instance().publish(  // Y24.54: node + the mode saved for jump-back 'N'
+        PlaybackTrackChanged{pn, mode});
     // Y24.55: flag IPTV context so mpv_controller emits IPTV: messages alongside MPV: behavior for
     //   the same event (off-air, audio-only, slow, load/AO/VO/decode failures).
     player_.set_iptv_context(mode == AppMode::IPTV);
@@ -467,7 +463,7 @@ void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
     // Y23.9: BUFFERING state — set pending before play; cleared when mpv reports has_media.
     // Y24.17: timestamp each step so panicast.log shows WHERE the wait goes (sync fs::exists/DB vs
     //   mpv load). >5s on a local file is abnormal — this pinpoints it.
-    set_pending_(true);
+    EventBus::instance().publish(PlaybackBufferingChanged{true});
     auto play_t0 = std::chrono::steady_clock::now();
     auto ms_since = [&]() {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -553,7 +549,8 @@ void PlaybackService::record_play_history(const std::string &url, const std::str
         return;
     DatabaseManager::instance().add_history(url, title, duration);
     // Y24.26: rebuild history tree async (was sync — caused UI stutter on every track switch).
-    pool_->submit([this]() { on_history_changed_(); });
+    //   D9: notify via the bus — App's HistoryChanged subscriber calls load_history_to_root().
+    pool_->submit([this]() { EventBus::instance().publish(HistoryChanged{}); });
 }
 
 } // namespace panicast

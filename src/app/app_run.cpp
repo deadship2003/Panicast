@@ -1,6 +1,7 @@
 #include <unistd.h> // _exit (skip destructors on clean exit)
 #include "panicast/app/app.h"
 #include "panicast/app/actions.h"
+#include "panicast/app/playback_events.h"
 #include "panicast/core/event_bus.h"
 #include "panicast/net/bilibili_api.h"
 #include "panicast/net/tiktok_region.h"
@@ -83,19 +84,26 @@ void App::run() {
     //   / on_playback_ended live in PlaybackService now and write playback_node /
     //   playback_pending_(_start_) / playback_mode_ back through these lambdas (D9's event layer
     //   will replace this seam and let the handles move into the service). Must run before the loop.
-    playback_.attach(
-        pool_, subtitle_mgr_, transcription_engine_,
-        [this](TreeNodePtr node) { playback_node = node; },
-        [this](bool pending) {
-            if (pending) {
+    playback_.attach(pool_, subtitle_mgr_, transcription_engine_);
+    // D9: subscribe to playback state events (replaces the D8b-2 attach() callback seam). The bus
+    //   is synchronous, so these update App's handles on the publisher's thread — same threading
+    //   as the old callbacks (UI thread for track/buffering; pool thread for history).
+    action_subs_.push_back(EventBus::instance().subscribe<PlaybackTrackChanged>(
+        [this](const PlaybackTrackChanged &e) {
+            playback_node = e.node;
+            playback_mode_ = e.mode;
+        }));
+    action_subs_.push_back(EventBus::instance().subscribe<PlaybackBufferingChanged>(
+        [this](const PlaybackBufferingChanged &e) {
+            if (e.pending) {
                 playback_pending_ = true;
                 playback_pending_start_ = std::chrono::steady_clock::now();
             } else {
                 playback_pending_ = false;
             }
-        },
-        [this](AppMode m) { playback_mode_ = m; },
-        [this]() { load_history_to_root(); });
+        }));
+    action_subs_.push_back(EventBus::instance().subscribe<HistoryChanged>(
+        [this](const HistoryChanged &) { load_history_to_root(); }));
     // D7: Keymap (key→Action) + nav input Actions.
     build_keymap();
     action_subs_.push_back(

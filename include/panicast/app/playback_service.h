@@ -4,19 +4,18 @@
 //     current_index, shuffle_queue_ and the playlist_mutex_ that guards them, plus
 //     clear_playlist / refill_shuffle_queue / random_peer_index.
 //   • playback / autoplay LOGIC (D8b-2): play_current / on_playback_ended / record_play_history /
-//     resolve_youtube_url (moved out of app_playback.cpp). pool_ / subtitle / transcription deps
-//     are injected late via attach() — they are declared AFTER playback_ in App, so they can't be
-//     construction-time references.
+//     resolve_youtube_url. pool_ / subtitle / transcription deps are injected late via attach()
+//     (declared AFTER playback_ in App, so they can't be construction-time references).
 // The mpv command worker (in MPVController) executes player calls off the UI thread.
-// Playback RUNTIME handles still live in App (playback_node / playback_pending_ / playback_mode_) —
-// D8b-2 writes them back through a small callback seam (attach()), which D9's event layer will
-// replace once the UI reads them via events instead of direct member access. play_mode is a setting
-// kept in App and passed into each call. (D8 — UI-decoupling M1.)
+// State changes are announced on the EventBus (D9): PlaybackTrackChanged / PlaybackBufferingChanged
+//   / HistoryChanged (playback_events.h). App subscribes and updates its runtime handles
+//   (playback_node / playback_pending_ / playback_mode_); the UI / remote will subscribe directly
+//   in later increments. play_mode is a setting kept in App, passed into each call.
+//   (D8/D9 — UI-decoupling M1.)
 #pragma once
 
 #include <cstddef>
 #include <deque>
-#include <functional>
 #include <mutex>
 #include <vector>
 
@@ -74,16 +73,12 @@ public:
     void refill_shuffle_queue();
 
     // ── Playback / autoplay logic (D8b-2, moved from app_playback.cpp) ────────
-    // Inject the services declared after playback_ in App + the runtime-handle write callbacks.
-    //   set_pending(true) stamps a fresh BUFFERING start time; set_pending(false) clears it;
-    //   on_history_changed fires after a history DB write (App rebuilds the history tree async).
+    // Inject the services declared after playback_ in App (they can't be construction-time refs).
+    //   State changes are announced on the EventBus (D9 — see playback_events.h), NOT via callbacks:
+    //   App subscribes to PlaybackTrackChanged / PlaybackBufferingChanged / HistoryChanged.
     // Must be called once before any playback (App::run wires it right after playback_.init()).
     void attach(ThreadPool &pool, SubtitleManager &subtitle_mgr,
-                TranscriptionEngine &transcription_engine,
-                std::function<void(TreeNodePtr)> set_playback_node,
-                std::function<void(bool)> set_pending,
-                std::function<void(AppMode)> set_playback_mode,
-                std::function<void()> on_history_changed);
+                TranscriptionEngine &transcription_engine);
     // Play a single item by index. mode = active App mode (IPTV flag); play_mode = loop setting.
     void play_current(int idx, AppMode mode, PlayMode play_mode);
     // Pointer-driven auto-advance (runs on the UI thread — D4 invariant). Advances current_index_
@@ -115,15 +110,11 @@ private:
     // Stateless (uses IniConfig / yt-dlp / Paths only) → const.
     std::vector<std::string> resolve_youtube_url(const std::string &url, bool has_video) const;
 
-    // ── Injected deps + runtime-handle write seam (D8b-2) ────────────────────
+    // ── Injected deps (D8b-2) ────────────────────────────────────────────────
     // Null until attach(); dereferenced only after App::run has wired them.
     ThreadPool *pool_ = nullptr;
     SubtitleManager *subtitle_mgr_ = nullptr;
     TranscriptionEngine *transcription_engine_ = nullptr;
-    std::function<void(TreeNodePtr)> set_playback_node_;
-    std::function<void(bool)> set_pending_;        // true → BUFFERING (stamps start); false → clear
-    std::function<void(AppMode)> set_playback_mode_;
-    std::function<void()> on_history_changed_;
 };
 
 } // namespace panicast

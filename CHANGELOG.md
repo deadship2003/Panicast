@@ -4,6 +4,36 @@
 
 ---
 
+## 新架构 D9-1 — 2026-08-07 — 播放事件上总线，替代 D8b-2 回调缝（UI 解耦 · D9 增量1）
+
+> M1（UI 解耦）第 6 步。建立输出侧（Core→App）事件通道：PlaybackService 经 EventBus 发播放状态事件，App 订阅——删除 D8b-2 的临时回调缝。总线同步派发，行为零变化。
+
+### 新增事件类型（`include/panicast/app/playback_events.h`）
+- `PlaybackTrackChanged { TreeNodePtr node; AppMode mode; }`——新轨道成为播放指针（源节点 + 跳回 'N' 用的 mode）。替代 `set_playback_node_` + `set_playback_mode_`（二者总是一前一后）。
+- `PlaybackBufferingChanged { bool pending; }`——BUFFERING 标志翻转（true 时订阅方盖 `playback_pending_start_`；false→BROWSING）。替代 `set_pending_`。
+- `HistoryChanged {}`——播放历史 DB 变更（订阅方异步重建历史树）。替代 `on_history_changed_`。
+
+### PlaybackService（回调 → publish）
+- `attach()` 瘦身：去掉 4 个 `std::function` 回调形参，只留 `(ThreadPool&, SubtitleManager&, TranscriptionEngine&)` 三指针注入。
+- `play_current`/`on_playback_ended`：`set_playback_node_+set_playback_mode_` → `publish(PlaybackTrackChanged{...})`；`set_pending_(x)` → `publish(PlaybackBufferingChanged{x})`。
+- `record_play_history`：`pool_->submit([this]{ on_history_changed_(); })` → `pool_->submit([this]{ publish(HistoryChanged{}); })`。
+- `playback_service.h` 去掉 `<functional>` 与 4 个回调成员。
+
+### App（订阅替代回调）
+- `run()`：`playback_.attach(pool_, subtitle_mgr_, transcription_engine_)`（3 参）；新增 3 个 `EventBus::subscribe`（token 入 `action_subs_`）：`PlaybackTrackChanged`→`playback_node`+`playback_mode_`；`PlaybackBufferingChanged`→`playback_pending_(_start_)`；`HistoryChanged`→`load_history_to_root()`。
+
+### 等价性 / 线程
+- EventBus `publish` **同步**派发在调用线程 → 与回调的线程/顺序完全一致：`play_current`/`on_playback_ended` 在 UI 线程 publish（订阅方在 UI 线程更新手柄）；`record_play_history` 在 pool 线程 publish `HistoryChanged`（订阅方在 pool 线程跑 `load_history_to_root`，同旧）。D4 不变量保持。
+
+### 测试
+- `tests/test_units.cpp` +`TEST(PlaybackEvents, DeliveredOnBus)`：三事件在总线上的 round-trip（delivery + payload）。
+
+### 验收
+- ctest 39/39、构建 0-warning（-Wall -Wextra -Wpedantic，含 test_units）、pty 冒烟（启动→订阅接线→主循环渲染→q/y 退出，exit 0 + clean endwin）。
+
+### 意义
+- 输出侧 service→App 事件通道建立；D8b-2 的临时回调缝删除（消息总线成 service→App 唯一通道）。为 D9-2（事件驱动 UI 展示 + 把运行时手柄迁入服务私有化）铺路。
+
 ## 新架构 D8b-2 — 2026-08-07 — PlaybackService 接管播放/自动进阶逻辑（UI 解耦 · D8 增量2b）
 
 > M1（UI 解耦）第 5 步（D8 增量2 的第二刀）。把播放**逻辑**迁入 PlaybackService（队列状态已在 D8b-1 内）；运行时手柄经回调缝写回 App，读取点留 D9。

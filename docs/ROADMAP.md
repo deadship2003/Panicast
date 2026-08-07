@@ -46,9 +46,14 @@
   - **回调缝（Option Y）**：迁移的方法对运行时手柄只**写**不读 → 回调即够；读取点（app_input 21× playback_node、app_run 状态机读 pending、nav/remote）暂不动，避免 ~50 个低价值改名（D9 事件层替代直接读时再迁入并私有化）。`play_mode` 是设置、留 App、按调用传入（play_current/on_playback_ended 各加 mode+play_mode 形参）。
   - **D4 不变量保持**：`on_playback_ended` 现为 PlaybackService 方法，但仍只在 UI 线程跑（app_run 的 `pending_end_reason_` drain 调 `playback_.on_playback_ended(reason,mode,play_mode)`），绝不跑在 mpv 事件线程。
   - **验收**：ctest 38/38、构建 0-warning、pty 冒烟（启动→attach→主循环渲染→q/y 退出，exit 0 + clean endwin）。
-- [ ] **D9 — 事件层（输出侧）：Service 发事件，UI 订阅**
-  - 定义播放/库事件（`PlaybackStateChanged` / `MediaLoaded` / …）；PlaybackService 发；UI 订阅更新展示状态（逐步替代直接 `get_state` 轮询的对应部分）。
-  - **验收**：UI 对应展示经事件更新；输出侧总线闭环。
+- [x] **D9-1 — 播放事件上总线，替代 D8b-2 回调缝（D9 增量1）** ✅ 2026-08-07
+  - 新 `include/panicast/app/playback_events.h`：输出侧（Core→App）事件 `PlaybackTrackChanged{node,mode}` / `PlaybackBufferingChanged{pending}` / `HistoryChanged{}`。
+  - PlaybackService 在 `play_current`/`on_playback_ended`/`record_play_history` 处 `EventBus::publish` 这些事件（替代 D8b-2 的 4 个 `attach()` 回调）；`attach()` 瘦身为只注入 pool_/subtitle/transcription 三指针。
+  - App 在 `run()` 订阅三事件 → 更新 `playback_node`/`playback_mode_`、`playback_pending_(_start_)`、`load_history_to_root`（订阅 token 入 `action_subs_`）。总线**同步派发** → 线程/顺序与回调完全等价（行为零变化）。
+  - **验收**：ctest 39/39（+`PlaybackEvents.DeliveredOnBus` 用例）、构建 0-warning、pty 冒烟 exit 0；输出侧 service→App 事件通道建立，D8b-2 回调缝删除。
+- [ ] **D9-2 — 事件驱动 UI 展示 + 运行时手柄私有化（D9 增量2，待续）**
+  - D9-1 的事件让 UI 可经事件/快照读状态 → 把 `playback_node`/`playback_pending_(_start_)`/`playback_mode_` 迁入 PlaybackService 私有化；UI/remote 订阅 `PlaybackTrackChanged` 等更新展示，逐步替代 app_run 每帧 `player.get_state()` 轮询的对应部分。
+  - **验收**：UI 对应展示经事件更新；输出侧总线闭环（service→UI）。
 - [ ] **D10 — 抽更多 Services + UI 订阅其事件**
   - `LibraryService` / `SearchService` / `SubtitleService` / `AccountService` … 从 App 抽出（持状态、处理 Action、发事件）；UI 订阅对应事件。（每 Service 一进步、可多日）
   - **验收**：对应功能经 Service+事件工作。

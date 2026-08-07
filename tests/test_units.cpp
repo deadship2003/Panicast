@@ -8,6 +8,7 @@
 #include <vector>
 #include <cstring>
 
+#include "panicast/app/playback_events.h"
 #include "panicast/core/event_bus.h"
 #include "panicast/core/event_log.h"
 #include "panicast/net/proxy_manager.h"
@@ -373,6 +374,36 @@ TEST(EventBus, LogEventRouting) {
     bus.publish(panicast::LogEvent{"hello-bus"});
     EXPECT_EQ(received, "hello-bus");
     bus.unsubscribe(tok);
+}
+
+// ─── Playback events (D9: output-side Core→App messages on the bus) ───────────
+TEST(PlaybackEvents, DeliveredOnBus) {
+    // The D9 event types PlaybackService publishes; App subscribes. A nullptr node is fine here —
+    //   we verify bus delivery + payload, not node validity.
+    auto &bus = panicast::EventBus::instance();
+    panicast::AppMode got_mode = panicast::AppMode::RADIO;
+    bool got_pending = false, track_hit = false;
+    int history_hits = 0;
+
+    auto t1 = bus.subscribe<panicast::PlaybackTrackChanged>(
+        [&](const panicast::PlaybackTrackChanged &e) { track_hit = true; got_mode = e.mode; });
+    auto t2 = bus.subscribe<panicast::PlaybackBufferingChanged>(
+        [&](const panicast::PlaybackBufferingChanged &e) { got_pending = e.pending; });
+    auto t3 = bus.subscribe<panicast::HistoryChanged>(
+        [&](const panicast::HistoryChanged &) { ++history_hits; });
+
+    bus.publish(panicast::PlaybackTrackChanged{panicast::TreeNodePtr{}, panicast::AppMode::IPTV});
+    bus.publish(panicast::PlaybackBufferingChanged{true});
+    bus.publish(panicast::HistoryChanged{});
+
+    EXPECT_TRUE(track_hit);
+    EXPECT_EQ(got_mode, panicast::AppMode::IPTV);
+    EXPECT_TRUE(got_pending);
+    EXPECT_EQ(history_hits, 1);
+
+    bus.unsubscribe(t1);
+    bus.unsubscribe(t2);
+    bus.unsubscribe(t3);
 }
 
 // ─── ProxyManager tests (D2: Connectivity layer rule chain) ───────────────────

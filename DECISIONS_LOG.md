@@ -1,4 +1,23 @@
 
+## D9-1 — 播放事件上总线，替代 D8b-2 回调缝（M1 第 6 人日，D9 增量1）
+
+**Context:** D8b-2 把播放逻辑迁入 PlaybackService，运行时手柄（playback_node/playback_pending_(_start_)/playback_mode_）经 4 个 `attach()` 回调写回 App——这是临时缝，文档标注"D9 事件层替代"。D9 起做输出侧事件层（Core→UI）。完整 D9（UI 展示全经事件、替代每帧 `player.get_state()` 轮询）很大；先做最自然的一刀：把 D8b-2 回调缝换成类型化总线事件，建立 service→App 事件通道。
+
+**Approach（回调缝 → 类型化总线事件，行为零变化）:**
+- 新 `playback_events.h` 三事件：`PlaybackTrackChanged{node,mode}`（合并 set_playback_node_+set_playback_mode_，二者总是一前一后）、`PlaybackBufferingChanged{pending}`（替 set_pending_）、`HistoryChanged{}`（替 on_history_changed_）。
+- PlaybackService：`attach()` 去掉 4 个 std::function 形参，只留三指针注入；play_current/on_playback_ended/record_play_history 改 `EventBus::publish`。
+- App：`run()` 加 3 个 `EventBus::subscribe`（token 入 action_subs_），订阅体即原回调体（更新 playback_node/playback_mode_、playback_pending_(_start_)、load_history_to_root）。
+- **等价性靠总线的同步语义**：`publish` 在调用线程同步派发 → 线程/顺序与回调完全一致（play_current/on_playback_ended 在 UI 线程；record_play_history 的 HistoryChanged 在 pool 线程）。D4 不变量保持。无需 post/drain（那是跨线程→UI 投递才需要的，本刀订阅方就是 App 自身、跑在发布线程）。
+- 加 `TEST(PlaybackEvents, DeliveredOnBus)` 守护事件类型可上总线 + delivery。
+
+**Why-not 直接做 UI 展示事件化：** 那需先把手柄私有化进服务 + 改 UI/remote 读取点（app_run 每帧状态机、app_input 21×、draw 调用），耦合大、动 D4 现场。本刀只换"写回通道"（回调→事件），读取点零改动，低风险、可独立验证；事件类型与 publish/subscribe 框架正是 D9-2 要复用的。
+
+**Verification:** ctest 39/39；构建 0-warning（含 test_units）；pty 冒烟（exit 0 + clean endwin）。
+
+**Followups:** D9-2——把运行时手柄迁入 PlaybackService 私有化（事件让 UI 可经快照读、不再直读 App 成员），UI/remote 订阅事件更新展示、逐步替代 `player.get_state()` 轮询对应部分。
+
+---
+
 ## D8b-2 — 播放/自动进阶逻辑迁入 PlaybackService，运行时手柄经回调缝（M1 第 5 人日，D8 增量2b）
 
 **Context:** D8b-1 把队列状态所有权迁入 PlaybackService 后，D8b-2 本应把 `play_current`/`on_playback_ended` 及其同写的运行时手柄（`playback_node`/`playback_pending_(_start_)`/`playback_mode_`）一并迁入。原 ROADMAP 设想"手柄与 play_current 同写、须一起迁避免 App 反向依赖"。但摸底发现：这些手柄在迁移的方法里**只写不读**——读取全在 App（app_input 21× 读 playback_node、app_run 每帧状态机读 playback_pending_、nav/remote）。若把手柄物理迁入服务，需新增 ~50 个 `playback_.playback_node()` 之类访问器读取点改名，纯属 churn（D9 事件层本就要用事件替代这些直接读）。
