@@ -183,10 +183,10 @@ private:
 
     // D8b-1: the implicit-playlist QUEUE STATE (current_playlist / current_index /
     //   shuffle_queue_ / playlist_mutex_) moved into PlaybackService. D9-2: the "what's playing"
-    //   track handles (playback_node / playback_mode_) moved in too — read via
-    //   playback_.playback_node() / playback_.playback_mode(). App still holds the global play_mode
-    //   (a setting written from several input sites) and the BUFFERING handle
-    //   playback_pending_(_start_) (also written by the run-loop state machine → D9-3).
+    //   track handles (playback_node / playback_mode_) moved in too. D9-3: the BUFFERING handle
+    //   playback_pending_(_start_) + its state machine moved in (advance_buffering). App now holds
+    //   only the global play_mode (a setting written from several input sites) — NO playback-state
+    //   member remains here.
     PlayMode play_mode = PlayMode::CYCLE; // global play mode (persisted in INI [playback] mode)
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -387,9 +387,8 @@ private:
     // Y24.7: transcript load/offset/status moved to SubtitleManager (subtitle_mgr_).
     //   (D8b-2: the load_transcript/probe_local_sidecar delegates were removed — PlaybackService
     //   calls subtitle_mgr_ directly now.)
-    // Y23.9: BUFFERING state — keep BUFFERING until mpv reports has_media (or timeout/error).
-    bool playback_pending_ = false;
-    std::chrono::steady_clock::time_point playback_pending_start_;
+    // Y23.9/D9-3: BUFFERING state (playback_pending_(_start_) + the 30s timeout / has_media logic)
+    //   moved into PlaybackService (advance_buffering). App owns NO playback-state member now.
     void perform_youtube_search(const std::string &preset = "");
     // Y15: B-mode (Bilibili) — login (QR + cookie import), browse (following), search, play.
     void load_bilibili_root();

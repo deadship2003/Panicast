@@ -7,18 +7,19 @@
 //     resolve_youtube_url. pool_ / subtitle / transcription deps are injected late via attach()
 //     (declared AFTER playback_ in App, so they can't be construction-time references).
 // The mpv command worker (in MPVController) executes player calls off the UI thread.
-// State ownership (D9-2): the "what's playing" runtime handles — playback_node_ / playback_mode_ —
-//   live HERE as private state, queried via the playback_node() / playback_mode() accessors; App
-//   reads them through these instead of mirroring its own copy. playback_pending_(_start_) (the
-//   BUFFERING handle, also written by app_run's per-frame state machine) still lives in App — D9-3.
-//   State CHANGES are announced on the EventBus (D9): PlaybackTrackChanged / PlaybackBufferingChanged
-//   / HistoryChanged (playback_events.h). The track/buffering events are the reactor channel for
-//   future direct UI/remote subscribers (D10+); App no longer mirrors them (it polls the accessor
-//   from its frame loop). HistoryChanged is consumed by App to rebuild the history tree. play_mode
-//   is a setting kept in App, passed into each call.
+// State ownership (D9-2/D9-3): ALL playback runtime state lives HERE as private members —
+//   playback_node_ / playback_mode_ (the "what's playing" track handles, D9-2, queried via
+//   playback_node() / playback_mode()) and playback_pending_(_start_) (the BUFFERING handle, D9-3,
+//   driven per-frame by advance_buffering()). App owns NO playback-state member. State CHANGES are
+//   announced on the EventBus (D9): PlaybackTrackChanged / PlaybackBufferingChanged / HistoryChanged
+//   (playback_events.h) — the track/buffering events are the reactor channel for future direct
+//   UI/remote subscribers (D10+); App no longer subscribes to them (it reads accessors / calls
+//   advance_buffering from its frame loop). HistoryChanged is consumed by App to rebuild the history
+//   tree. play_mode is a setting kept in App, passed into each call.
 //   (D8/D9 — UI-decoupling M1.)
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <deque>
 #include <mutex>
@@ -88,11 +89,17 @@ public:
         return playback_mode_;
     }
 
+    // ── Buffering state (D9-3, moved out of App) ──────────────────────────────
+    // Per-frame buffering-lifecycle tick (called from App's run loop with mpv's has_media). Owns
+    //   playback_pending_(_start_): a just-started track is "pending" until mpv reports it loaded
+    //   (or 30s timeout). Returns true while still pending (→ App shows BUFFERING); false once loaded
+    //   (→ App derives PLAYING/PAUSED from mpv) or idle/timed-out (→ BROWSING). Logs the buffering
+    //   duration on the pending→loaded transition and on the 30s timeout.
+    bool advance_buffering(bool mpv_has_media);
+
     // ── Playback / autoplay logic (D8b-2, moved from app_playback.cpp) ────────
     // Inject the services declared after playback_ in App (they can't be construction-time refs).
-    //   State changes are announced on the EventBus (D9 — see playback_events.h), NOT via callbacks:
-    //   App subscribes to PlaybackTrackChanged / PlaybackBufferingChanged / HistoryChanged.
-    // Must be called once before any playback (App::run wires it right after playback_.init()).
+    //   Must be called once before any playback (App::run wires it right after playback_.init()).
     void attach(ThreadPool &pool, SubtitleManager &subtitle_mgr,
                 TranscriptionEngine &transcription_engine);
     // Play a single item by index. mode = active App mode (IPTV flag); play_mode = loop setting.
@@ -120,6 +127,14 @@ private:
     // ── Track state (D9-2, moved out of App) ─────────────────────────────────
     TreeNodePtr playback_node_;              // source node of the playing item (INFO title, ASR)
     AppMode playback_mode_ = AppMode::RADIO; // mode when playback started (for N = jump-to-playing)
+
+    // ── Buffering state (D9-3, moved out of App) ─────────────────────────────
+    bool playback_pending_ = false;
+    std::chrono::steady_clock::time_point playback_pending_start_;
+    // Single funnel for a buffering-state change: write playback_pending_(_start_) + publish
+    //   PlaybackBufferingChanged (the reactor channel). Called from play_current / on_playback_ended
+    //   / advance_buffering.
+    void set_buffering_(bool pending);
 
     // Pick one random index in [0, size) avoiding `avoid` when possible.
     int random_peer_index(int avoid) const;

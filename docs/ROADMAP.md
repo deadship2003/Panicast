@@ -55,9 +55,11 @@
   - `playback_node`/`playback_mode_` 迁入 PlaybackService 作私有状态（`playback_node_`/`playback_mode_`），在 `play_current`/`on_playback_ended` 直接写入；新增只读访问器 `playback_node()`/`playback_mode()`。App 删除这两个镜像成员 + `PlaybackTrackChanged` 订阅，改经访问器读（draw / `'N'` jump / remote / ASR 各读取点）。`PlaybackTrackChanged` 保留 publish（未来 remote/UI 直订的 reactor 通道，单测覆盖）。
   - `playback_pending_(_start_)`（BUFFERING 手柄，还被 app_run 每帧状态机直写 + 30s 超时）暂留 App → **D9-3**（同 D8b-1/D8b-2 的"干净一刀 + 敏感一刀分拆"原则）。
   - **验收**：ctest 39/39、构建 0-warning、pty 冒烟 exit 0；PlaybackService 为"在播曲目"状态唯一所有者，App 经访问器读、不再镜像。
-- [ ] **D9-3 — BUFFERING 手柄私有化 + 状态机收尾（D9 增量2b，待续）**
-  - 把 `playback_pending_(_start_)` 迁入 PlaybackService（私有 + `playback_pending()`/`playback_pending_since()`/`clear_playback_pending()` 接口），app_run 每帧状态机的 pending 读/写改走 service；评估把 30s 超时逻辑也收进 service。删除 App 的 `PlaybackBufferingChanged` 订阅 + pending 成员。
-  - **验收**：ctest 绿、构建 0-warning、冒烟正常；PlaybackService 持全部播放运行时状态，App 不再直接写任何播放手柄。
+- [x] **D9-3 — BUFFERING 手柄 + 状态机迁入 PlaybackService（D9 增量2b）** ✅ 2026-08-07
+  - `playback_pending_(_start_)` 迁入 PlaybackService 私有；新增 **`advance_buffering(bool mpv_has_media)→bool`**——把 app_run 每帧状态机的 pending 生命周期（置位 / has_media 清除 / 30s 超时 / 一次性 buffering 时长日志）**整段逻辑**搬进服务，逐帧等价（5-case 验证）。私有 `set_buffering_(bool)` 单漏斗：写成员 + publish `PlaybackBufferingChanged`（reactor 通道）。`play_current`/`on_playback_ended` 的 3 处 publish 改走 `set_buffering_`。
+  - App 删 `playback_pending_(_start_)` 成员 + `PlaybackBufferingChanged` 订阅；app_run 状态机精简为 `if (advance_buffering(has_media)) BUFFERING; else if (has_media) PLAYING/PAUSED/(idle)BUFFERING; else BROWSING`。PLAYING/PAUSED 仍从 mpv 派生（非 pending 状态）。
+  - **D9 完成**：PlaybackService 持**全部**播放运行时状态（队列 + track 手柄 + buffering 手柄/状态机），App 不再直接写任何播放手柄、不再订 track/buffering 事件（只留 `HistoryChanged` 重建历史树）。track/buffering 事件保留 publish 作 D10+ remote/UI reactor 通道。
+  - **验收**：ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin。
 - [ ] **D10 — 抽更多 Services + UI 订阅其事件**
   - `LibraryService` / `SearchService` / `SubtitleService` / `AccountService` … 从 App 抽出（持状态、处理 Action、发事件）；UI 订阅对应事件。（每 Service 一进步、可多日）
   - **验收**：对应功能经 Service+事件工作。

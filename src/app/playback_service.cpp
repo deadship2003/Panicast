@@ -134,6 +134,48 @@ void PlaybackService::attach(ThreadPool &pool, SubtitleManager &subtitle_mgr,
     transcription_engine_ = &transcription_engine;
 }
 
+// D9-3: single funnel for a buffering-state change — write playback_pending_(_start_) AND publish
+//   PlaybackBufferingChanged (the reactor channel for future remote/UI subscribers). Replaces the
+//   D9-1 publish-only sites in play_current / on_playback_ended: the state is now service-owned, so
+//   the write lives here (not in an App subscription).
+void PlaybackService::set_buffering_(bool pending) {
+    playback_pending_ = pending;
+    if (pending)
+        playback_pending_start_ = std::chrono::steady_clock::now();
+    EventBus::instance().publish(PlaybackBufferingChanged{pending});
+}
+
+// D9-3: per-frame buffering-lifecycle tick (moved verbatim from app_run's app_state state machine,
+//   which used to read/write App's playback_pending_(_start_) directly). Called once per frame from
+//   App's run loop with mpv's has_media, on the UI thread (D4 invariant unaffected — same thread the
+//   inline logic ran on). Returns true while a just-started track is still pending mpv load (<30s);
+//   false once loaded (App derives PLAYING/PAUSED from mpv) or idle/timed-out (App shows BROWSING).
+//   Logs the buffering duration on the pending→loaded transition (Y24.17, once) and on 30s timeout.
+bool PlaybackService::advance_buffering(bool mpv_has_media) {
+    if (mpv_has_media) {
+        if (playback_pending_) {
+            auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - playback_pending_start_)
+                                .count();
+            LOG(fmt::format("[PLAY] BUFFERING cleared: total {}ms (sync steps above + mpv load)",
+                            total_ms));
+            if (total_ms > 2000)
+                EVENT_LOG(fmt::format("BUFFERING {}ms (see panicast.log for breakdown)", total_ms));
+            set_buffering_(false); // Y23.9: mpv has media → clear pending
+        }
+        return false; // media loaded → not pending (App derives PLAYING/PAUSED from mpv)
+    }
+    if (!playback_pending_)
+        return false; // idle → not pending
+    // Y23.9: playback initiated but mpv hasn't loaded yet → BUFFERING. Timeout 30s → clear + give up.
+    if (std::chrono::steady_clock::now() - playback_pending_start_ > std::chrono::seconds(30)) {
+        set_buffering_(false);
+        EVENT_LOG("Playback pending timeout (30s) — stream may have failed");
+        return false; // timed out → App shows BROWSING
+    }
+    return true; // still pending/buffering
+}
+
 // Playback-ended handler. Runs ONLY on the UI thread (D4 invariant): the mpv event thread merely
 //   queues the END_FILE reason in App, which drains it here each frame (running it on the mpv
 //   thread under playlist_mutex_ contended the UI draw lock and froze the TUI after pause).
@@ -145,8 +187,7 @@ void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_
     transcription_engine_->stop_realtime(); // Y24.20: stop realtime transcription on track end
     std::lock_guard<std::mutex> pl_lock(playlist_mutex_);
     if (reason != 0) {
-        EventBus::instance().publish(  // Y23.9: error/stop → clear pending (back to BROWSING)
-            PlaybackBufferingChanged{false});
+        set_buffering_(false); // Y23.9: error/stop → clear pending (back to BROWSING)
         // Y24.8: human-readable reason (was raw "reason=X, ignored"). reason 0=EOF (advances),
         //   2=stop, 3=quit, 4=error, 5=redirect — none advance the queue.
         LOG(fmt::format("[AUTOPLAY] End file: {} — not advancing",
@@ -200,8 +241,7 @@ void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_
     // Y24.55: keep IPTV context flag in sync on auto-advance (same reasoning as play_current).
     player_.set_iptv_context(mode == AppMode::IPTV);
     subtitle_mgr_->load_async(next_node, *pool_); // Y23.4: load transcript for the advanced track (method B)
-    EventBus::instance().publish(  // Y23.9: BUFFERING until mpv loads the next track
-        PlaybackBufferingChanged{true});
+    set_buffering_(true); // Y23.9: BUFFERING until mpv loads the next track
 
     // Play the next track inline (must NOT call play_current — it also locks playlist_mutex_
     //   (non-recursive) and would deadlock).
@@ -467,7 +507,7 @@ void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
     // Y23.9: BUFFERING state — set pending before play; cleared when mpv reports has_media.
     // Y24.17: timestamp each step so panicast.log shows WHERE the wait goes (sync fs::exists/DB vs
     //   mpv load). >5s on a local file is abnormal — this pinpoints it.
-    EventBus::instance().publish(PlaybackBufferingChanged{true});
+    set_buffering_(true); // Y23.9: BUFFERING state — set pending before play; cleared when mpv reports has_media
     auto play_t0 = std::chrono::steady_clock::now();
     auto ms_since = [&]() {
         return std::chrono::duration_cast<std::chrono::milliseconds>(

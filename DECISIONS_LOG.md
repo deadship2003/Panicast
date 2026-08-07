@@ -1,4 +1,23 @@
 
+## D9-3 — BUFFERING 手柄 + 状态机迁入 PlaybackService（M1 第 8 人日，D9 增量2b · D9 收官）
+
+**Context:** D9-2 把"在播"track 手柄（playback_node/mode_）私有化进服务后，只剩 BUFFERING 手柄 `playback_pending_(_start_)` 还在 App。它与前两个不同：不仅被服务（play_current/on_playback_ended 经事件）写，还被 **app_run 每帧状态机直写**（mpv 报 has_media→清、30s 超时→清），且 30s 超时 + 一次性 buffering 时长日志逻辑嵌在状态机里——是 D4 现场（on_playback_ended 线程亲和）附近的敏感区。ROADMAP 原设想只搬状态 + 加 `playback_pending()`/`playback_pending_since()`/`clear_playback_pending()` 访问器、状态机读写改走访问器（仍由 App 驱动清除）。
+
+**Approach（搬状态 + 整段搬逻辑，非仅访问器）:**
+- `playback_pending_(_start_)` 迁入服务私有；新增 **`advance_buffering(bool mpv_has_media)→bool`**——把状态机的 pending 生命周期**整段逻辑**（置位/has_media 清除/30s 超时/时长日志）搬进服务，逐字保留。app_run 状态机精简为调用 advance_buffering + 从 mpv 派生 PLAYING/PAUSED。
+- 私有 `set_buffering_(bool)` 单漏斗：写成员 + publish `PlaybackBufferingChanged`。play_current/on_playback_ended 的 3 处 publish 改走它；advance_buffering 的清除也走它（保证事件反映真实状态、单点变更）。
+- App 删 pending 成员 + `PlaybackBufferingChanged` 订阅。
+
+**Why 搬逻辑而非仅访问器：** 仅访问器方案（ROADMAP 原案）下 App 仍调 `clear_buffering()` 决定何时清——仍"写"播放状态（只是经方法），且 30s/时长日志留 app_run、状态分散。搬逻辑方案把 buffering 状态机**整体**收进服务（它是纯播放关注点：何时在加载、何时加载完、何时放弃），App 只剩"从 mpv 派生 PLAYING/PAUSED"（mpv 状态、非 pending），边界更干净，真正满足"App 不再直接写任何播放手柄"。搬迁是机械的（逻辑自含、无新分支）、逐帧 5-case 等价，且 advance_buffering 跑在 app_run 主循环 = UI 线程，**D4 不变量不受影响**（on_playback_ended 线程亲和未动；advance_buffering 是新方法、本就在 UI 线程跑）。
+
+**等价性：** 见 CHANGELOG 5-case 表——advance_buffering 的返值 + App 对 has_media 的复检，与原三分支状态机在每个 (has_media, pending, 超时) 组合下产出同一 app_state、同一日志。set_buffering_ 的 publish 无订阅方（App 已退订）→ no-op，行为零变化。
+
+**Verification:** ctest 39/39；构建 0-warning（-Wall -Wextra -Wpedantic）；pty 冒烟 exit 0 + clean endwin。
+
+**Followups:** D9 完成——PlaybackService 独占全部播放运行时状态。下一步 **D10**（抽 LibraryService/SearchService/SubtitleService/AccountService + UI/remote 直订 track/buffering 事件，让保留的事件通道有真实消费者）。
+
+---
+
 ## D9-2 — "在播"手柄迁入 PlaybackService 私有化（M1 第 7 人日，D9 增量2a）
 
 **Context:** D9-1 把 D8b-2 回调缝换成总线事件后，"在播曲目"运行时手柄（`playback_node`/`playback_mode_`）仍是 App 成员、由 `PlaybackTrackChanged` 订阅镜像——App 事实持有状态、服务只 publish。这与"PlaybackService 是播放 Application Service、应拥有其全部状态"的 M1 目标不符。ROADMAP D9-2 原设想一把迁全部 4 个手柄（含 `playback_pending_(_start_)`）+ UI 展示事件化。

@@ -4,6 +4,44 @@
 
 ---
 
+## 新架构 D9-3 — 2026-08-07 — BUFFERING 手柄 + 状态机迁入 PlaybackService（UI 解耦 · D9 增量2b · D9 完成）
+
+> M1（UI 解耦）第 8 步，**D9 收官**。把 BUFFERING 运行时手柄 `playback_pending_(_start_)` 及其每帧状态机逻辑（pending 生命周期 + 30s 超时 + 一次性 buffering 时长日志）从 app_run 整段迁入 PlaybackService。App 不再持有/直接写任何播放运行时状态。行为零变化（逐帧 5-case 等价）。
+
+### PlaybackService（拥有 buffering 状态 + 状态机）
+- 新增私有成员 `playback_pending_`（bool）/ `playback_pending_start_`（steady_clock::time_point，header 加 `<chrono>`）。
+- 新增 **`bool advance_buffering(bool mpv_has_media)`**：逐帧 buffering 生命周期 tick。`play_current`/`on_playback_ended` 启动加载时置 pending；mpv 报 has_media → 清 pending + 记一次 buffering 时长（Y24.17）；30s 超时 → 清 + 日志（Y23.9）。返回 true=仍在 pending（App 显 BUFFERING）。逻辑**逐字**自 app_run 状态机搬入，UI 线程跑（D4 不变量保持）。
+- 新增私有 **`set_buffering_(bool)`** 单漏斗：写 `playback_pending_(_start_)` + publish `PlaybackBufferingChanged`（reactor 通道）。`play_current`（1×）、`on_playback_ended`（advance 1× + error 1×）原 3 处 `publish(PlaybackBufferingChanged{...})` 改调 `set_buffering_`；`advance_buffering` 的清除也走它。
+
+### App（删最后播放状态成员 + 状态机精简）
+- `app.h`：删 `playback_pending_` / `playback_pending_start_`；注释更新为"App 现仅持 play_mode（设置），无任何播放状态成员"。
+- `app_run.cpp`：删 `PlaybackBufferingChanged` 订阅块；状态机由原 3 分支（has_media / pending / else）精简为：
+  ```
+  if (playback_.advance_buffering(state.has_media))      BUFFERING;   // pending, mpv 仍加载中
+  else if (state.has_media)                              PLAYING/PAUSED/(idle)BUFFERING;  // 从 mpv 派生
+  else                                                  BROWSING;    // 含刚超时的 pending
+  ```
+  PLAYING/PAUSED/(mpv-idle)BUFFERING 仍从 `state.core_idle`/`state.paused` 派生（非 pending 状态，留 app_run）。`HistoryChanged` 订阅保留（重建历史树）。
+
+### 等价性（逐帧 5-case）
+| 场景 | 旧行为 | 新行为 |
+|---|---|---|
+| has_media + pending | 记时长、清 pending、mpv 派生 | advance(true) 内记时长+清、返 false→mpv 派生 ✓ |
+| has_media + !pending | mpv 派生 | advance(true) 返 false→mpv 派生 ✓ |
+| !has_media + pending(<30s) | BUFFERING | advance(false) 返 true→BUFFERING ✓ |
+| !has_media + pending(≥30s) | 清+日志、BROWSING | advance(false) 内清+日志、返 false→BROWSING ✓ |
+| !has_media + !pending | BROWSING | advance(false) 返 false→BROWSING ✓ |
+
+线程同旧（advance_buffering 在 app_run 主循环 = UI 线程；set_buffering_ 的 publish 同步、无订阅方→no-op）。D4 不变量保持。
+
+### D9 收官
+- PlaybackService 现**独占全部播放运行时状态**：队列（D8b-1）+ track 手柄（D9-2）+ buffering 手柄/状态机（D9-3）。App 持 play_mode（设置，按调用传入）+ 树逻辑（build_peer_list/is_playable_node/play_episode），订 `HistoryChanged` 重建历史树。track/buffering 事件保留 publish，待 D10+ remote/UI 直订。
+
+### 测试
+- ctest 39/39（无新增——逻辑搬迁、无新分支）；构建 0-warning（-Wall -Wextra -Wpedantic）；pty 冒烟 exit 0 + clean endwin（首跑一次 WSL2 启动抖动超时，连跑 3 次全绿）。
+
+---
+
 ## 新架构 D9-2 — 2026-08-07 — "在播"手柄迁入 PlaybackService 私有化（UI 解耦 · D9 增量2a）
 
 > M1（UI 解耦）第 7 步。把"在播曲目"运行时手柄 `playback_node`/`playback_mode_` 的所有权从 App 迁入 PlaybackService（私有 + 只读访问器）；App 删除镜像成员与 `PlaybackTrackChanged` 订阅，改经访问器读。行为零变化。BUFFERING 手柄 `playback_pending_(_start_)` 还被 app_run 每帧状态机直写，留 D9-3。

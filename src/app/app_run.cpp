@@ -86,19 +86,11 @@ void App::run() {
     //   them via playback_.playback_node() / playback_.playback_mode(). Must run before the loop.
     playback_.attach(pool_, subtitle_mgr_, transcription_engine_);
     // D9: subscribe to the playback state events App still consumes locally. The bus is
-    //   synchronous, so these run on the publisher's thread (UI thread for buffering; pool thread
-    //   for history). D9-2: PlaybackTrackChanged no longer needs an App subscriber — the track
-    //   handles moved into the service (App reads the accessor); the event stays published as the
-    //   reactor channel for future direct UI/remote subscribers (D10+).
-    action_subs_.push_back(EventBus::instance().subscribe<PlaybackBufferingChanged>(
-        [this](const PlaybackBufferingChanged &e) {
-            if (e.pending) {
-                playback_pending_ = true;
-                playback_pending_start_ = std::chrono::steady_clock::now();
-            } else {
-                playback_pending_ = false;
-            }
-        }));
+    //   synchronous, so these run on the publisher's thread (pool thread for history). D9-2/D9-3:
+    //   PlaybackTrackChanged / PlaybackBufferingChanged no longer need App subscribers — the track
+    //   and buffering state moved into the service (App reads accessors / calls advance_buffering);
+    //   both events stay published as the reactor channel for future direct UI/remote subscribers
+    //   (D10+). Only HistoryChanged is still consumed here (rebuild the history tree).
     action_subs_.push_back(EventBus::instance().subscribe<HistoryChanged>(
         [this](const HistoryChanged &) { load_history_to_root(); }));
     // D7: Keymap (key→Action) + nav input Actions.
@@ -249,21 +241,15 @@ void App::run() {
 
         // Improved state-detection logic to correctly show Navigating/Buffering/Playing/Pause
         // Add List-mode detection
+        // D9-3: the buffering lifecycle (pending + 30s timeout + has_media clear + the one-time
+        //   buffering-duration log) moved into PlaybackService::advance_buffering — App owns no
+        //   playback-state member. It returns true while a just-started track is still pending mpv
+        //   load (<30s); the PLAYING/PAUSED vs mpv-idle-BUFFERING distinction still derives from mpv
+        //   here (core_idle/paused). Runs on the UI thread (D4 invariant unaffected).
         AppState app_state;
-        if (state.has_media) {
-            // Y24.17: log BUFFERING duration ONCE (on the pending→cleared transition, not every frame).
-            if (playback_pending_) {
-                auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                    std::chrono::steady_clock::now() - playback_pending_start_)
-                                    .count();
-                LOG(fmt::format(
-                    "[PLAY] BUFFERING cleared: total {}ms (sync steps above + mpv load)",
-                    total_ms));
-                if (total_ms > 2000)
-                    EVENT_LOG(
-                        fmt::format("BUFFERING {}ms (see panicast.log for breakdown)", total_ms));
-            }
-            playback_pending_ = false; // Y23.9: mpv has media → clear pending
+        if (playback_.advance_buffering(state.has_media)) {
+            app_state = AppState::BUFFERING; // playback initiated, mpv still loading (<30s)
+        } else if (state.has_media) {
             if (state.core_idle && !state.paused) {
                 // Has media, idle and not paused = buffering
                 app_state = AppState::BUFFERING;
@@ -274,19 +260,8 @@ void App::run() {
                 // Has media, playing
                 app_state = AppState::PLAYING;
             }
-        } else if (playback_pending_) {
-            // Y23.9: playback initiated but mpv hasn't loaded yet → BUFFERING (not BROWSING).
-            // Timeout 30s → clear + BROWSING (stream likely failed).
-            if (std::chrono::steady_clock::now() - playback_pending_start_ >
-                std::chrono::seconds(30)) {
-                playback_pending_ = false;
-                EVENT_LOG("Playback pending timeout (30s) — stream may have failed");
-                app_state = AppState::BROWSING;
-            } else {
-                app_state = AppState::BUFFERING;
-            }
         } else {
-            // No media, navigating
+            // No media, navigating (incl. just-timed-out pending)
             app_state = AppState::BROWSING;
         }
 
