@@ -32,9 +32,9 @@ App::App() {
     // Load the global play mode at startup (no persisted playlist anymore)
     play_mode = IniConfig::instance().get_play_mode();
     LOG(fmt::format("[INIT] play_mode={}", static_cast<int>(play_mode)));
-    transcription_engine_.init(
-        &subtitle_mgr_, &pool_,
-        &player); // Y24.28: pass mpv for video ASR  // Y24.19: whisper.cpp transcription
+    subtitle_.init(pool_,
+                   player); // D10-1: SubtitleService wires its own SubtitleManager + engine
+                            //   (Y24.28: mpv for video ASR; Y24.19: whisper.cpp transcription)
 }
 
 // P1-8: explicit destructor — stop the mpv event thread and join the pool BEFORE any member
@@ -56,7 +56,7 @@ App::~App() {
         player.stop();
     } catch (...) {
     }
-    transcription_engine_.shutdown(); // Y24.19: stop transcription dispatcher
+    subtitle_.shutdown(); // D10-1: SubtitleService teardown (Y24.19: stop transcription dispatcher)
     Utils::
         kill_all_child_processes(); // N04-fix: kill tracked yt-dlp/whisper children before joining pool
     pool_.shutdown();
@@ -84,7 +84,7 @@ void App::run() {
     //   be construction-time references). play_current / on_playback_ended live in PlaybackService
     //   now and own the track handles (playback_node_ / playback_mode_) directly (D9-2) — App reads
     //   them via playback_.playback_node() / playback_.playback_mode(). Must run before the loop.
-    playback_.attach(pool_, subtitle_mgr_, transcription_engine_);
+    playback_.attach(pool_, subtitle_.subtitle_mgr(), subtitle_.transcription_engine());
     // D9: subscribe to the playback state events App still consumes locally. The bus is
     //   synchronous, so these run on the publisher's thread (pool thread for history). D9-2/D9-3:
     //   PlaybackTrackChanged / PlaybackBufferingChanged no longer need App subscribers — the track
@@ -294,7 +294,7 @@ void App::run() {
                 pending_select_.reset();
             }
             // Y24.7: SubtitleManager poll — handoff pending transcript to UI + offset + logs.
-            subtitle_mgr_.poll(ui, ui.is_lyric_bar_requested());
+            subtitle_.poll(ui, ui.is_lyric_bar_requested());
             // Y24.48: refresh lyric history EVERY frame (even when the bar is inactive) so an
             //   embedded sub cue (sub_text) is detected and can auto-open the bar.
             ui.update_lyric_history(player.get_state());
@@ -312,8 +312,8 @@ void App::run() {
                     lyric_active = false;
                     break;
                 default: // Auto
-                    lyric_active = subtitle_mgr_.status() == TranscriptStatus::READY ||
-                                   transcription_engine_.realtime_running() ||
+                    lyric_active = subtitle_.subtitle_mgr().status() == TranscriptStatus::READY ||
+                                   subtitle_.transcription_engine().realtime_running() ||
                                    ui.embedded_sub_confirmed();
                     break;
                 }

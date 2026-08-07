@@ -79,8 +79,7 @@ extern char **environ; // Required by posix_spawnp (capture_exec / ffprobe verif
 #include "panicast/storage/cache.h"
 #include "panicast/storage/youtube_cache.h"
 #include "panicast/storage/persistence.h"
-#include "panicast/subtitle/subtitle_manager.h"     // Y24.7
-#include "panicast/subtitle/transcription_engine.h" // Y24.19
+#include "panicast/app/subtitle_service.h" // D10-1: subtitles/ASR Application Service (owns SubtitleManager + TranscriptionEngine)
 #include "panicast/ui/border.h"
 #include "panicast/ui/ui.h"
 #include "panicast/theme/colors.h"
@@ -381,12 +380,12 @@ private:
     //   tagged result list under the active account.
     // Y23.4-1: LYRIC Method B + TranscriptParser module
     // Y24.7: subtitle handling centralized in SubtitleManager (detect/probe/load/download/offset/status).
-    SubtitleManager subtitle_mgr_;
-    TranscriptionEngine
-        transcription_engine_; // Y24.19: whisper.cpp offline (later realtime) transcription
-    // Y24.7: transcript load/offset/status moved to SubtitleManager (subtitle_mgr_).
-    //   (D8b-2: the load_transcript/probe_local_sidecar delegates were removed — PlaybackService
-    //   calls subtitle_mgr_ directly now.)
+    // D10-1: SubtitleManager + TranscriptionEngine moved into SubtitleService (owns both; lifecycle
+    //   init/shutdown/poll + accessor redirect). App reaches the engines via
+    //   subtitle_.subtitle_mgr() / subtitle_.transcription_engine(); PlaybackService still gets them
+    //   via attach() (App passes the accessors at the call site). D10-2/3 will move the subtitle
+    //   input onto the bus and make the service event-driven.
+    SubtitleService subtitle_;
     // Y23.9/D9-3: BUFFERING state (playback_pending_(_start_) + the 30s timeout / has_media logic)
     //   moved into PlaybackService (advance_buffering). App owns NO playback-state member now.
     void perform_youtube_search(const std::string &preset = "");

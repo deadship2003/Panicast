@@ -1,4 +1,25 @@
 
+## D10-1 — SubtitleService 干净一刀：字幕/ASR 引擎搬所有权 + 生命周期（M1 第 9 人日，D10 增量1）
+
+**Context:** D9 收官后 PlaybackService 独占全部播放运行时状态，但字幕/ASR（`SubtitleManager` + `TranscriptionEngine`）仍是 App 裸成员，被 ~16 处触发点（app_run 构造/析构/主循环、app_input×10、app_remote×3、app_download×2）+ PlaybackService（经 attach 裸指针）直接调用。D10 要抽更多 Application Service（Library/Search/Subtitle/Account）。四域勘察：Library=tree_mutex 11 文件共用的脊椎（HARD）、Account=最大最交织（HARD）、Subtitle=逻辑已自封装于两对象但触发点散落（MEDIUM）、Search=4 成员状态最局部但 jump/reveal 改写 selected_idx/view_start UI 导航状态（MEDIUM）。
+
+**Decision: 先抽 SubtitleService，且 D10-1 只做"干净一刀"（搬所有权 + 集中生命周期 + 访问器重定向），不动逻辑。** 选 Subtitle 而非 Search：① 复刻已验证的 D8a/D8b PlaybackService 模式（own 对象 + 后续接 Action/事件），风险最低、收益最直接；② 触发点虽散落 15 处，但每处是**单行调用重定向**、无共享可变状态穿越（Search 的 jump/reveal 要改写 UI 导航状态，搬方法得穿 selected_idx/view_start，耦合更深）；③ 直接为 M3 SubtitleController 打底。
+
+**Approach（复刻 D8b-1 访问器模式）:**
+- SubtitleService 私有持两对象；`init(pool,mpv)` 内部 `transcription_engine_.init(&subtitle_mgr_, &pool, &mpv)`——把"引擎↔Sub­title­Man­ag­er"inter-object 接线收进服务（原 App 构造期 `transcription_engine_.init(&subtitle_mgr_,…)` 外泄了这个内部依赖）；`shutdown()`/`poll()` 转发。
+- 访问器 `subtitle_mgr()`/`transcription_engine()` 作 D10-1 重定向缝（与 D8b-1 队列状态访问器、D9-2 track 手柄访问器一致）——App 各触发点 `subtitle_.subtitle_mgr().foo()` / `subtitle_.transcription_engine().foo()`，机械改名、行为零变化。D10-2/3 用 Action/事件替代这些访问器调用。
+- **PlaybackService 一行未动**：`attach()` 仍收 `SubtitleManager&`+`TranscriptionEngine&`，App 在调用点传访问器（`playback_.attach(pool_, subtitle_.subtitle_mgr(), subtitle_.transcription_engine())`）。最小爆炸半径——不引入跨 Service 头依赖、不改 PlaybackService 的裸指针用法。
+
+**Why 访问器而非门面方法（per-operation facade）:** 门面（每操作一方法）要写 ~15 个转发方法、易签名出错；访问器零逻辑、机械、与既有 D8b-1/D9-2 先例一致，且本就是过渡缝（D10-2 起 Action 化、D10-3 起事件化会逐步消解）。唯一"非纯访问器"是 `init()`——因其封装了 inter-object 接线（真实改进，非纯转发），`shutdown()`/`poll()` 配对作生命周期入口。
+
+**等价性:** 纯所有权搬移——SubtitleService 持有的两对象与原 App 成员构造/析构序等价（默认构造、init 接线时机同、析构前 shutdown 同），所有调用经访问器转达到同一实例。无新逻辑分支、无线程变化、D4 不变量无关（字幕不经 on_playback_ended 线程路径）。
+
+**Verification:** ctest 39/39；构建 0-warning（-Wall -Wextra -Wpedantic，19 文件含新 subtitle_service.cpp）；pty 冒烟 exit 0 + clean endwin。
+
+**Followups:** D10-2（字幕按键 LYRIC/offset/ASR → SubtitleActions 上总线，SubtitleService 订阅，复刻 D8a）；D10-3（订 PlaybackTrackChanged 自动加载新轨字幕、解耦 PlaybackService 直调；publish SubtitleStatusChanged 让 D9 保留的 reactor 通道有首个真实消费者）；D10-4… Search/Library/Account。
+
+---
+
 ## D9-3 — BUFFERING 手柄 + 状态机迁入 PlaybackService（M1 第 8 人日，D9 增量2b · D9 收官）
 
 **Context:** D9-2 把"在播"track 手柄（playback_node/mode_）私有化进服务后，只剩 BUFFERING 手柄 `playback_pending_(_start_)` 还在 App。它与前两个不同：不仅被服务（play_current/on_playback_ended 经事件）写，还被 **app_run 每帧状态机直写**（mpv 报 has_media→清、30s 超时→清），且 30s 超时 + 一次性 buffering 时长日志逻辑嵌在状态机里——是 D4 现场（on_playback_ended 线程亲和）附近的敏感区。ROADMAP 原设想只搬状态 + 加 `playback_pending()`/`playback_pending_since()`/`clear_playback_pending()` 访问器、状态机读写改走访问器（仍由 App 驱动清除）。

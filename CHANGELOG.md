@@ -4,6 +4,34 @@
 
 ---
 
+## 新架构 D10-1 — 2026-08-08 — SubtitleService 干净一刀：搬字幕/ASR 所有权 + 生命周期（UI 解耦 · D10 增量1）
+
+> M1（UI 解耦）第 9 步。把 `SubtitleManager` + `TranscriptionEngine`（字幕检测/加载/状态机 + whisper.cpp 离线/实时 ASR）从 App 裸成员迁入**第二个 Application Service** SubtitleService，集中生命周期接线；App 的 ~16 处触发点改走访问器。行为零变化（纯所有权搬移 + 机械重定向，复刻 D8b-1）。PlaybackService 一行未动。
+
+### SubtitleService（拥有字幕引擎 + 生命周期）
+- 新 `include/panicast/app/subtitle_service.h` + `src/app/subtitle_service.cpp`：私有持 `SubtitleManager subtitle_mgr_` + `TranscriptionEngine transcription_engine_`。
+- `init(ThreadPool&, MPVController&)`：内部 `transcription_engine_.init(&subtitle_mgr_, &pool, &mpv)`——把"引擎↔自己的 SubtitleManager"接线收进服务（替代 App 构造期的 `transcription_engine_.init(&subtitle_mgr_, &pool_, &player)`，inter-object 依赖不再外泄）。
+- `shutdown()` → `transcription_engine_.shutdown()`；`poll(UI&, bool)` → `subtitle_mgr_.poll(...)`（系统拆除 / 每帧 handoff 入口）。
+- 访问器 `subtitle_mgr()` / `transcription_engine()`：D10-1 重定向缝（复刻 D8b-1 队列状态访问器），D10-2/3 用 Action/事件替代。
+
+### App（删引擎成员 + 触发点改访问器）
+- `app.h`：删 `SubtitleManager subtitle_mgr_` / `TranscriptionEngine transcription_engine_`；加 `SubtitleService subtitle_`；两 include 合并为 `subtitle_service.h`。
+- 触发点重定向（每处一行调用改名，无逻辑变化）：
+  - `app_run.cpp`：构造 `subtitle_.init(pool_, player)`（原 `transcription_engine_.init(&subtitle_mgr_,…)`）；析构 `subtitle_.shutdown()`；`run()` 的 `playback_.attach(pool_, subtitle_.subtitle_mgr(), subtitle_.transcription_engine())`；主循环 `subtitle_.poll(...)` + lyric_active 读 `subtitle_.subtitle_mgr().status()` / `subtitle_.transcription_engine().realtime_running()`。
+  - `app_input.cpp`（×10）、`app_remote.cpp`（×3）、`app_download.cpp`（×2）：`transcription_engine_.foo()`→`subtitle_.transcription_engine().foo()`、`subtitle_mgr_.foo()`→`subtitle_.subtitle_mgr().foo()`。
+- **PlaybackService 不动**：`attach()` 仍收 `SubtitleManager&`+`TranscriptionEngine&`（App 在调用点传访问器），其内部裸指针用法 (`subtitle_mgr_->`/`transcription_engine_->`) 零变化——最小爆炸半径。
+
+### 行为零变化
+纯所有权搬移 + 调用重定向：SubtitleService 持有的两对象与原 App 成员构造/析构序等价（构造默认、init 接线时机同、析构前 shutdown 同）；所有调用经访问器转达到同一对象实例。无新逻辑分支、无线程变化。
+
+### 测试
+- ctest 39/39（无新增——纯机械搬迁）；构建 0-warning（-Wall -Wextra -Wpedantic，19 文件含新 subtitle_service.cpp）；pty 冒烟 exit 0 + clean endwin。
+
+### 意义
+第二个 Application Service 就位（继 PlaybackService）。为 D10-2（字幕按键→SubtitleActions 上总线）、D10-3（订 PlaybackTrackChanged 自动加载字幕 + 发 SubtitleStatusChanged）及 M3 SubtitleController 打底。
+
+---
+
 ## 新架构 D9-3 — 2026-08-07 — BUFFERING 手柄 + 状态机迁入 PlaybackService（UI 解耦 · D9 增量2b · D9 完成）
 
 > M1（UI 解耦）第 8 步，**D9 收官**。把 BUFFERING 运行时手柄 `playback_pending_(_start_)` 及其每帧状态机逻辑（pending 生命周期 + 30s 超时 + 一次性 buffering 时长日志）从 app_run 整段迁入 PlaybackService。App 不再持有/直接写任何播放运行时状态。行为零变化（逐帧 5-case 等价）。

@@ -509,10 +509,10 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
     if (a == "asr_start") {
         auto pst = player.get_state();
         auto pn = playback_.playback_node();
-        if (pst.has_media && pn && !transcription_engine_.realtime_running()) {
+        if (pst.has_media && pn && !subtitle_.transcription_engine().realtime_running()) {
             const std::string &url = pst.current_url;
             bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
-            transcription_engine_.start_realtime(pn, url, is_streaming);
+            subtitle_.transcription_engine().start_realtime(pn, url, is_streaming);
             EVENT_LOG("Remote: ASR start");
         } else {
             EVENT_LOG("Remote: ASR start — nothing playing or already running");
@@ -520,7 +520,7 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
         return;
     }
     if (a == "asr_stop") {
-        transcription_engine_.stop_realtime();
+        subtitle_.transcription_engine().stop_realtime();
         EVENT_LOG("Remote: ASR stop");
         return;
     }

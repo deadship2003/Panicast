@@ -240,10 +240,10 @@ void App::open_command_window() {
     // Y24.25: ":asr" = force ASR (skip online transcript, go directly to local ASR flow).
     if (s == "asr") {
         auto pst = player.get_state();
-        if (pst.has_media && !transcription_engine_.realtime_running()) {
+        if (pst.has_media && !subtitle_.transcription_engine().realtime_running()) {
             std::string url = pst.current_url;
             bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
-            transcription_engine_.start_realtime(playback_.playback_node(), url, is_streaming);
+            subtitle_.transcription_engine().start_realtime(playback_.playback_node(), url, is_streaming);
             EVENT_LOG("Force ASR (skipping online transcript)");
         } else {
             EVENT_LOG("ASR: nothing playing or already running");
@@ -775,7 +775,7 @@ void App::handle_input(int ch, int marked_count) {
                     EVENT_LOG("L: online transcript -> video window");
                     break;
                 }
-                transcription_engine_.start_realtime(pn, url, is_streaming,
+                subtitle_.transcription_engine().start_realtime(pn, url, is_streaming,
                                                      /*is_video=*/true);
                 player.show_osd("Starting ASR transcription...", 3000);
                 break;
@@ -790,7 +790,7 @@ void App::handle_input(int ch, int marked_count) {
             }
             ui.set_lyric_manual(UI::LyricManual::Open);
             // If ASR already running, just reveal the panel — don't restart.
-            if (transcription_engine_.realtime_running()) {
+            if (subtitle_.transcription_engine().realtime_running()) {
                 break;
             }
             // Take a source, LOCAL FIRST:
@@ -806,26 +806,26 @@ void App::handle_input(int ch, int marked_count) {
                 pn->asr_srt_path = srt;
                 pn->subtitle_url = srt;
                 pn->subtitle_type = "srt";
-                subtitle_mgr_.load_async(pn, pool_);
+                subtitle_.subtitle_mgr().load_async(pn, pool_);
                 EVENT_LOG(fmt::format("L: local ASR SRT -> LYRIC: {}", srt));
                 break;
             }
             if (pn && pn->has_subtitle &&
                 !pn->subtitle_url.empty()) {
-                subtitle_mgr_.load_async(pn, pool_);
+                subtitle_.subtitle_mgr().load_async(pn, pool_);
                 EVENT_LOG("L: online transcript -> LYRIC");
                 break;
             }
             // No source -> audio ASR (is_video=false so it feeds LYRIC; video-without-VO reuses audio flow).
-            transcription_engine_.start_realtime(pn, url, is_streaming,
+            subtitle_.transcription_engine().start_realtime(pn, url, is_streaming,
                                                  /*is_video=*/false);
             break;
         }
 
         // F mode: offline batch transcription (unchanged).
         if (mode == AppMode::FAVOURITE) {
-            if (transcription_engine_.busy()) {
-                transcription_engine_.stop_offline();
+            if (subtitle_.transcription_engine().busy()) {
+                subtitle_.transcription_engine().stop_offline();
                 break;
             }
             std::vector<TreeNodePtr> targets;
@@ -841,7 +841,7 @@ void App::handle_input(int ch, int marked_count) {
                 }
             }
             if (!targets.empty()) {
-                transcription_engine_.enqueue_offline(targets);
+                subtitle_.transcription_engine().enqueue_offline(targets);
                 break;
             }
         }

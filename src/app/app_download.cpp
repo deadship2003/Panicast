@@ -176,7 +176,7 @@ void App::ytdlp_download(const std::string &url, const std::vector<std::string> 
             n->is_downloaded = true;
             n->local_file = local_file;
             // Y24.7: download subtitle/transcript sidecar alongside the episode
-            subtitle_mgr_.download_sidecar(n, local_file, pool_);
+            subtitle_.subtitle_mgr().download_sidecar(n, local_file, pool_);
             EVENT_LOG(fmt::format("Saved: {}.mp4", base_name));
         } else {
             CacheManager::instance().mark_partial(url); // .part left → mark incomplete
@@ -440,7 +440,7 @@ bool App::start_one_download(TreeNodePtr n) {
                     n->local_file = filepath;
                     // Y24.24: download online transcript alongside the episode (format already
                     //   chosen by detect_from_rss priority: vtt>srt>json>lrc>twt).
-                    subtitle_mgr_.download_sidecar(n, filepath, pool_);
+                    subtitle_.subtitle_mgr().download_sidecar(n, filepath, pool_);
                     EVENT_LOG(fmt::format("Saved: {}{}", base_name, ext));
                 } else {
                     CacheManager::instance().mark_partial(url); // .part left → mark incomplete

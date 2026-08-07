@@ -306,6 +306,7 @@ add_executable(panicast
     src/app/online_state.cpp
     src/app/app_playback.cpp
     src/app/playback_service.cpp
+    src/app/subtitle_service.cpp
     src/app/app_download.cpp
     src/app/app_search.cpp
     src/app/app_subscriptions.cpp
