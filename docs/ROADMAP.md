@@ -60,7 +60,7 @@
   - App 删 `playback_pending_(_start_)` 成员 + `PlaybackBufferingChanged` 订阅；app_run 状态机精简为 `if (advance_buffering(has_media)) BUFFERING; else if (has_media) PLAYING/PAUSED/(idle)BUFFERING; else BROWSING`。PLAYING/PAUSED 仍从 mpv 派生（非 pending 状态）。
   - **D9 完成**：PlaybackService 持**全部**播放运行时状态（队列 + track 手柄 + buffering 手柄/状态机），App 不再直接写任何播放手柄、不再订 track/buffering 事件（只留 `HistoryChanged` 重建历史树）。track/buffering 事件保留 publish 作 D10+ remote/UI reactor 通道。
   - **验收**：ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin。
-- **D10 — 抽更多 Services + UI 订阅其事件**（进行中；每 Service 一进步、可多日）
+- **D10 — 抽更多 Services + UI 订阅其事件**（✅ 完成 2026-08-08；所有权切割收尾，逻辑搬迁留 D11）
   - [x] **D10-1 — SubtitleService 干净一刀（搬所有权 + 生命周期）** ✅ 2026-08-08
     - 新 `include/panicast/app/subtitle_service.h` + `src/app/subtitle_service.cpp`：SubtitleService 持 `SubtitleManager` + `TranscriptionEngine`（原 App 裸成员），集中生命周期——`init(pool,mpv)` 内部把引擎接到自己的 SubtitleManager+pool+mpv（替代 App 的 `transcription_engine_.init(&subtitle_mgr_,…)`，inter-object 接线收进服务）；`shutdown()`/`poll()` 为系统拆除 / 每帧 handoff 入口。
     - App 加 `SubtitleService subtitle_` 成员，删 `subtitle_mgr_`/`transcription_engine_`；~16 处触发点（app_run ctor/dtor/run/主循环、app_input×10、app_remote×3、app_download×2）改走访问器 `subtitle_.subtitle_mgr()`/`subtitle_.transcription_engine()`（机械重定向、行为零变化，复刻 D8b-1 访问器模式）。PlaybackService 的 `attach()` **不动**（App 在调用点传访问器）——最小爆炸半径。
@@ -75,7 +75,11 @@
     - App 删 8 root + 6 flag 裸成员（app.h:130-134），换 `LibraryService library_`；`src/app/*.cpp` 全 184 处（175 root + 9 flag）经 `\b` 词界 sed 统一重定向到 `library_.xxx_root()`/`library_.xxx_loaded()`（行为零变化，复刻访问器模式）。
     - **tree_mutex 暂留 App**：它同时守视图态 `display_list`/`selected_idx`（D11 领地），故锁暂不与数据同处；待 D11 视图态一并迁入时跟随。树构建方法（`load_*_root`）亦留 App（parser/storage/UI 耦合 → D11 搬）。`pending_select_`（UI 线程 handoff）亦留 D11。
     - **验收**：ctest 39/39、构建 0-warning（22/22 链接）、pty 冒烟 exit 0 + clean endwin + quit dialog。**第四个 Application Service 就位**（Playback/Subtitle/Search/Library），App 不再持有树数据模型。
-  - [ ] **D10-5 — AccountService 所有权切割（切片，按 Y/B/T/I 模式）**：账号态迁入 AccountService。最大域，按模式分多步。
+  - [x] **D10-5 — AccountService：经勘察无需所有权切割（域已解耦）** ✅ 2026-08-08
+    - 勘察结论：帐号域**在 App 层无自有状态可切**。`AccountsManager` 是单例（`static AccountsManager& instance()`）、`GoogleOAuth` 是静态工具类（`GoogleOAuth::poll_token`/`request_device_code`/`fetch_identity`…）、帐号数据存 DB + 树节点（树节点现归 LibraryService）。App 唯一沾边的帐号态是 `tiktok_region_`（一字符串，T 模式区域码）——包成 AccountService 只是把单例调用再裹一层，纯 churn 无架构收益。
+    - 帐号**逻辑**（app_account.cpp Y 模式 Google 登录/订阅同步/历史、app_bilibili/tiktok/iptv）操作单例 + 树节点 + UI，全方法搬迁属 **D11**。故 D10-5 以"无需切割"结案，不造空壳 Service。
+  - **D10 完成** ✅ 2026-08-08：所有**持 App 自有状态**的域（Playback/SUbtitle/Search/Library）状态各归其 Service；Account 域无 App 自有状态（单例/静态，已天然解耦）。共抽 4 个 Application Service（D8 Playback、D10-1 Subtitle、D10-2 Search、D10-4 Library），App god-object 的域数据块全部外迁。**遗留（均 D11 UI 解耦领地）**：① 各 Service 的**方法体/逻辑搬迁**（字幕 L 键编排、搜索 jump/reveal、库 load_*_root、帐号 mode handler——都直探 tree_mutex/display_list/selected_idx/has_video/player_.sub_add）；② 视图态 display_list/selected_idx/view_start + tree_mutex + pending_select_ 迁入 LibraryService；③ D10-3 字幕事件化（SubtitleService 订 PlaybackTrackChanged 自动加载字幕——首个 reactor 真实消费者；poll 是每帧状态机驱动、lyric_active 每帧多源派生，事件不能替代，故作 D11 首步）。
+  - **验收（D10 总）**：每步 ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin；4 Service 就位、App 不再持域私有态。
   - **关键调研结论（D10）**：字幕/搜索/库/帐号的**输入处理与逻辑体**都直探 UI/tree 耦合态（`tree_mutex`/`display_list`/`selected_idx`/`view_start`/`has_video` 分支/`player_.sub_add`）——它们干净的**全方法搬迁**被 UI 耦合挡住，属 **D11（UI 纯交互化）** 领地。故 D10 的现实收尾 = **所有权切割**（状态 + 访问器），把 God-object `App` 的成员按域逐步外迁到各 Service，为 D11 的逻辑搬迁腾出干净边界。全方法搬迁等 D11 UI 解耦后再做。
   - **验收（D10 总）**：Playback/Subtitle/Search/Library/Account 各域状态各归其 Service（App 不再持域私有态），UI 仍直调方法（D11 解耦）；每步编译绿 + ctest 绿 + 冒烟绿。
 - [ ] **D11 — UI 纯交互化：移除 UI 对 Core 的全部直接调用**

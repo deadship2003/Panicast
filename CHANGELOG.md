@@ -4,6 +4,24 @@
 
 ---
 
+## 新架构 D10-5 + D10 完成 — 2026-08-08 — Account 勘察（无需切割）+ D10 收官（UI 解耦 · D10 增量5/里程碑）
+
+> M1（UI 解耦）第 12 步 / **D10 收官**。勘察帐号域的 App 自有状态以定 AccountService 切割范围——结论：**无 App 自有状态可切**，D10-5 以"无需切割"结案。综合 D10-1～D10-4，D10 所有权切割目标全部达成。
+
+### Account 域勘察（D10-5 结案）
+- `AccountsManager` = **单例**（`static AccountsManager& instance()`，accounts.h:68）；app_account.cpp 全 ~25 处经单例调用（list/add/delete/update_tokens/set_active/load_subscriptions/load_history…）。
+- `GoogleOAuth` = **静态工具类**（`GoogleOAuth::request_device_code`/`poll_token`/`fetch_identity`/`fetch_channel_videos`），无实例。
+- 帐号数据 = DB + 树节点（树节点现归 LibraryService）。App 唯一沾边态 = `tiktok_region_`（一字符串）。
+- 结论：帐号域**在 App 层无自有状态**——状态早已天然解耦（单例/静态/DB）。包成 AccountService 只是把单例调用再裹一层，纯 churn。帐号**逻辑**（mode handler）操作单例+树+UI，全方法搬迁属 D11。**不造空壳 Service。**
+
+### D10 收官总结
+- **4 个 Application Service 就位**：Playback（D8/D9）、Subtitle（D10-1）、Search（D10-2）、Library（D10-4）。App god-object 的**域数据块全部外迁**——不再持播放/字幕/搜索/库的域私有态。
+- **持 App 自有状态的域全部切割完毕**；Account 域无 App 自有状态（天然解耦）。
+- **遗留（统一归 D11 UI 纯交互化）**：① 各 Service **方法体/逻辑搬迁**（均直探 tree_mutex/display_list/selected_idx/has_video/player_.sub_add，被 UI 耦合挡住）；② 视图态 display_list/selected_idx/view_start + tree_mutex + pending_select_ 迁入 LibraryService；③ 字幕事件化（SubtitleService 订 PlaybackTrackChanged 自动加载字幕——首个 D9 reactor 真实消费者，作 D11 首步）。
+- **验收（每步）**：ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin。提交链：b518e5e（D10-1）→ 13ddb2c（D10-2）→ a1d2da6（D10-4）→ 本次（D10-5/D10 收官，文档）。
+
+---
+
 ## 新架构 D10-4 — 2026-08-08 — LibraryService 所有权切割：搬树数据模型（UI 解耦 · D10 增量4）
 
 > M1（UI 解耦）第 11 步。把 App god-object 里最大的域数据块——树数据模型（8 个模式根 item 列表 + 6 个 loaded flag）——迁入**第四个 Application Service** LibraryService；`src/app/*.cpp` 全 184 处经 `\b` 词界 sed 统一重定向到 `library_` 访问器。行为零变化（纯所有权搬移 + 机械重定向，复刻 D10-1/D10-2/D8b-1）。

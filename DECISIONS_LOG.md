@@ -1,4 +1,25 @@
 
+## D10-5 + D10 收官 — Account 勘察无需切割 + D10 所有权切割收官（M1 第 12 人日，D10 增量5 / 里程碑）
+
+**Context:** D10-1/2/4 抽完 Subtitle/Search/Library 后，按 ROADMAP 还有 AccountService。需先勘察帐号域在 App 层的自有状态以定切割范围。
+
+**Finding: 帐号域在 App 层无自有状态可切。**
+- `AccountsManager`（storage/accounts.h:66-68）= 单例 `static AccountsManager& instance()`；app_account.cpp 全部访问经单例（list_accounts/add_account/delete_account/update_tokens/set_active_account/touch_login/load_subscriptions/load_history/get_tokens…）。
+- `GoogleOAuth` = 静态工具类（`request_device_code`/`poll_token`/`fetch_identity`/`fetch_channel_videos`），无实例成员。
+- 帐号数据 = 数据库 + 树节点（树节点 D10-4 已归 LibraryService）。
+- App 唯一沾边的帐号态 = `tiktok_region_`（一字符串，T 模式区域码，INI 持久化）。
+
+**Decision: 不造 AccountService（以"无需切割"结案 D10-5）。** 把单例/静态调用再裹一层 Service = 纯 churn（多一层转发、零封装收益——状态本就不在 App，调者照样直探单例）。与 D10 整体"把 App 自有域态外迁"的目标不符（这里无 App 自有态可迁）。帐号**逻辑**（app_account.cpp 的 Y 模式 Google 登录/订阅同步/历史、app_bilibili/tiktok/iptv mode handler）操作单例+树+UI，全方法搬迁属 D11（UI 纯交互化）。
+
+**D10 收官判定:** D10 目标"各域状态各归其 Service"对**持 App 自有状态**的域全部达成——Playback（D8/D9）、Subtitle（D10-1）、Search（D10-2）、Library（D10-4）。Account 无 App 自有状态（单例/静态/DB 天然解耦）。App god-object 的域数据块全部外迁。**D10 完成。**
+
+**Why 其余 D10 项归 D11 而非现做（不强行凑数）:**
+- D10-3（字幕事件化）= 真实但**敏感**：SubtitleService 订 PlaybackTrackChanged 自动加载字幕，需跨 playback↔subtitle 边界搬 `load_async`（has_video 分支 + player_.sub_add），且 poll 是每帧状态机驱动、lyric_active 每帧多源派生——事件**不能替代**它们，只能补"track 变化→触发加载"的解耦。属 D11 首步（首个 D9 reactor 真实消费者），需随 UI 解耦一起验证。
+- 各 Service 方法体/逻辑搬迁、视图态+tree_mutex+pending_select_ 迁入——全部被 UI 耦合（tree_mutex/display_list/selected_idx）挡住，是 D11 的定义性工作。
+- 强行现做 = 要么造空壳 AccountService（churn），要么硬啃敏感的字幕事件搬迁（无法用冒烟验证字幕正确性、风险高）。两者都违反铁律"干净一刀 + 敏感一刀分拆、每步可回退、不 churn"。故诚实收官、把 D11 边界划清。
+
+**Followups:** **D11（UI 纯交互化）**——① 视图态 display_list/selected_idx/view_start + tree_mutex + pending_select_ 迁入 LibraryService（锁与数据/视图同处）；② 各 Service 方法体搬迁（搜索/字幕/库/帐号逻辑）；③ 字幕事件化（首个 reactor 消费者）；④ grep 验证 UI 层无 Core 直调。→ D12（IFrontend 抽象 + 验证可换 UI）→ M1 达成。
+
 ## D10-4 — LibraryService 所有权切割：树数据模型搬所有权（M1 第 11 人日，D10 增量4）
 
 **Context:** D10-1/2 把字幕/搜索搬入 Service 后，App 剩余的最大域数据块是树数据模型——8 个模式根 item 列表（`radio/podcast/fav/history/account/bilibili/tiktok/iptv_root`，共 175 处访问）+ 6 个 loaded flag（9 处）。它们与 `tree_mutex`（recursive_mutex，~120 处、11 文件共用）、视图态 `display_list`/`selected_idx`/`view_start`（~208 处）、`pending_select_`（UI handoff）同处一个耦合簇。完整搬迁（数据+锁+视图+方法）会是一次 500+ 处的大改，违反"干净一刀 + 敏感一刀分拆、每步可回退"铁律，且视图态/方法的真正归位要等 D11（UI 纯交互化），现搬=与 D11 双 churn。
