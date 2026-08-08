@@ -1,4 +1,22 @@
 
+## D10-3 — SubtitleController：字幕编排反应式化（提前 M3），strangler-fig 两步（M1 第 13 人日）
+
+**Context:** D10 收官时把 D10-3（字幕事件化）判为"增量收益、并入 D11"，因为 poll 是每帧状态机驱动、lyric_active 每帧多源派生，事件不能替代它们。但用户要求深入分析字幕+ASR 机制对照主流方案后再定。分析结论：D10-3 的真正价值**不在替代 poll/lyric_active**，而在**拆掉 PlaybackService→字幕 的命令式内联耦合**——这才是主流（mpv/VLC/ExoPlayer 反应式）与现状（命令式反模式）的差距。ASR 作为"字幕源"（渐进喂 segments）本身设计正确，其生命周期（切歌停、L 键启）天然归字幕控制器。
+
+**Decision: 做成 SubtitleController（= 把 ROADMAP M3 的 SubtitleController 中介者提前），strangler-fig 两步。** 不做"半 D10-3"，而是正经把字幕编排（Method A/B 判定 + sub_add + load_async + stop_realtime）从 PlaybackService 搬进 SubtitleService，最终让 PlaybackService 只发 PlaybackTrackChanged、不认识字幕（D9 reactor 通道首个真实消费者）。
+
+**Approach（两步，每步绿、可回退）:**
+- **Step 1（搬逻辑、保触发）**：字幕编排 verbatim 搬入 SubtitleService 三方法（stop_realtime/begin_track[完整 A/B 块]/load_transcript[advance Method B]）；is_mpv_sub_url/basename_of 随搬。PlaybackService attach 改收 SubtitleService&、删两引擎裸指针、4 调用点改走方法（触发仍命令式直调，仅搬家）。行为零变化（字幕对象同一：init 传入的 pool/mpv/subtitle_mgr 即 PlaybackService 原用者——一个 MPVController、一个 pool）。
+- **Step 2（换触发、拆依赖）**：PlaybackService 直调 → 只 publish 事件；SubtitleService 订阅 PlaybackTrackChanged 触发；删 subtitle_svc_ 指针。**字幕正确性冒烟测不出 → 人工放带字幕内容验证。**
+
+**Why 两步而非一刀:** 字幕加载跨 playback↔subtitle 边界、有 has_video 分支 + sub_add 时序，一刀搬+换触发风险叠加且无法冒烟验证。拆开：Step 1 纯搬家（行为等价、绿即证明搬迁无误），Step 2 才动触发方式（你人工验字幕）。可回退点清晰。
+
+**Why begin_track/load_transcript 分两个方法（而非一个）:** play_current 的 begin_track 是完整 A/B（reset+探+sub_add/load_async）；on_playback_ended 的 advance 只做 Method B load_async（无 reset/无分支）。两者语义不同——advance 路径的简化是**既有行为**（auto-advance 假设同质 track），Step 1 严格保持、不"修"。分方法让差异显式、Step 2 事件触发时也能区分（或评估是否该统一）。
+
+**Gotcha:** stop_realtime 在 play_current/on_playback_ended **入口**（锁前）调用；Step 2 若搬进事件回调（publish 在锁后），时序微移（锁前→锁后）——多半无害，Step 2 验证时留意。
+
+**Followups:** Step 2（换触发、拆依赖、人工验字幕）；其后字幕 L 键编排（多源 orchestrator）+ offset 等 input-side 解耦仍属 D11。
+
 ## D10-5 + D10 收官 — Account 勘察无需切割 + D10 所有权切割收官（M1 第 12 人日，D10 增量5 / 里程碑）
 
 **Context:** D10-1/2/4 抽完 Subtitle/Search/Library 后，按 ROADMAP 还有 AccountService。需先勘察帐号域在 App 层的自有状态以定切割范围。

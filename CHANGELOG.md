@@ -4,6 +4,30 @@
 
 ---
 
+## 新架构 D10-3 Step 1 — 2026-08-08 — SubtitleController：字幕编排逻辑搬入 SubtitleService（行为等价 · D10-3 增量1/2）
+
+> M1（UI 解耦）第 13 步。把 PlaybackService 里**命令式内联编排**的字幕逻辑（Method A/B 判定 + mpv sub_add + load_async + stop_realtime）**原样搬进** SubtitleService 三个方法（stop_realtime / begin_track / load_transcript）；PlaybackService 改走方法调用（触发方式不变=仍命令式直调）。纯重定位、行为零变化（字幕对象同一：init 传入的 pool/mpv/subtitle_mgr 即 PlaybackService 原用者）。这是 SubtitleController（= 提前 M3）的第一步 strangler-fig。
+
+### SubtitleService（新增编排方法 + 存 pool_/mpv_）
+- 新增 `stop_realtime()`（转发 transcription_engine_）、`load_transcript(node)`（advance 路径 Method B：subtitle_mgr_.load_async）、`begin_track(node, has_video)`（play_current 完整 A/B 块：has_video→reset+异步探 sidecar+mpv sub_add(A)/load_async(B)；!has_video→Method B load_async）。
+- init() 新存 `pool_`/`mpv_` 指针（begin_track 的 pool 提交 + mpv sub_add 用；与 transcription_engine_ 共用同一对象）。
+- `is_mpv_sub_url`/`basename_of` 两 helper 从 playback_service.cpp 匿名 namespace 搬入 subtitle_service.cpp（字幕域专用，随逻辑归位）。
+
+### PlaybackService（删引擎裸指针、改方法调用）
+- attach() 签名 `attach(ThreadPool&, SubtitleManager&, TranscriptionEngine&)` → `attach(ThreadPool&, SubtitleService&)`；删 `subtitle_mgr_`/`transcription_engine_` 两裸指针成员，换 `SubtitleService *subtitle_svc_`。
+- 4 处字幕调用点改走方法：on_playback_ended 入口 stop_realtime + advance load_transcript；play_current 入口 stop_realtime + 整段 A/B 块塌缩为 `begin_track(pn, has_video)`。
+- App::run 的 attach 调用 `attach(pool_, subtitle_.subtitle_mgr(), subtitle_.transcription_engine())` → `attach(pool_, subtitle_)`。
+- playback_service.h 用 SubtitleService 前向声明（最小头耦合），.cpp include 全定义。
+
+### 设计依据（主流反应式 vs 命令式反模式）
+mpv/VLC/ExoPlayer 字幕都是反应式：媒体换→发事件→字幕组件订阅加载。PaniCast 现状（PlaybackService 命令式内联 + Method A/B 域知识泄漏进播放域）是反模式。Step 1 先把逻辑搬到字幕域（行为等价）；**Step 2** 才换触发方式为事件订阅（届时 PlaybackTrackChanged 终有首个真实消费者、播放↔字幕彻底解耦）。
+
+### 验收
+- ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin。
+- 字幕行为等价性：纯 verbatim 搬迁（同一 pool/mpv/subtitle_mgr 对象）+ 编译/冒烟绿；字幕正确性的最终验证在 Step 2 后由人工放带字幕内容确认。
+
+---
+
 ## 新架构 D10-5 + D10 完成 — 2026-08-08 — Account 勘察（无需切割）+ D10 收官（UI 解耦 · D10 增量5/里程碑）
 
 > M1（UI 解耦）第 12 步 / **D10 收官**。勘察帐号域的 App 自有状态以定 AccountService 切割范围——结论：**无 App 自有状态可切**，D10-5 以"无需切割"结案。综合 D10-1～D10-4，D10 所有权切割目标全部达成。

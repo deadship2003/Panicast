@@ -33,8 +33,7 @@ namespace panicast
 
 // Forward declarations — injected late via attach() (pointers only, to avoid heavy includes here).
 class ThreadPool;
-class SubtitleManager;
-class TranscriptionEngine;
+class SubtitleService;
 
 class PlaybackService {
 public:
@@ -100,8 +99,10 @@ public:
     // ── Playback / autoplay logic (D8b-2, moved from app_playback.cpp) ────────
     // Inject the services declared after playback_ in App (they can't be construction-time refs).
     //   Must be called once before any playback (App::run wires it right after playback_.init()).
-    void attach(ThreadPool &pool, SubtitleManager &subtitle_mgr,
-                TranscriptionEngine &transcription_engine);
+    //   D10-3 Step 1: takes the SubtitleService (was the two raw engine pointers) — the subtitle
+    //   orchestration now lives in SubtitleService; PlaybackService calls its methods imperatively
+    //   (Step 2 will retrigger them via PlaybackTrackChanged and drop this pointer entirely).
+    void attach(ThreadPool &pool, SubtitleService &subtitle_svc);
     // Play a single item by index. mode = active App mode (IPTV flag); play_mode = loop setting.
     void play_current(int idx, AppMode mode, PlayMode play_mode);
     // Pointer-driven auto-advance (runs on the UI thread — D4 invariant). Advances current_index_
@@ -147,9 +148,10 @@ private:
 
     // ── Injected deps (D8b-2) ────────────────────────────────────────────────
     // Null until attach(); dereferenced only after App::run has wired them.
+    // D10-3 Step 1: subtitle engines are no longer held here — SubtitleService owns them and
+    //   exposes stop_realtime()/begin_track()/load_transcript() (called imperatively for now).
     ThreadPool *pool_ = nullptr;
-    SubtitleManager *subtitle_mgr_ = nullptr;
-    TranscriptionEngine *transcription_engine_ = nullptr;
+    SubtitleService *subtitle_svc_ = nullptr;
 };
 
 } // namespace panicast

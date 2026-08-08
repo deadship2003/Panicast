@@ -1,4 +1,5 @@
 #include "panicast/app/playback_service.h"
+#include "panicast/app/subtitle_service.h" // D10-3 Step 1: SubtitleService orchestration (begin_track/load_transcript/stop_realtime)
 
 #include <cctype>
 #include <chrono>
@@ -98,40 +99,18 @@ int PlaybackService::random_peer_index(int avoid) const {
 }
 
 // ── Playback / autoplay logic (D8b-2, moved from app_playback.cpp) ────────────
-
-namespace {
-// Y24.17: helpers shared by play_current's subtitle handling (sync + async pool paths).
-bool is_mpv_sub_url(const std::string &url) {
-    if (url.empty())
-        return false;
-    auto ew = [](const std::string &s, const char *suf) {
-        size_t n = 0;
-        while (suf[n])
-            ++n;
-        if (s.size() < n)
-            return false;
-        for (size_t i = 0; i < n; ++i)
-            if ((char)std::tolower((unsigned char)s[s.size() - n + i]) !=
-                (char)std::tolower((unsigned char)suf[i]))
-                return false;
-        return true;
-    };
-    return ew(url, ".vtt") || ew(url, ".srt") || ew(url, ".ass") || ew(url, ".ssa");
-}
-std::string basename_of(const std::string &p) {
-    size_t s = p.find_last_of("/\\");
-    return s == std::string::npos ? p : p.substr(s + 1);
-}
-} // namespace
+// D10-3 Step 1: the is_mpv_sub_url / basename_of subtitle helpers that lived in this file's
+//   anonymous namespace moved to subtitle_service.cpp (they serve begin_track's subtitle block,
+//   which relocated to SubtitleService).
 
 // D8b-2 late injection — wire the services declared after playback_ in App (they can't be
 //   construction-time refs). State changes go on the EventBus (D9), so no callbacks here.
 //   Called once from App::run right after playback_.init().
-void PlaybackService::attach(ThreadPool &pool, SubtitleManager &subtitle_mgr,
-                             TranscriptionEngine &transcription_engine) {
+//   D10-3 Step 1: holds the SubtitleService (was the two raw engine pointers); subtitle
+//   orchestration is delegated to it (stop_realtime/begin_track/load_transcript).
+void PlaybackService::attach(ThreadPool &pool, SubtitleService &subtitle_svc) {
     pool_ = &pool;
-    subtitle_mgr_ = &subtitle_mgr;
-    transcription_engine_ = &transcription_engine;
+    subtitle_svc_ = &subtitle_svc;
 }
 
 // D9-3: single funnel for a buffering-state change — write playback_pending_(_start_) AND publish
@@ -184,7 +163,7 @@ bool PlaybackService::advance_buffering(bool mpv_has_media) {
 //   relies on mpv loop_file (no action here). SHUFFLE consumes the pre-generated shuffle_queue_
 //   front and refills it.
 void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_mode) {
-    transcription_engine_->stop_realtime(); // Y24.20: stop realtime transcription on track end
+    subtitle_svc_->stop_realtime(); // Y24.20: stop realtime transcription on track end
     std::lock_guard<std::mutex> pl_lock(playlist_mutex_);
     if (reason != 0) {
         set_buffering_(false); // Y23.9: error/stop → clear pending (back to BROWSING)
@@ -240,7 +219,7 @@ void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_
         PlaybackTrackChanged{next_node, mode});
     // Y24.55: keep IPTV context flag in sync on auto-advance (same reasoning as play_current).
     player_.set_iptv_context(mode == AppMode::IPTV);
-    subtitle_mgr_->load_async(next_node, *pool_); // Y23.4: load transcript for the advanced track (method B)
+    subtitle_svc_->load_transcript(next_node); // Y23.4: load transcript for the advanced track (method B)
     set_buffering_(true); // Y23.9: BUFFERING until mpv loads the next track
 
     // Play the next track inline (must NOT call play_current — it also locks playlist_mutex_
@@ -432,7 +411,7 @@ PlaybackService::resolve_youtube_url(const std::string &url, bool has_video) con
 // Play a single item by index (pointer-driven model).
 // F23: YouTube URLs resolved async in pool_ (non-blocking); local/non-YouTube play immediately.
 void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
-    transcription_engine_->stop_realtime(); // Y24.20: realtime transcription doesn't carry across tracks
+    subtitle_svc_->stop_realtime(); // Y24.20: realtime transcription doesn't carry across tracks
     std::string orig_url;
     bool has_video = false;
     std::string title; // P1-4: snapshot under the lock; lambdas capture by value
@@ -464,45 +443,11 @@ void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
     // Y24.55: flag IPTV context so mpv_controller emits IPTV: messages alongside MPV: behavior for
     //   the same event (off-air, audio-only, slow, load/AO/VO/decode failures).
     player_.set_iptv_context(mode == AppMode::IPTV);
-    // Y24.8: subtitle handling is FULLY ASYNC for audio — player_.play() is called immediately
-    //   below with no synchronous fs::exists probe (which was slow on /mnt/e WSL2 mounts).
-    //   Method A (mpv sub-file) is only used for VIDEO (mpv renders in the video window); AUDIO
-    //   always uses Method B (SubtitleManager fetches+parses async, drives LYRIC via time_pos).
-    // Y24.17: VIDEO sidecar probe is now ASYNC too (was sync fs::exists for .vtt/.srt/.ass). The
-    //   sub-file URL isn't known at loadfile time, so it's added via mpv sub-add after the async
-    //   probe finds it. LOG each step. AUDIO was already async.
-    if (has_video) {
-        // Y24.18: reset Method B first — video uses Method A (mpv renders) or no subtitle; either
-        //   way the LYRIC panel must drop the previous (audio) track's lyrics. JSON → Method B
-        //   fill below. Done sync (on the calling thread) so the panel clears immediately.
-        subtitle_mgr_->reset();
-        TreeNodePtr pn_cap = pn;
-        pool_->submit([this, pn_cap]() {
-            LOG("[Subtitle] video sidecar probe (async)...");
-            subtitle_mgr_->probe_sidecar(pn_cap);
-            if (pn_cap && pn_cap->has_subtitle && !pn_cap->subtitle_url.empty()) {
-                if (is_mpv_sub_url(pn_cap->subtitle_url)) {
-                    player_.sub_add(pn_cap->subtitle_url);
-                    LOG(fmt::format("[Subtitle] mpv sub-add: {} (Method A — mpv renders)",
-                                    basename_of(pn_cap->subtitle_url)));
-                } else {
-                    LOG(fmt::format(
-                        "[Subtitle] panicast resolves: {} (Method B — video, non-mpv format)",
-                        basename_of(pn_cap->subtitle_url)));
-                    subtitle_mgr_->load_async(pn_cap, *pool_); // fills Method B (LYRIC for JSON)
-                }
-            } else {
-                LOG("[Subtitle] video: no local sidecar found (async)");
-            }
-        });
-    } else {
-        // AUDIO: always Method B, fully async (probe+fetch+parse in pool). Never blocks play.
-        //   load_async probes for a local sidecar async; if none and no transcript URL → NONE.
-        subtitle_mgr_->load_async(pn, *pool_);
-        if (pn && pn->has_subtitle && !pn->subtitle_url.empty())
-            LOG(fmt::format("[Subtitle] panicast resolves: {} (Method B — audio, async)",
-                            basename_of(pn->subtitle_url)));
-    }
+    // Y24.8/Y24.17/Y24.18: subtitle handling is delegated to SubtitleService (D10-3 Step 1 — was
+    //   the inline A/B block here). Method A (mpv sub-add, video) vs Method B (SubtitleManager
+    //   async fetch+parse → LYRIC, audio + non-mpv video formats) is decided inside begin_track.
+    //   Fully async — play() below is not blocked (no sync fs::exists; slow on /mnt/e WSL2 mounts).
+    subtitle_svc_->begin_track(pn, has_video);
 
     // Y23.9: BUFFERING state — set pending before play; cleared when mpv reports has_media.
     // Y24.17: timestamp each step so panicast.log shows WHERE the wait goes (sync fs::exists/DB vs

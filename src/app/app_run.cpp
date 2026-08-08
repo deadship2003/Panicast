@@ -80,11 +80,13 @@ void App::run() {
     // D8: PlaybackService (first Application Service) owns the playback Action handlers
     //   (pause/volume) — subscribed via playback_.init(). Nav Actions stay here for now.
     playback_.init();
-    // D8b-2: inject pool_/subtitle/transcription (declared after playback_ in App, so they can't
-    //   be construction-time references). play_current / on_playback_ended live in PlaybackService
+    // D8b-2: inject pool_/subtitle (declared after playback_ in App, so they can't be
+    //   construction-time references). play_current / on_playback_ended live in PlaybackService
     //   now and own the track handles (playback_node_ / playback_mode_) directly (D9-2) — App reads
     //   them via playback_.playback_node() / playback_.playback_mode(). Must run before the loop.
-    playback_.attach(pool_, subtitle_.subtitle_mgr(), subtitle_.transcription_engine());
+    //   D10-3 Step 1: attach the SubtitleService (was the two raw engine pointers); PlaybackService
+    //   delegates subtitle orchestration to it.
+    playback_.attach(pool_, subtitle_);
     // D9: subscribe to the playback state events App still consumes locally. The bus is
     //   synchronous, so these run on the publisher's thread (pool thread for history). D9-2/D9-3:
     //   PlaybackTrackChanged / PlaybackBufferingChanged no longer need App subscribers — the track

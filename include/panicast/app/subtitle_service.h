@@ -37,6 +37,20 @@ public:
     //   Forwards SubtitleManager::poll (called once per frame from App's run loop).
     void poll(UI &ui, bool lyric_bar_requested);
 
+    // ── Track-change orchestration (D10-3 Step 1: relocated from PlaybackService::play_current /
+    //   on_playback_ended — behaviour-equivalent move; PlaybackService now calls these instead of
+    //   reaching into the engines directly. Step 2 will retrigger these via PlaybackTrackChanged.) ──
+    // Stop any running real-time ASR. Called on EVERY track end/switch (was the stop_realtime sites
+    //   at play_current + on_playback_ended entry). Real-time ASR must not carry across tracks.
+    void stop_realtime();
+    // Begin subtitle setup for a track about to play (was play_current's subtitle block):
+    //   has_video → reset Method B, async sidecar probe, then mpv sub_add (Method A) for mpv
+    //   formats or load_async (Method B) otherwise; !has_video → always Method B load_async.
+    void begin_track(TreeNodePtr node, bool has_video);
+    // Load the transcript for an auto-advanced track (was on_playback_ended's advance site): Method
+    //   B load_async only — no reset / no A/B branch (auto-advance semantics preserved as-is).
+    void load_transcript(TreeNodePtr node);
+
     // ── Engine access (transitional — D10-2/3 replace direct use with Actions/events) ──
     //   PlaybackService.attach() and App's input/remote/download sites use these; they are the
     //   redirect seam for the D10-1 ownership move (no behaviour change).
@@ -50,6 +64,11 @@ public:
 private:
     SubtitleManager subtitle_mgr_;
     TranscriptionEngine transcription_engine_; // Y24.19: whisper.cpp offline (later realtime) ASR
+    // D10-3 Step 1: retained from init() so the track-change orchestration methods can submit pool
+    //   work + call mpv sub_add (video Method A) — previously PlaybackService reached the pool/mpv
+    //   via its own pointers; that path now lives here.
+    ThreadPool *pool_ = nullptr;
+    MPVController *mpv_ = nullptr;
 };
 
 } // namespace panicast
