@@ -27,6 +27,13 @@ struct PlaybackTrackChanged {
     bool has_video = false;
 };
 
+// A track is ending / being superseded — published at every track boundary where real-time ASR must
+//   NOT carry across: on_playback_ended entry (a track ended) and play_current entry (the previous
+//   track is replaced by a manual play). Carries no payload — the NEXT track, if any, arrives via
+//   PlaybackTrackChanged. D11-1: SubtitleService subscribes → stop_realtime(), so the LAST direct
+//   PlaybackService→SubtitleService call is gone — playback no longer knows about subtitles at all.
+struct PlaybackTrackEnded {};
+
 // BUFFERING pending flag toggled. pending=true → a track is loading (the subscriber stamps a fresh
 //   start time, used by the app_run state machine to derive BUFFERING + timeout); pending=false →
 //   error/stop, back to BROWSING. Replaces set_pending_(bool).

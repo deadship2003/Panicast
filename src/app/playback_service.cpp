@@ -1,5 +1,4 @@
 #include "panicast/app/playback_service.h"
-#include "panicast/app/subtitle_service.h" // D10-3: SubtitleService — entry stop_realtime() only (subtitle loading is event-driven via PlaybackTrackChanged)
 
 #include <cctype>
 #include <chrono>
@@ -103,15 +102,14 @@ int PlaybackService::random_peer_index(int avoid) const {
 //   anonymous namespace moved to subtitle_service.cpp (they serve begin_track's subtitle block,
 //   which relocated to SubtitleService).
 
-// D8b-2 late injection — wire the services declared after playback_ in App (they can't be
-//   construction-time refs). State changes go on the EventBus (D9), so no callbacks here.
+// D8b-2 late injection — wire the ThreadPool declared after playback_ in App (it can't be a
+//   construction-time ref). State changes go on the EventBus (D9), so no callbacks here.
 //   Called once from App::run right after playback_.init().
-//   D10-3 Step 2: holds the SubtitleService ONLY for the entry stop_realtime() calls. Subtitle
-//   LOADING is event-driven now (SubtitleService subscribes PlaybackTrackChanged → begin_track);
-//   begin_track / load_transcript are no longer called from PlaybackService.
-void PlaybackService::attach(ThreadPool &pool, SubtitleService &subtitle_svc) {
+//   D11-1: the SubtitleService param is gone — subtitle is fully event-driven (SubtitleService
+//   subscribes PlaybackTrackChanged + PlaybackTrackEnded), so PlaybackService references
+//   SubtitleService nowhere now.
+void PlaybackService::attach(ThreadPool &pool) {
     pool_ = &pool;
-    subtitle_svc_ = &subtitle_svc;
 }
 
 // D9-3: single funnel for a buffering-state change — write playback_pending_(_start_) AND publish
@@ -164,7 +162,7 @@ bool PlaybackService::advance_buffering(bool mpv_has_media) {
 //   relies on mpv loop_file (no action here). SHUFFLE consumes the pre-generated shuffle_queue_
 //   front and refills it.
 void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_mode) {
-    subtitle_svc_->stop_realtime(); // Y24.20: stop realtime transcription on track end
+    EventBus::instance().publish(PlaybackTrackEnded{}); // D11-1: track ended → SubtitleService stop_realtime (was a direct call — playback no longer touches subtitles)
     std::lock_guard<std::mutex> pl_lock(playlist_mutex_);
     if (reason != 0) {
         set_buffering_(false); // Y23.9: error/stop → clear pending (back to BROWSING)
@@ -414,7 +412,7 @@ PlaybackService::resolve_youtube_url(const std::string &url, bool has_video) con
 // Play a single item by index (pointer-driven model).
 // F23: YouTube URLs resolved async in pool_ (non-blocking); local/non-YouTube play immediately.
 void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
-    subtitle_svc_->stop_realtime(); // Y24.20: realtime transcription doesn't carry across tracks
+    EventBus::instance().publish(PlaybackTrackEnded{}); // D11-1: previous track superseded → SubtitleService stop_realtime (realtime ASR must not carry across tracks)
     std::string orig_url;
     bool has_video = false;
     std::string title; // P1-4: snapshot under the lock; lambdas capture by value

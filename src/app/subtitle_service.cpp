@@ -55,6 +55,12 @@ void SubtitleService::init(ThreadPool &pool, MPVController &mpv) {
     //   publisher's (UI) thread, so this matches the old imperative call's threading + ordering.
     subs_.push_back(EventBus::instance().subscribe<PlaybackTrackChanged>(
         [this](const PlaybackTrackChanged &e) { begin_track(e.node, e.has_video); }));
+    // D11-1: track boundaries (a track ends / is superseded) → stop any running real-time ASR so it
+    //   never carries across tracks. Replaces the two direct stop_realtime() calls that were the last
+    //   PlaybackService→SubtitleService coupling (stop_realtime is idempotent, so the advance path —
+    //   which also fires begin_track — invoking it again is a harmless no-op).
+    subs_.push_back(EventBus::instance().subscribe<PlaybackTrackEnded>(
+        [this](const PlaybackTrackEnded &) { stop_realtime(); }));
 }
 
 void SubtitleService::shutdown() {

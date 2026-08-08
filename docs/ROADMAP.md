@@ -87,9 +87,17 @@
   - **验收（D10 总）**：每步 ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin；4 Service 就位、App 不再持域私有态。
   - **关键调研结论（D10）**：字幕/搜索/库/帐号的**输入处理与逻辑体**都直探 UI/tree 耦合态（`tree_mutex`/`display_list`/`selected_idx`/`view_start`/`has_video` 分支/`player_.sub_add`）——它们干净的**全方法搬迁**被 UI 耦合挡住，属 **D11（UI 纯交互化）** 领地。故 D10 的现实收尾 = **所有权切割**（状态 + 访问器），把 God-object `App` 的成员按域逐步外迁到各 Service，为 D11 的逻辑搬迁腾出干净边界。全方法搬迁等 D11 UI 解耦后再做。
   - **验收（D10 总）**：Playback/Subtitle/Search/Library/Account 各域状态各归其 Service（App 不再持域私有态），UI 仍直调方法（D11 解耦）；每步编译绿 + ctest 绿 + 冒烟绿。
-- [ ] **D11 — UI 纯交互化：移除 UI 对 Core 的全部直接调用**
-  - UI 只发 Action + 订阅事件；不再直调 player/parse/storage。grep 验证 UI 层无 Core 直调。
-  - **验收**：UI 层零 Core 直调；全功能正常。
+- [ ] **D11 — UI 纯交互化：移除 UI 对 Core 的全部直接调用**（D11-1 ✅）
+  - 目标：UI 只发 Action + 订阅事件；不再直调 player/parse/storage。grep 验证 UI 层无 Core 直调。按 strangler-fig 拆增量。
+  - [x] **D11-1 — PlaybackTrackEnded：切掉字幕最后残留直调** ✅ 2026-08-09
+    - 新 `PlaybackTrackEnded{}` 事件（playback_events.h）：on_playback_ended 入口（曲目结束）+ play_current 入口（前曲被替换）两处 publish；SubtitleService `init()` 订阅 → `stop_realtime()`（杀 ASR，不跨曲携带）。
+    - PlaybackService **彻底删除 `subtitle_svc_` 指针** + `attach()` 的 SubtitleService 参数（→ `attach(ThreadPool&)`）+ SubtitleService 前向声明 + `#include "panicast/app/subtitle_service.h"`。**PlaybackService 现零 SubtitleService 引用**（播放域完全不认识字幕）。app_run `attach(pool_, subtitle_)` → `attach(pool_)`。
+    - = D10-3 字幕事件化收尾：播放↔字幕**所有**直接耦合切断，全走总线（PlaybackTrackChanged 加载 + PlaybackTrackEnded 停 ASR）。stop_realtime 幂等（已验证），advance 路径 Ended+begin_track 双触发无害。
+    - **验收**：ctest 39/39、构建 0-warning（21/21）、pty 冒烟 exit 0 + clean endwin + quit dialog。
+  - [ ] **D11-2 — 视图态 + tree_mutex 迁入 LibraryService**（干净一刀）：display_list/selected_idx/view_start + tree_mutex + pending_select_ 迁入 LibraryService（锁与数据/视图同处）；机械重定向到访问器（复刻 D8b-1/D10-4 模式）。为 D11-3 逻辑搬迁解锁。
+  - [ ] **D11-3 — 各 Service 方法体/逻辑搬迁**（敏感一刀）：搜索 jump/reveal、字幕 L 键编排 + offset、库 load_*_root、帐号 mode handler——都直探 tree_mutex/display_list/selected_idx/has_video/player_.sub_add，待 D11-2 视图态迁入后经访问器搬迁。
+  - [ ] **D11-4 — grep 验证 UI 层零 Core 直调**。
+  - **验收（D11 总）**：UI 层零 Core 直调；全功能正常。
 - [ ] **D12 — IFrontend 抽象 + 验证可换 UI**
   - 定义 `IFrontend`（订阅事件渲染 + 输入→Action）；ncurses UI 实现之。确认 Core 不依赖 ncurses、UI 可换（Qt 可后接）。
   - **验收**：ncurses 经 IFrontend；UI 可换性就位。→ **M1 达成（UI 解耦）**

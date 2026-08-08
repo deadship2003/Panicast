@@ -1,4 +1,16 @@
 
+## D11-1 — PlaybackTrackEnded：字幕最后残留直调改事件（M1 第 14 人日，D11 增量1）
+
+**Context:** D10-3 Step 2 把字幕加载事件化后，PlaybackService 仅剩 2 处 `subtitle_svc_->stop_realtime()` 直接调用（on_playback_ended 入口 + play_current 入口）——"曲目结束但不进阶"（error/stop，reason≠0）路径不发 PlaybackTrackChanged，ASR 仍须停，故 Step 2 保留为残留直调、注明 D11 切。
+
+**Decision: 新增 `PlaybackTrackEnded{}` 事件，两处改 publish，SubtitleService 订阅 → stop_realtime。彻底删除 subtitle_svc_ 指针 + attach 的 SubtitleService 参数 + 前向声明 + include。** PlaybackService 现零 SubtitleService 引用——播放域完全不认识字幕，播放↔字幕所有直接耦合切断、全走总线（Changed 加载 + Ended 停 ASR）。
+
+**Why 双 publish（on_playback_ended + play_current）而非折进 begin_track:** play_current 入口的 stop_realtime 是"手动换曲时 prompt 杀旧 ASR"——mpv 的 END_FILE 要到下一帧才 drain，若依赖 on_playback_ended 则旧 ASR 多跑一帧；折进 begin_track 则杀时机从入口(416)移到 publish(442)、产生（虽无害的）时序微变。本增量取**最低风险**：双 publish 保 exact 时序、不折进、零行为微变（这是冒烟测不出的 ASR 路径）。stop_realtime 幂等（已验证），advance 路径 Ended + 后续无重复杀问题。
+
+**Gotcha:** PlaybackTrackEnded 在 play_current 入口 publish（"开始新曲"却发"结束"事件）语义上是"前曲被替换/superseded"——文档注明即可；订阅方语义明确（stop ASR）。EventBus 同步派发，线程/时序与旧直调等价。
+
+**Followups:** D11-2（视图态 display_list/selected_idx/view_start + tree_mutex + pending_select_ 迁入 LibraryService，为逻辑搬迁解锁）→ D11-3（各 Service 方法体搬迁）→ D11-4（grep 验证 UI 零 Core 直调）。
+
 ## D10-3 Step 2 — 字幕加载事件化：Option B（自动进阶统一走 A/B 分支）（M1 第 13 人日续）
 
 **Context:** D10-3 Step 1 把字幕编排逻辑搬进 SubtitleService 后（行为等价、触发仍命令式直调），Step 2 要换触发方式为事件订阅、拆 PlaybackService→字幕 直调耦合。深挖发现两个设计岔口：(1) `PlaybackTrackChanged{node,mode}` 不区分手动播放（begin_track 完整 A/B）与自动进阶（load_transcript 仅 Method B）；(2) `on_playback_ended` 入口 `stop_realtime`（杀 ASR）在"曲目结束但不进阶"时也要跑，而该路径不发 PlaybackTrackChanged。

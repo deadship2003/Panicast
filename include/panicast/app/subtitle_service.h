@@ -40,13 +40,13 @@ public:
     //   Forwards SubtitleManager::poll (called once per frame from App's run loop).
     void poll(UI &ui, bool lyric_bar_requested);
 
-    // ── Track-change orchestration (D10-3: relocated from PlaybackService, then made event-driven) ──
-    //   Step 1 moved the logic here (behaviour-equivalent). Step 2: begin_track is now triggered by
-    //   SUBSCRIBING to PlaybackTrackChanged (init() wires the subscription) — PlaybackService no
-    //   longer calls it directly. stop_realtime stays a direct call from PlaybackService's track-end
-    //   sites (the residual coupling; D11 will cut it via a PlaybackTrackEnded event).
-    // Stop any running real-time ASR. Called on EVERY track end/switch (the PlaybackService entry
-    //   sites) — real-time ASR must not carry across tracks. Idempotent (no-op when nothing running).
+    // ── Track-change orchestration (D10-3 relocated from PlaybackService → D11-1 fully event-driven) ──
+    //   begin_track is triggered by the PlaybackTrackChanged subscription (manual play + auto-advance);
+    //   stop_realtime by the PlaybackTrackEnded subscription (track end / supersede). init() wires both.
+    //   PlaybackService no longer references SubtitleService at all — playback↔subtitle is 100% via the
+    //   bus. Same objects throughout (pool_/mpv_/subtitle_mgr_ are init()'s, = the one MPVController).
+    // Stop any running real-time ASR. Triggered on EVERY track end/switch (the PlaybackTrackEnded
+    //   subscriber) — real-time ASR must not carry across tracks. Idempotent (no-op when nothing running).
     void stop_realtime();
     // Begin subtitle setup for a track about to play. Triggered by the PlaybackTrackChanged
     //   subscription for BOTH manual play and auto-advance (Option B, D10-3): auto-advance now

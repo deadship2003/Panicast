@@ -4,6 +4,28 @@
 
 ---
 
+## 新架构 D11-1 — 2026-08-09 — PlaybackTrackEnded：切掉字幕最后残留直调（播放↔字幕全解耦 · D11 增量1）
+
+> M1（UI 解耦）第 14 步、D11 第 1 增量。D10-3 Step 2 后 PlaybackService 仅剩 2 处 `subtitle_svc_->stop_realtime()` 直接调用（on_playback_ended/play_current 入口，杀 ASR）。本增量新增 `PlaybackTrackEnded{}` 事件，两处改 publish；SubtitleService 订阅 → `stop_realtime()`。**PlaybackService 彻底删除 `subtitle_svc_` 指针、attach 的 SubtitleService 参数、前向声明、include**——播放域零 SubtitleService 引用，播放↔字幕所有直接耦合切断、全走总线。
+
+### PlaybackTrackEnded（新事件）
+- `struct PlaybackTrackEnded{};`（playback_events.h，无 payload）。publish 于 on_playback_ended 入口（曲目结束，含 error/stop 不进阶）+ play_current 入口（前曲被手动替换）——即所有"ASR 不可跨曲携带"的曲目边界。
+- SubtitleService `init()` 订阅 → `stop_realtime()`（token 入 `subs_`，shutdown 先 unsubscribe）。
+
+### PlaybackService（彻底去字幕耦合）
+- 删 `SubtitleService *subtitle_svc_` 成员、`class SubtitleService` 前向声明、`#include "panicast/app/subtitle_service.h"`。
+- `attach(ThreadPool&, SubtitleService&)` → `attach(ThreadPool&)`；app_run `attach(pool_, subtitle_)` → `attach(pool_)`。
+- 2 处 `subtitle_svc_->stop_realtime()` → `EventBus::publish(PlaybackTrackEnded{})`。
+
+### 行为等价性
+- stop_realtime 触发点不变（同样两处入口、同样 UI 线程、EventBus 同步派发）；保守未折进 begin_track，**时序零变化**。stop_realtime 幂等（realtime_active_ 为假即 return），advance 路径 Ended + 后续无重复杀问题（begin_track 不调 stop_realtime）。
+
+### 验收
+- ctest 39/39、构建 0-warning（21/21）、pty 冒烟 exit 0 + clean endwin + quit dialog。
+- 字幕/ASR 行为待人工验证（同 D10-3 Step 2，本增量仅改触发通道、逻辑未动）。
+
+---
+
 ## 新架构 D10-3 Step 2 — 2026-08-08 — SubtitleController：字幕加载事件化（Option B 统一 · D10-3 增量2/2）
 
 > M1（UI 解耦）第 13 步（续）。字幕加载从 PlaybackService 命令式直调改为**事件驱动**：PlaybackService 只 publish `PlaybackTrackChanged`（加 `has_video` 字段），SubtitleService `init()` 订阅 → `begin_track(node, has_video)`。**Option B（用户拍板）**：自动进阶走与手动播放**相同**的 A/B 分支（按 `has_video` 重新识别节目类型），不再只走 Method B——视频进阶升级到 Method A（mpv 渲染，修了潜在不一致）。= **D9 reactor 通道首个真实消费者**，播放↔字幕加载彻底解耦。

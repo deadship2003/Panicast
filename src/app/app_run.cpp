@@ -84,9 +84,9 @@ void App::run() {
     //   construction-time references). play_current / on_playback_ended live in PlaybackService
     //   now and own the track handles (playback_node_ / playback_mode_) directly (D9-2) — App reads
     //   them via playback_.playback_node() / playback_.playback_mode(). Must run before the loop.
-    //   D10-3 Step 1: attach the SubtitleService (was the two raw engine pointers); PlaybackService
-    //   delegates subtitle orchestration to it.
-    playback_.attach(pool_, subtitle_);
+    //   D11-1: subtitle is fully event-driven (SubtitleService subscribes the playback events), so
+    //   attach() now takes only the pool — PlaybackService no longer references SubtitleService.
+    playback_.attach(pool_);
     // D9: subscribe to the playback state events App still consumes locally. The bus is
     //   synchronous, so these run on the publisher's thread (pool thread for history). D9-2/D9-3:
     //   PlaybackTrackChanged / PlaybackBufferingChanged no longer need App subscribers — the track

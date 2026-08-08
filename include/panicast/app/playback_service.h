@@ -33,7 +33,6 @@ namespace panicast
 
 // Forward declarations — injected late via attach() (pointers only, to avoid heavy includes here).
 class ThreadPool;
-class SubtitleService;
 
 class PlaybackService {
 public:
@@ -97,14 +96,12 @@ public:
     bool advance_buffering(bool mpv_has_media);
 
     // ── Playback / autoplay logic (D8b-2, moved from app_playback.cpp) ────────
-    // Inject the services declared after playback_ in App (they can't be construction-time refs).
+    // Inject the ThreadPool declared after playback_ in App (it can't be a construction-time ref).
     //   Must be called once before any playback (App::run wires it right after playback_.init()).
-    //   D10-3: takes the SubtitleService. Step 2 made subtitle LOADING event-driven (SubtitleService
-    //   subscribes PlaybackTrackChanged → begin_track), so begin_track / load_transcript are no longer
-    //   called from here. The SubtitleService ref is retained ONLY for the on_playback_ended /
-    //   play_current entry stop_realtime() calls (residual coupling; D11 cuts it via a
-    //   PlaybackTrackEnded event).
-    void attach(ThreadPool &pool, SubtitleService &subtitle_svc);
+    //   D11-1: the SubtitleService param is GONE — subtitle is fully event-driven now (SubtitleService
+    //   subscribes PlaybackTrackChanged → begin_track + PlaybackTrackEnded → stop_realtime), so
+    //   PlaybackService no longer references SubtitleService at all.
+    void attach(ThreadPool &pool);
     // Play a single item by index. mode = active App mode (IPTV flag); play_mode = loop setting.
     void play_current(int idx, AppMode mode, PlayMode play_mode);
     // Pointer-driven auto-advance (runs on the UI thread — D4 invariant). Advances current_index_
@@ -149,13 +146,11 @@ private:
     std::vector<std::string> resolve_youtube_url(const std::string &url, bool has_video) const;
 
     // ── Injected deps (D8b-2) ────────────────────────────────────────────────
-    // Null until attach(); dereferenced only after App::run has wired them.
-    // D10-3 Step 2: subtitle LOADING is event-driven (SubtitleService subscribes
-    //   PlaybackTrackChanged → begin_track), so this pointer is used ONLY for the on_playback_ended /
-    //   play_current entry stop_realtime() calls — the residual direct coupling (D11 cuts it via a
-    //   PlaybackTrackEnded event).
+    // Null until attach(); dereferenced only after App::run has wired it.
+    // D11-1: subtitle coupling is fully event-driven (SubtitleService subscribes the playback
+    //   events), so the SubtitleService pointer is GONE — only the ThreadPool remains (record_play_
+    //   history + the async YouTube resolve submit to it).
     ThreadPool *pool_ = nullptr;
-    SubtitleService *subtitle_svc_ = nullptr;
 };
 
 } // namespace panicast
