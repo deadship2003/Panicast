@@ -99,9 +99,11 @@ public:
     // ── Playback / autoplay logic (D8b-2, moved from app_playback.cpp) ────────
     // Inject the services declared after playback_ in App (they can't be construction-time refs).
     //   Must be called once before any playback (App::run wires it right after playback_.init()).
-    //   D10-3 Step 1: takes the SubtitleService (was the two raw engine pointers) — the subtitle
-    //   orchestration now lives in SubtitleService; PlaybackService calls its methods imperatively
-    //   (Step 2 will retrigger them via PlaybackTrackChanged and drop this pointer entirely).
+    //   D10-3: takes the SubtitleService. Step 2 made subtitle LOADING event-driven (SubtitleService
+    //   subscribes PlaybackTrackChanged → begin_track), so begin_track / load_transcript are no longer
+    //   called from here. The SubtitleService ref is retained ONLY for the on_playback_ended /
+    //   play_current entry stop_realtime() calls (residual coupling; D11 cuts it via a
+    //   PlaybackTrackEnded event).
     void attach(ThreadPool &pool, SubtitleService &subtitle_svc);
     // Play a single item by index. mode = active App mode (IPTV flag); play_mode = loop setting.
     void play_current(int idx, AppMode mode, PlayMode play_mode);
@@ -148,8 +150,10 @@ private:
 
     // ── Injected deps (D8b-2) ────────────────────────────────────────────────
     // Null until attach(); dereferenced only after App::run has wired them.
-    // D10-3 Step 1: subtitle engines are no longer held here — SubtitleService owns them and
-    //   exposes stop_realtime()/begin_track()/load_transcript() (called imperatively for now).
+    // D10-3 Step 2: subtitle LOADING is event-driven (SubtitleService subscribes
+    //   PlaybackTrackChanged → begin_track), so this pointer is used ONLY for the on_playback_ended /
+    //   play_current entry stop_realtime() calls — the residual direct coupling (D11 cuts it via a
+    //   PlaybackTrackEnded event).
     ThreadPool *pool_ = nullptr;
     SubtitleService *subtitle_svc_ = nullptr;
 };

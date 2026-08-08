@@ -5,6 +5,8 @@
 
 #include <fmt/format.h>
 
+#include "panicast/app/playback_events.h" // D10-3 Step 2: PlaybackTrackChanged → begin_track
+#include "panicast/core/event_bus.h"      // D10-3 Step 2: subscribe the reactor channel
 #include "panicast/core/logger.h"
 #include "panicast/core/thread_pool.h"
 #include "panicast/playback/mpv_controller.h"
@@ -43,13 +45,24 @@ void SubtitleService::init(ThreadPool &pool, MPVController &mpv) {
     // Y24.28: pass mpv for video ASR. Y24.19: whisper.cpp transcription. The engine is wired to
     //   this service's own SubtitleManager — the inter-object dependency stays internal.
     transcription_engine_.init(&subtitle_mgr_, &pool, &mpv);
-    // D10-3 Step 1: retain pool/mpv for the track-change orchestration (begin_track submits pool
-    //   work + calls mpv sub_add). Same objects the engine was wired with.
     pool_ = &pool;
     mpv_ = &mpv;
+    // D10-3 Step 2: subscribe to track changes → auto-load the new track's subtitle (the reactor
+    //   pattern — the FIRST real consumer of the D9 PlaybackTrackChanged channel). PlaybackService
+    //   publishes {node, mode, has_video} on BOTH manual play and auto-advance; begin_track
+    //   re-identifies the media type from has_video and runs the A/B branch (Option B: auto-advance
+    //   now follows the same path as a manual play). EventBus dispatch is synchronous on the
+    //   publisher's (UI) thread, so this matches the old imperative call's threading + ordering.
+    subs_.push_back(EventBus::instance().subscribe<PlaybackTrackChanged>(
+        [this](const PlaybackTrackChanged &e) { begin_track(e.node, e.has_video); }));
 }
 
 void SubtitleService::shutdown() {
+    // D10-3 Step 2: drop the EventBus subscription before the engines tear down, so the bus never
+    //   invokes begin_track on a half-destroyed service.
+    for (std::size_t t : subs_)
+        EventBus::instance().unsubscribe(t);
+    subs_.clear();
     transcription_engine_.shutdown(); // Y24.19: stop transcription dispatcher
 }
 
@@ -58,18 +71,15 @@ void SubtitleService::poll(UI &ui, bool lyric_bar_requested) {
     subtitle_mgr_.poll(ui, lyric_bar_requested);
 }
 
-// D10-3 Step 1: the three methods below relocate PlaybackService's subtitle orchestration verbatim
-//   (same objects: pool_/mpv_/subtitle_mgr_ are the very ones App passed to init — and the same mpv
-//   PlaybackService used via player_, since there is one MPVController). Step 2 retriggers them via
-//   PlaybackTrackChanged instead of an imperative call from PlaybackService.
+// D10-3: the methods below are the subtitle orchestration, relocated from PlaybackService. Step 2
+//   made begin_track event-driven — it is now called by the PlaybackTrackChanged subscriber (not by
+//   PlaybackService directly). stop_realtime stays a direct call from PlaybackService's track-end
+//   sites (the residual coupling; D11 will cut it). Same objects throughout: pool_/mpv_/subtitle_mgr_
+//   are the very ones App passed to init — and the same mpv PlaybackService used via player_ (there
+//   is one MPVController in the system).
 
 void SubtitleService::stop_realtime() {
     transcription_engine_.stop_realtime(); // Y24.20: realtime transcription doesn't carry across tracks
-}
-
-void SubtitleService::load_transcript(TreeNodePtr node) {
-    // Y23.4: load transcript for the (auto-advanced) track — Method B only (advance path semantics).
-    subtitle_mgr_.load_async(node, *pool_);
 }
 
 void SubtitleService::begin_track(TreeNodePtr node, bool has_video) {

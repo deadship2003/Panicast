@@ -1,4 +1,20 @@
 
+## D10-3 Step 2 — 字幕加载事件化：Option B（自动进阶统一走 A/B 分支）（M1 第 13 人日续）
+
+**Context:** D10-3 Step 1 把字幕编排逻辑搬进 SubtitleService 后（行为等价、触发仍命令式直调），Step 2 要换触发方式为事件订阅、拆 PlaybackService→字幕 直调耦合。深挖发现两个设计岔口：(1) `PlaybackTrackChanged{node,mode}` 不区分手动播放（begin_track 完整 A/B）与自动进阶（load_transcript 仅 Method B）；(2) `on_playback_ended` 入口 `stop_realtime`（杀 ASR）在"曲目结束但不进阶"时也要跑，而该路径不发 PlaybackTrackChanged。
+
+**Decision: Option B（统一）——自动进阶重新识别节目类型、走与手动播放相同的 A/B 分支。** 用户拍板："下一曲自动重新识别节目类型，按当前曲逻辑走分支判断。" 即：两条路都 publish `PlaybackTrackChanged{node, mode, has_video}`，SubtitleService 订阅 → `begin_track(node, has_video)`。视频自动进阶从 Method B 升级到 Method A（mpv 渲染，与手动播放一致——修了"视频进阶显 LYRIC 而非烧字幕"的潜在不一致）；音频进阶仍 Method B（仅多一行 log）。
+
+**Why 事件带 has_video 而非订阅方读 node->is_video:** `PlaylistItem.is_video`（= 手动播放/进阶的 A/B 判据）= `node->is_youtube || URLClassifier::is_video(url)`，**与 `node->is_video` 不同**。让 PlaybackService 计算好入事件，订阅方直接用——精确保留"重新识别"语义、订阅方不需耦合 URLClassifier。
+
+**Why stop_realtime 留 2 处直接调用（不进事件）:** `PlaybackTrackChanged` 只在进阶/播放时发；"曲目结束但不进阶"（error/stop，reason≠0）路径无该事件，但 ASR 仍须停（防 whisper-cli 进程泄漏/陈旧字幕）。故保留 `subtitle_svc_` 供 on_playback_ended 入口 + play_current 入口两处 `stop_realtime` 直接调用（直调从 4 处降到 2 处）。**strangler-fig 残留**——加 `PlaybackTrackEnded` 事件即可彻底拆，留 D11。
+
+**Why 不把 stop_realtime 折进 begin_track（验证过、可选但未取）:** `stop_realtime` 幂等（realtime_active_ 为假即 return），折进 begin_track 安全、可把残留降到 1 处。但为最小化这一**冒烟测不出**的敏感步骤的行为微变（折进后 play_current 的 ASR 杀时机从入口移到 publish 点），取保守方案：begin_track 不动、两处 stop_realtime 原样直调。
+
+**Gotcha:** EventBus 同步派发（发布者线程）——publish 在 UI 线程，订阅方 begin_track 同步在 play() 前跑，时序与旧直调等价（Step 1 已用此特性）。has_video 默认初始化故 `{node,mode}` 聚合初始化的单测仍编译。
+
+**Followups:** ① 人工验字幕（音频/视频/L键ASR/进阶重识别）；② D11 加 `PlaybackTrackEnded` 事件切掉 2 处 stop_realtime 残留直调；③ 字幕 L 键编排 + offset 等 input-side 解耦（D11）。
+
 ## D10-3 — SubtitleController：字幕编排反应式化（提前 M3），strangler-fig 两步（M1 第 13 人日）
 
 **Context:** D10 收官时把 D10-3（字幕事件化）判为"增量收益、并入 D11"，因为 poll 是每帧状态机驱动、lyric_active 每帧多源派生，事件不能替代它们。但用户要求深入分析字幕+ASR 机制对照主流方案后再定。分析结论：D10-3 的真正价值**不在替代 poll/lyric_active**，而在**拆掉 PlaybackService→字幕 的命令式内联耦合**——这才是主流（mpv/VLC/ExoPlayer 反应式）与现状（命令式反模式）的差距。ASR 作为"字幕源"（渐进喂 segments）本身设计正确，其生命周期（切歌停、L 键启）天然归字幕控制器。

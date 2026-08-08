@@ -15,11 +15,16 @@ namespace panicast
 {
 
 // A new track is the playing pointer: its source tree node + the App mode active when playback
-//   started (saved so 'N' can jump back to that mode). Replaces set_playback_node_ +
-//   set_playback_mode_ (which always fired back-to-back).
+//   started (saved so 'N' can jump back to that mode), + the per-track has_video flag. Replaces
+//   set_playback_node_ + set_playback_mode_ (which always fired back-to-back).
+//   D10-3 Step 2: has_video is the re-identified A/B flag (Method A mpv-render vs Method B LYRIC),
+//   computed by PlaybackService as `is_youtube || URLClassifier::is_video(url)` — NOT node->is_video
+//   (those two differ). SubtitleService subscribes → begin_track(node, has_video): the FIRST real
+//   consumer of this reactor channel. Default-init so the {node,mode} aggregate inits still compile.
 struct PlaybackTrackChanged {
     TreeNodePtr node;
     AppMode mode;
+    bool has_video = false;
 };
 
 // BUFFERING pending flag toggled. pending=true → a track is loading (the subscriber stamps a fresh

@@ -14,6 +14,9 @@
 //   SubtitleController.   (D10-1 — UI-decoupling M1.)
 #pragma once
 
+#include <cstddef>
+#include <vector>
+
 #include "panicast/subtitle/subtitle_manager.h"     // Y24.7
 #include "panicast/subtitle/transcription_engine.h" // Y24.19/20
 
@@ -37,19 +40,21 @@ public:
     //   Forwards SubtitleManager::poll (called once per frame from App's run loop).
     void poll(UI &ui, bool lyric_bar_requested);
 
-    // ── Track-change orchestration (D10-3 Step 1: relocated from PlaybackService::play_current /
-    //   on_playback_ended — behaviour-equivalent move; PlaybackService now calls these instead of
-    //   reaching into the engines directly. Step 2 will retrigger these via PlaybackTrackChanged.) ──
-    // Stop any running real-time ASR. Called on EVERY track end/switch (was the stop_realtime sites
-    //   at play_current + on_playback_ended entry). Real-time ASR must not carry across tracks.
+    // ── Track-change orchestration (D10-3: relocated from PlaybackService, then made event-driven) ──
+    //   Step 1 moved the logic here (behaviour-equivalent). Step 2: begin_track is now triggered by
+    //   SUBSCRIBING to PlaybackTrackChanged (init() wires the subscription) — PlaybackService no
+    //   longer calls it directly. stop_realtime stays a direct call from PlaybackService's track-end
+    //   sites (the residual coupling; D11 will cut it via a PlaybackTrackEnded event).
+    // Stop any running real-time ASR. Called on EVERY track end/switch (the PlaybackService entry
+    //   sites) — real-time ASR must not carry across tracks. Idempotent (no-op when nothing running).
     void stop_realtime();
-    // Begin subtitle setup for a track about to play (was play_current's subtitle block):
-    //   has_video → reset Method B, async sidecar probe, then mpv sub_add (Method A) for mpv
-    //   formats or load_async (Method B) otherwise; !has_video → always Method B load_async.
+    // Begin subtitle setup for a track about to play. Triggered by the PlaybackTrackChanged
+    //   subscription for BOTH manual play and auto-advance (Option B, D10-3): auto-advance now
+    //   re-identifies the media type from the event's has_video flag and follows the SAME A/B branch
+    //   as a manual play (was a Method-B-only load_transcript). has_video → reset Method B, async
+    //   sidecar probe, then mpv sub_add (Method A) for mpv formats or load_async (Method B) otherwise;
+    //   !has_video → Method B load_async. Fully async — never blocks play().
     void begin_track(TreeNodePtr node, bool has_video);
-    // Load the transcript for an auto-advanced track (was on_playback_ended's advance site): Method
-    //   B load_async only — no reset / no A/B branch (auto-advance semantics preserved as-is).
-    void load_transcript(TreeNodePtr node);
 
     // ── Engine access (transitional — D10-2/3 replace direct use with Actions/events) ──
     //   PlaybackService.attach() and App's input/remote/download sites use these; they are the
@@ -69,6 +74,9 @@ private:
     //   via its own pointers; that path now lives here.
     ThreadPool *pool_ = nullptr;
     MPVController *mpv_ = nullptr;
+    // D10-3 Step 2: EventBus subscription tokens (PlaybackTrackChanged → begin_track). Unsubscribed
+    //   in shutdown() so the bus never invokes a callback on a destroyed service.
+    std::vector<std::size_t> subs_;
 };
 
 } // namespace panicast

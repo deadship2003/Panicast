@@ -1,5 +1,5 @@
 #include "panicast/app/playback_service.h"
-#include "panicast/app/subtitle_service.h" // D10-3 Step 1: SubtitleService orchestration (begin_track/load_transcript/stop_realtime)
+#include "panicast/app/subtitle_service.h" // D10-3: SubtitleService — entry stop_realtime() only (subtitle loading is event-driven via PlaybackTrackChanged)
 
 #include <cctype>
 #include <chrono>
@@ -106,8 +106,9 @@ int PlaybackService::random_peer_index(int avoid) const {
 // D8b-2 late injection — wire the services declared after playback_ in App (they can't be
 //   construction-time refs). State changes go on the EventBus (D9), so no callbacks here.
 //   Called once from App::run right after playback_.init().
-//   D10-3 Step 1: holds the SubtitleService (was the two raw engine pointers); subtitle
-//   orchestration is delegated to it (stop_realtime/begin_track/load_transcript).
+//   D10-3 Step 2: holds the SubtitleService ONLY for the entry stop_realtime() calls. Subtitle
+//   LOADING is event-driven now (SubtitleService subscribes PlaybackTrackChanged → begin_track);
+//   begin_track / load_transcript are no longer called from PlaybackService.
 void PlaybackService::attach(ThreadPool &pool, SubtitleService &subtitle_svc) {
     pool_ = &pool;
     subtitle_svc_ = &subtitle_svc;
@@ -215,17 +216,19 @@ void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_
     TreeNodePtr next_node = current_playlist_[next].node;
     playback_node_ = next_node;   // D9-2: authoritative track state (queried via playback_node())
     playback_mode_ = mode;
-    EventBus::instance().publish(  // D9: notify external reactors (remote 'now playing'/UI)
-        PlaybackTrackChanged{next_node, mode});
+    bool has_video = current_playlist_[next].is_video; // snapshot under the lock (event + play below)
+    // D9 + D10-3 Step 2: publish the track change WITH its re-identified has_video flag. SubtitleService
+    //   subscribes → begin_track(next_node, has_video): auto-advance now runs the SAME full A/B branch
+    //   as a manual play (Option B — was a Method-B-only load_transcript). Dispatch is synchronous on
+    //   this (UI) thread, so subtitle setup starts before play() below, exactly as the old call did.
+    EventBus::instance().publish(PlaybackTrackChanged{next_node, mode, has_video});
     // Y24.55: keep IPTV context flag in sync on auto-advance (same reasoning as play_current).
     player_.set_iptv_context(mode == AppMode::IPTV);
-    subtitle_svc_->load_transcript(next_node); // Y23.4: load transcript for the advanced track (method B)
     set_buffering_(true); // Y23.9: BUFFERING until mpv loads the next track
 
     // Play the next track inline (must NOT call play_current — it also locks playlist_mutex_
     //   (non-recursive) and would deadlock).
     std::string orig_url = current_playlist_[next].url;
-    bool has_video = current_playlist_[next].is_video;
 
     // F23: async YouTube resolve — don't block the UI thread
     std::string local = CacheManager::instance().get_local_file(orig_url);
@@ -438,16 +441,16 @@ void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
     //   (stream URL/ICY for radio, not the station name).
     playback_node_ = pn;           // D9-2: authoritative track state (queried via playback_node())
     playback_mode_ = mode;
-    EventBus::instance().publish(  // D9: notify external reactors (remote 'now playing'/UI)
-        PlaybackTrackChanged{pn, mode});
+    // D9 + D10-3 Step 2: publish the track change WITH its has_video flag. SubtitleService subscribes
+    //   → begin_track(pn, has_video) — subtitle A/B setup is now event-driven (was a direct call
+    //   here). Dispatch is synchronous on this (UI) thread, so begin_track runs before play() below,
+    //   exactly as the old imperative call did. Method A (mpv sub-add, video) vs Method B
+    //   (SubtitleManager async fetch+parse → LYRIC, audio + non-mpv video formats) is decided inside
+    //   begin_track; fully async — play() below is not blocked (no sync fs::exists; slow on WSL2).
+    EventBus::instance().publish(PlaybackTrackChanged{pn, mode, has_video});
     // Y24.55: flag IPTV context so mpv_controller emits IPTV: messages alongside MPV: behavior for
     //   the same event (off-air, audio-only, slow, load/AO/VO/decode failures).
     player_.set_iptv_context(mode == AppMode::IPTV);
-    // Y24.8/Y24.17/Y24.18: subtitle handling is delegated to SubtitleService (D10-3 Step 1 — was
-    //   the inline A/B block here). Method A (mpv sub-add, video) vs Method B (SubtitleManager
-    //   async fetch+parse → LYRIC, audio + non-mpv video formats) is decided inside begin_track.
-    //   Fully async — play() below is not blocked (no sync fs::exists; slow on /mnt/e WSL2 mounts).
-    subtitle_svc_->begin_track(pn, has_video);
 
     // Y23.9: BUFFERING state — set pending before play; cleared when mpv reports has_media.
     // Y24.17: timestamp each step so panicast.log shows WHERE the wait goes (sync fs::exists/DB vs

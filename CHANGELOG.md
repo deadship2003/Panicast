@@ -4,6 +4,34 @@
 
 ---
 
+## 新架构 D10-3 Step 2 — 2026-08-08 — SubtitleController：字幕加载事件化（Option B 统一 · D10-3 增量2/2）
+
+> M1（UI 解耦）第 13 步（续）。字幕加载从 PlaybackService 命令式直调改为**事件驱动**：PlaybackService 只 publish `PlaybackTrackChanged`（加 `has_video` 字段），SubtitleService `init()` 订阅 → `begin_track(node, has_video)`。**Option B（用户拍板）**：自动进阶走与手动播放**相同**的 A/B 分支（按 `has_video` 重新识别节目类型），不再只走 Method B——视频进阶升级到 Method A（mpv 渲染，修了潜在不一致）。= **D9 reactor 通道首个真实消费者**，播放↔字幕加载彻底解耦。
+
+### PlaybackTrackChanged（加 has_video 字段）
+- 事件加 `bool has_video = false`（默认初始化，故既有 `{node,mode}` 聚合初始化仍编译——单测 `PlaybackEvents.DeliveredOnBus` 不受影响）。
+- `has_video` = **按曲目重新识别**的 A/B 标志（`is_youtube || URLClassifier::is_video(url)`，由 PlaybackService 计算入事件），**非** `node->is_video`（两者不同：PlaylistItem.is_video 源自前者）。
+
+### SubtitleService（订阅事件触发 begin_track）
+- init() `EventBus::subscribe<PlaybackTrackChanged>` → `begin_track(e.node, e.has_video)`（token 存 `subs_`）；shutdown() 先 unsubscribe 再拆引擎（防总线回调打到半销毁的服务）。
+- 删 `load_transcript`（Step 1 的 advance Method-B-only 路径——Option B 后 advance 也走 begin_track，死方法）。
+
+### PlaybackService（字幕加载改事件、降耦合）
+- on_playback_ended advance：`load_transcript` 直调删除；`has_video` 快照上移、`PlaybackTrackChanged{next_node, mode, has_video}` publish（同步派发→订阅方 begin_track 在 play() 前跑，时序等价）。
+- play_current：`begin_track` 直调删除；publish 改带 `has_video`。
+- **残留（D11 切）**：`subtitle_svc_` 指针保留，仅用于 on_playback_ended 入口 + play_current 入口两处 `stop_realtime`（杀 ASR；"曲目结束但不进阶"路径无 PlaybackTrackChanged，故需直接调用）。直调从 4 处降到 2 处；加 `PlaybackTrackEnded` 事件可彻底拆。
+
+### Option B 行为变化（仅自动进阶，需人工验证）
+- 视频自动进阶：Method B（LYRIC 面板）→ **Method A（mpv 渲染烧字幕）**，与手动播放一致。
+- 音频自动进阶：仍是 Method B（load_async），仅多一行 log。
+- 手动播放：行为零变化（begin_track 逻辑未动，仅触发方式从直调变事件，同步派发时序等价）。
+
+### 验收
+- ctest 39/39、构建 0-warning（21/21）、pty 冒烟 exit 0 + clean endwin + quit dialog。
+- **字幕正确性冒烟测不出 → 需人工放带字幕的播客/视频验证**：音频 Method B（LYRIC）、视频 Method A（mpv 渲染）、L 键 ASR、自动进阶重识别类型。
+
+---
+
 ## 新架构 D10-3 Step 1 — 2026-08-08 — SubtitleController：字幕编排逻辑搬入 SubtitleService（行为等价 · D10-3 增量1/2）
 
 > M1（UI 解耦）第 13 步。把 PlaybackService 里**命令式内联编排**的字幕逻辑（Method A/B 判定 + mpv sub_add + load_async + stop_realtime）**原样搬进** SubtitleService 三个方法（stop_realtime / begin_track / load_transcript）；PlaybackService 改走方法调用（触发方式不变=仍命令式直调）。纯重定位、行为零变化（字幕对象同一：init 传入的 pool/mpv/subtitle_mgr 即 PlaybackService 原用者）。这是 SubtitleController（= 提前 M3）的第一步 strangler-fig。
