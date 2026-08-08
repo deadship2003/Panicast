@@ -1,4 +1,21 @@
 
+## D10-4 — LibraryService 所有权切割：树数据模型搬所有权（M1 第 11 人日，D10 增量4）
+
+**Context:** D10-1/2 把字幕/搜索搬入 Service 后，App 剩余的最大域数据块是树数据模型——8 个模式根 item 列表（`radio/podcast/fav/history/account/bilibili/tiktok/iptv_root`，共 175 处访问）+ 6 个 loaded flag（9 处）。它们与 `tree_mutex`（recursive_mutex，~120 处、11 文件共用）、视图态 `display_list`/`selected_idx`/`view_start`（~208 处）、`pending_select_`（UI handoff）同处一个耦合簇。完整搬迁（数据+锁+视图+方法）会是一次 500+ 处的大改，违反"干净一刀 + 敏感一刀分拆、每步可回退"铁律，且视图态/方法的真正归位要等 D11（UI 纯交互化），现搬=与 D11 双 churn。
+
+**Decision: D10-4 只搬树数据（8 root + 6 flag），锁/视图态/handoff/方法全留 App（各附 D11 归属理由）。** 与 D10-1/2 一致的"干净一刀"：把 App 不再应持有的域数据外迁到 LibraryService，App 各访问点经引用访问器，机械重定向、行为零变化。这是 D10 收尾策略（所有权切割、为 D11 腾边界）的第四刀，也是迄今最大的一刀。
+
+**Approach（引用访问器 + `\b` 词界 sed）:**
+- 8 root：`std::vector<TreeNodePtr>& xxx_root()` + const 重载（复刻 SearchService 的 `search_matches()`）。覆盖所有用法：push_back / clear / size / empty / 下标 / range-for（值或引用）/ 取地址传参 / 别名引用——引用访问器一律胜任。
+- 6 flag：`bool& xxx_loaded()`（写）+ `bool xxx_loaded() const`（读）。引用写访问器统一 `xxx_loaded = true` → `library_.xxx_loaded() = true`，避免 getter/setter 在赋值语境的非对称替换。
+- **重定向工具=GNU sed `\b…\b`**，仅作用于 `src/app/*.cpp`（app.h 手改、library_service.h 不在作用域）。词界 `\b` 是安全关键：`radio_root` 是 `load_radio_root()` 的子串、`account_root` 与 `load_accounts_root()`（复数）形似——`\b` 保证只命中独立 token。逐 token 转换后计数与 sed 前逐项吻合 → 零遗漏零误伤。
+
+**Why 不连 tree_mutex 一起搬:** 锁同时守数据（现归 LibraryService）与视图态 `display_list`/`selected_idx`（留 App、D11 领地）。现把锁迁入 LibraryService，它仍要守 App 的视图态（锁跨对象，且方向相反）；而 D11 会把视图态也迁入——届时锁跟随视图态同处更自然。故锁现迁=双 churn 且无同处收益，留 D11 一次性归位最省。当前中间态：`lock_guard lock(tree_mutex); library_.podcast_root().push_back(...)`——锁对象身份不变、加锁顺序不变、无死锁/竞态引入（行为零变化的核心保证）。
+
+**Gotcha（验证）:** 初次用 `grep -oE "\bxxx\b"` 验证时被 `-o` 坑（只输出匹配子串、丢 `library_.` 上下文，converted 也被当 unconverted 报）。改用"converted-form 计数逐 token 比对 sed 前总量"+ PCRE 负向后顾查"非 `.` 前导的裸访问"双保险，方确认全转。
+
+**Followups:** D10-5（AccountService 所有权切割，按 Y/B/T/I 模式切片，最大域）；D11（UI 纯交互化：视图态 display_list/selected_idx/view_start + tree_mutex + pending_select_ + 各 load_*_root 方法体迁入对应 Service，grep 验证 UI 无 Core 直调）。D10-3（SubtitleService 事件化）评估为低增量收益（poll 是每帧状态机驱动、lyric_active 每帧多源派生，事件无法替代），并入 D11。
+
 ## D10-2 — SearchService 所有权切割：树内搜索状态搬所有权（M1 第 10 人日，D10 增量2）
 
 **Context:** D10-1 把字幕/ASR 引擎搬入 SubtitleService 后，继续抽下一域。原计划 D10-2 = "字幕按键→SubtitleActions 上总线"，但 D10 四域深入勘察后**重排优先级**：① 字幕的 `L` 键是多源编排器（非 D8a 式纯 toggle），且字幕加载 `load_async` 与播放/视频态强耦合（`has_video` 分支 + `player_.sub_add`）——其**输入/逻辑全方法搬迁**被播放耦合挡住；② Search 的逻辑体同样直探 UI 导航态（`jump_to_match` 改写 `selected_idx`/`view_start` + 持 `tree_mutex`/`display_list`）。结论：四域（字幕/搜索/库/帐号）的干净全方法搬迁都需先解 UI 耦合 → 属 **D11（UI 纯交互化）**。故 D10 现实收尾策略改为**所有权切割**：逐域把 App 的域私有态外迁到各 Service，为 D11 腾边界。Search 4 成员最局部、最干净，选作 D10-2。

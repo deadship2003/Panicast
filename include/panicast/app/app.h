@@ -81,6 +81,7 @@ extern char **environ; // Required by posix_spawnp (capture_exec / ffprobe verif
 #include "panicast/storage/persistence.h"
 #include "panicast/app/subtitle_service.h" // D10-1: subtitles/ASR Application Service (owns SubtitleManager + TranscriptionEngine)
 #include "panicast/app/search_service.h"   // D10-2: in-tree search Application Service (owns search state)
+#include "panicast/app/library_service.h"  // D10-4: library Application Service (owns per-mode tree data model)
 #include "panicast/ui/border.h"
 #include "panicast/ui/ui.h"
 #include "panicast/theme/colors.h"
@@ -124,14 +125,12 @@ private:
     UI ui;
     MPVController player;
     PlaybackService playback_{player}; // D8: first Application Service (owns playback Actions)
-    // E refactor: the 8 per-mode "roots" are now the mode's TOP-LEVEL ITEM LISTS (std::vector),
-    //   NOT TreeNode container nodes. The root NODE is eliminated; items live directly in the
-    //   vector. (Name kept as xxx_root for historical reasons — it's the mode's root list.)
-    std::vector<TreeNodePtr> radio_root, podcast_root, fav_root, history_root, account_root,
-        bilibili_root, tiktok_root, iptv_root;
-    // E: per-mode "loaded" flags (were the root node's children_loaded before root removal)
-    bool radio_loaded = false, podcast_loaded = false, account_loaded = false,
-         bilibili_loaded = false, tiktok_loaded = false, iptv_loaded = false;
+    // D10-4: the per-mode tree DATA MODEL (8 root item lists + 6 "loaded" flags) moved into
+    //   LibraryService. app_*.cpp read/write via library_. accessors (radio_root()/…, *_loaded()).
+    //   tree_mutex STAYS in App for now: it also guards the view state (display_list/selected_idx),
+    //   which is D11 territory, so the lock is not co-located with the data yet. The tree-building
+    //   methods (load_*_root) stay here too (parser/storage/UI-coupled → relocate after D11).
+    LibraryService library_;
     std::string
         tiktok_region_; // Y24.11: current T-mode region code (US/JP/...), persisted in INI [tiktok] region
     // Y11: async interaction selection. A pool task that builds a new node (e.g. YouTube search

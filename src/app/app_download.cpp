@@ -33,7 +33,7 @@ void App::download_node(int marked_count) {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
         clear_marks_current();
     }
-    Persistence::save_cache(radio_root, podcast_root);
+    Persistence::save_cache(library_.radio_root(), library_.podcast_root());
 }
 
 // Start one download for node n. Returns true only if a NEW ProgressManager slot was created
@@ -182,7 +182,7 @@ void App::ytdlp_download(const std::string &url, const std::vector<std::string> 
             CacheManager::instance().mark_partial(url); // .part left → mark incomplete
             EVENT_LOG(fmt::format("Failed: {}", title));
         }
-        Persistence::save_cache(radio_root, podcast_root);
+        Persistence::save_cache(library_.radio_root(), library_.podcast_root());
     }
 }
 
@@ -446,7 +446,7 @@ bool App::start_one_download(TreeNodePtr n) {
                     CacheManager::instance().mark_partial(url); // .part left → mark incomplete
                     EVENT_LOG(fmt::format("Failed: {}", title));
                 }
-                Persistence::save_cache(radio_root, podcast_root);
+                Persistence::save_cache(library_.radio_root(), library_.podcast_root());
             }
         });
         // Old t.detach() removed; pool_ automatically joins on destruction

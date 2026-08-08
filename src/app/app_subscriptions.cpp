@@ -22,7 +22,7 @@ void App::import_feed(const std::string &url) {
     {
         std::lock_guard<std::recursive_mutex> lock(
             tree_mutex); // mutual exclusion with background load thread
-        podcast_root.insert(podcast_root.begin(), node);
+        library_.podcast_root().insert(library_.podcast_root().begin(), node);
     }
     spawn_load_feed(node);
 
@@ -30,8 +30,8 @@ void App::import_feed(const std::string &url) {
     pool_.wait_idle();
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        Persistence::save_cache(radio_root, podcast_root);
-        Persistence::save_data(podcast_root, fav_root);
+        Persistence::save_cache(library_.radio_root(), library_.podcast_root());
+        Persistence::save_data(library_.podcast_root(), library_.fav_root());
     }
     std::cout << "Feed added successfully: " << node->title << std::endl;
 }
@@ -55,14 +55,14 @@ void App::import_opml(const std::string &filepath) {
         {
             std::lock_guard<std::recursive_mutex> lock(
                 tree_mutex); // mutual exclusion with background load thread
-            for (const auto &existing : podcast_root) {
+            for (const auto &existing : library_.podcast_root()) {
                 if (existing->url == feed->url) {
                     exists = true;
                     break;
                 }
             }
             if (!exists) {
-                podcast_root.insert(podcast_root.begin(), feed);
+                library_.podcast_root().insert(library_.podcast_root().begin(), feed);
             }
         }
         if (exists) {
@@ -79,8 +79,8 @@ void App::import_opml(const std::string &filepath) {
     pool_.wait_idle();
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        Persistence::save_cache(radio_root, podcast_root);
-        Persistence::save_data(podcast_root, fav_root);
+        Persistence::save_cache(library_.radio_root(), library_.podcast_root());
+        Persistence::save_data(library_.podcast_root(), library_.fav_root());
     }
 }
 
@@ -89,7 +89,7 @@ void App::export_podcasts(const std::string &filename) {
     pool_
         .wait_idle(); // wait for background loading to finish, avoiding concurrent mutation of children during export
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-    Persistence::export_opml(filename, podcast_root);
+    Persistence::export_opml(filename, library_.podcast_root());
 }
 
 void App::add_feed() {
@@ -115,11 +115,11 @@ void App::add_feed() {
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
         node->parent.reset(); // set parent pointer
-        podcast_root.insert(podcast_root.begin(), node);
+        library_.podcast_root().insert(library_.podcast_root().begin(), node);
     }
 
     // Save the subscription to the database immediately (before parsing, to ensure it loads after restart)
-    Persistence::save_data(podcast_root, fav_root);
+    Persistence::save_data(library_.podcast_root(), library_.fav_root());
     EVENT_LOG(fmt::format("Subscription saved: {}", url));
 
     spawn_load_feed(node);
@@ -133,10 +133,10 @@ void App::subscribe_online_podcast() {
     if (!node || node->url.empty())
         return;
 
-    // Check existence + add + persist (reading/writing podcast_root requires holding tree_mutex)
+    // Check existence + add + persist (reading/writing library_.podcast_root() requires holding tree_mutex)
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        for (const auto &child : podcast_root) {
+        for (const auto &child : library_.podcast_root()) {
             if (child->url == node->url) {
                 EVENT_LOG("Already subscribed");
                 return;
@@ -150,9 +150,9 @@ void App::subscribe_online_podcast() {
         new_node->type = NodeType::PODCAST_FEED;
         new_node->subtext = node->subtext;
 
-        podcast_root.insert(podcast_root.begin(), new_node);
-        Persistence::save_cache(radio_root, podcast_root);
-        Persistence::save_data(podcast_root, fav_root);
+        library_.podcast_root().insert(library_.podcast_root().begin(), new_node);
+        Persistence::save_cache(library_.radio_root(), library_.podcast_root());
+        Persistence::save_data(library_.podcast_root(), library_.fav_root());
     }
 
     EVENT_LOG(fmt::format("Subscribed: {}", node->title));
@@ -181,7 +181,7 @@ void App::subscribe_online_podcasts_batch(int marked_count) {
             if (n->type == NodeType::PODCAST_FEED && !n->url.empty()) {
                 // Check whether already subscribed
                 bool already_subscribed = false;
-                for (const auto &child : podcast_root) {
+                for (const auto &child : library_.podcast_root()) {
                     if (child->url == n->url) {
                         already_subscribed = true;
                         break;
@@ -213,7 +213,7 @@ void App::subscribe_online_podcasts_batch(int marked_count) {
 
         std::lock_guard<std::recursive_mutex> lock(
             tree_mutex); // mutual exclusion with background load thread
-        podcast_root.insert(podcast_root.begin(), new_node);
+        library_.podcast_root().insert(library_.podcast_root().begin(), new_node);
         count++;
     }
 
@@ -223,8 +223,8 @@ void App::subscribe_online_podcasts_batch(int marked_count) {
         clear_marks(OnlineState::instance().online_root);
     }
 
-    Persistence::save_cache(radio_root, podcast_root);
-    Persistence::save_data(podcast_root, fav_root);
+    Persistence::save_cache(library_.radio_root(), library_.podcast_root());
+    Persistence::save_data(library_.podcast_root(), library_.fav_root());
 
     EVENT_LOG(fmt::format("Subscribed {} podcasts", count));
 }
@@ -236,7 +236,7 @@ void App::subscribe_favourites_batch(int marked_count) {
     std::vector<TreeNodePtr> to_subscribe;
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        for (auto &it : fav_root)
+        for (auto &it : library_.fav_root())
             collect_marked(it, to_subscribe);
     }
 
@@ -245,7 +245,7 @@ void App::subscribe_favourites_batch(int marked_count) {
         return;
     }
 
-    // Filter out subscribable nodes (reading podcast_root requires holding tree_mutex)
+    // Filter out subscribable nodes (reading library_.podcast_root() requires holding tree_mutex)
     std::vector<TreeNodePtr> feed_nodes;
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
@@ -254,7 +254,7 @@ void App::subscribe_favourites_batch(int marked_count) {
             if (!n->url.empty() && n->url != "online_root") {
                 // Check whether already subscribed
                 bool already_subscribed = false;
-                for (const auto &child : podcast_root) {
+                for (const auto &child : library_.podcast_root()) {
                     if (child->url == n->url) {
                         already_subscribed = true;
                         break;
@@ -272,7 +272,7 @@ void App::subscribe_favourites_batch(int marked_count) {
         return;
     }
 
-    // Batch subscribe (reading/writing podcast_root requires holding tree_mutex)
+    // Batch subscribe (reading/writing library_.podcast_root() requires holding tree_mutex)
     int count = 0;
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
@@ -283,16 +283,16 @@ void App::subscribe_favourites_batch(int marked_count) {
             new_node->type = NodeType::PODCAST_FEED;
             new_node->is_youtube = n->is_youtube;
 
-            podcast_root.insert(podcast_root.begin(), new_node);
+            library_.podcast_root().insert(library_.podcast_root().begin(), new_node);
             count++;
         }
 
         // Clear marks
-        for (auto &it : fav_root)
+        for (auto &it : library_.fav_root())
             clear_marks(it);
 
-        Persistence::save_cache(radio_root, podcast_root);
-        Persistence::save_data(podcast_root, fav_root);
+        Persistence::save_cache(library_.radio_root(), library_.podcast_root());
+        Persistence::save_data(library_.podcast_root(), library_.fav_root());
     }
 
     EVENT_LOG(fmt::format("Subscribed {} podcasts from favourites", count));
@@ -306,7 +306,7 @@ void App::add_favourites_batch(int marked_count) {
     // ONLINE mode special handling
     if (mode == AppMode::ONLINE) {
         // Check whether an online_root favourite already exists
-        for (auto &f : fav_root) {
+        for (auto &f : library_.fav_root()) {
             if (f->url == "online_root") {
                 EVENT_LOG("★ Online Search already in favourites");
                 // Clear marks
@@ -329,7 +329,7 @@ void App::add_favourites_batch(int marked_count) {
 
         {
             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-            fav_root.insert(fav_root.begin(), fn);
+            library_.fav_root().insert(library_.fav_root().begin(), fn);
             clear_marks_current();
         }
 
@@ -356,7 +356,7 @@ void App::add_favourites_batch(int marked_count) {
     // Filter out favouritable nodes
     std::vector<TreeNodePtr> fav_nodes;
     std::set<std::string> existing_urls;
-    for (const auto &f : fav_root) {
+    for (const auto &f : library_.fav_root()) {
         if (!f->url.empty())
             existing_urls.insert(f->url);
     }
@@ -370,7 +370,7 @@ void App::add_favourites_batch(int marked_count) {
             if (!n->url.empty()) {
                 already_fav = existing_urls.count(n->url) > 0;
             } else {
-                for (const auto &f : fav_root) {
+                for (const auto &f : library_.fav_root()) {
                     if (f->title == n->title && f->type == n->type) {
                         already_fav = true;
                         break;
@@ -421,7 +421,7 @@ void App::add_favourites_batch(int marked_count) {
         break;
     }
 
-    // Batch favourite (writing fav_root requires holding tree_mutex)
+    // Batch favourite (writing library_.fav_root() requires holding tree_mutex)
     int count = 0;
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
@@ -440,7 +440,7 @@ void App::add_favourites_batch(int marked_count) {
             fn->children_loaded = false; // LINK node lazy-load
 
             fn->parent.reset();
-            fav_root.insert(fav_root.begin(), fn);
+            library_.fav_root().insert(library_.fav_root().begin(), fn);
 
             // Save to database (including LINK info)
             fn->is_link = true; // F38: link flag persisted as a column (was in data_json)
@@ -476,10 +476,10 @@ void App::add_favourite() {
     // On expand: runtime reference -> memory lookup -> database cache -> network parsing
     // ═══════════════════════════════════════════════════════════════════
 
-    // Check whether a favourite with the same URL already exists (reading fav_root requires holding tree_mutex)
+    // Check whether a favourite with the same URL already exists (reading library_.fav_root() requires holding tree_mutex)
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        for (auto &f : fav_root) {
+        for (auto &f : library_.fav_root()) {
             if (!node->url.empty() && f->url == node->url) {
                 EVENT_LOG(fmt::format("★ Already in favourites: {}", node->title));
                 return;
@@ -546,7 +546,7 @@ void App::add_favourite() {
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
         fn->parent.reset();
-        fav_root.insert(fav_root.begin(), fn);
+        library_.fav_root().insert(library_.fav_root().begin(), fn);
     }
 
     // Save to database (including LINK info)
@@ -599,14 +599,14 @@ void App::add_local_files() {
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
         folder->parent.reset();
-        fav_root.insert(fav_root.begin(), folder);
+        library_.fav_root().insert(library_.fav_root().begin(), folder);
     }
 
     // Persist (record as a local folder favourite so it survives restart).
     DatabaseManager::instance().save_favourite(folder->title, folder->url, (int)folder->type, false,
                                                "", "LOCAL_FOLDER", folder->is_link,
                                                folder->link_target_url, folder->is_local_folder);
-    Persistence::save_data(podcast_root, fav_root);
+    Persistence::save_data(library_.podcast_root(), library_.fav_root());
 
     EVENT_LOG(fmt::format("★ Added local folder [{}]: {}", default_tag, path));
     LOG(fmt::format("[LocalFolder] added: {}", path));

@@ -192,10 +192,10 @@ TreeNodePtr App::parse_tiktok_user_videos(const std::string &url, const std::str
     return result;
 }
 
-// ── Build tiktok_root from DB ──
+// ── Build library_.tiktok_root() from DB ──
 void App::load_tiktok_root() {
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-    tiktok_root.clear();
+    library_.tiktok_root().clear();
     // Y24.16: root title is static — the region is shown only in the status-bar border
     //   (🎵 TIKTOK [US] / 🎵 Douyin [CN]), so 'b' switching region can't desync the root label.
     auto accounts = load_tiktok_accounts();
@@ -206,7 +206,7 @@ void App::load_tiktok_root() {
         hint->type = NodeType::FOLDER;
         hint->children_loaded = true;
         hint->parent.reset();
-        tiktok_root.push_back(hint);
+        library_.tiktok_root().push_back(hint);
     } else {
         for (const auto &a : accounts) {
             auto node = std::make_shared<TreeNode>();
@@ -228,10 +228,10 @@ void App::load_tiktok_root() {
                 node->children_loaded =
                     false; // spawn_load_feed classifies → TIKTOK_USER / DOUYIN_USER
             }
-            tiktok_root.push_back(node);
+            library_.tiktok_root().push_back(node);
         }
     }
-    tiktok_loaded = true;
+    library_.tiktok_loaded() = true;
 }
 
 // Y24.16: shared subscribe core used by 'a' (add) and '/' (direct input) — no duplication.
@@ -330,9 +330,9 @@ void App::tag_browse(const std::string &tag) {
     pool_.submit([this, tag_url, region, cookies, label]() {
         auto result = parse_tiktok_user_videos(tag_url, region, cookies, label);
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        for (auto it = tiktok_root.begin(); it != tiktok_root.end();) {
+        for (auto it = library_.tiktok_root().begin(); it != library_.tiktok_root().end();) {
             if ((*it)->is_yt_search)
-                it = tiktok_root.erase(it);
+                it = library_.tiktok_root().erase(it);
             else
                 ++it;
         }
@@ -347,7 +347,7 @@ void App::tag_browse(const std::string &tag) {
             c->parent = folder;
             folder->children.push_back(c);
         }
-        tiktok_root.push_back(folder);
+        library_.tiktok_root().push_back(folder);
         if (result->children.empty())
             EVENT_LOG(fmt::format("T: {} — no videos (yt-dlp tag extractor disabled upstream; try "
                                   "@user or a video URL)",

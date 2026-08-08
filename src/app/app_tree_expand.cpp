@@ -20,15 +20,15 @@ void App::mark_cached_nodes(TreeNodePtr node) {
 // Get the corresponding mode's items vector by source_mode string (E: was a TreeNodePtr root)
 std::vector<TreeNodePtr> *App::get_root_by_mode_string(const std::string &mode_str) {
     if (mode_str == "RADIO")
-        return &radio_root;
+        return &library_.radio_root();
     if (mode_str == "PODCAST")
-        return &podcast_root;
+        return &library_.podcast_root();
     if (mode_str == "ONLINE")
         return &OnlineState::instance().online_root->children;
     if (mode_str == "FAVOURITE")
-        return &fav_root;
+        return &library_.fav_root();
     if (mode_str == "HISTORY")
-        return &history_root;
+        return &library_.history_root();
     return nullptr;
 }
 
@@ -69,14 +69,14 @@ bool App::should_use_radio_loader(const std::string &source_mode, NodeType node_
     return false;
 }
 
-// Sync LINK node status (checks both fav_root and podcast_root)
+// Sync LINK node status (checks both library_.fav_root() and library_.podcast_root())
 // When the target node finishes loading, sync all LINK nodes referencing it
 // This function is called after spawn_load_feed/spawn_load_radio completes
 void App::sync_link_node_status(TreeNodePtr target) {
     if (!target || !target->children_loaded)
         return;
 
-    // Traverse favourite_root and podcast_root to find all LINK nodes referencing this target
+    // Traverse favourite_root and library_.podcast_root() to find all LINK nodes referencing this target
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
 
     std::function<void(TreeNodePtr)> sync_children = [&](TreeNodePtr parent) {
@@ -108,11 +108,11 @@ void App::sync_link_node_status(TreeNodePtr target) {
         }
     };
 
-    // Check both fav_root and podcast_root
+    // Check both library_.fav_root() and library_.podcast_root()
     // Because a YouTube channel may be subscribed directly in PODCAST mode or favourited in FAVOURITE mode
-    for (auto &it : fav_root)
+    for (auto &it : library_.fav_root())
         sync_children(it);
-    for (auto &it : podcast_root)
+    for (auto &it : library_.podcast_root())
         sync_children(it);
 }
 

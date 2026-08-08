@@ -132,13 +132,13 @@ void App::run() {
         }
     }
 
-    Persistence::load_cache(radio_root, podcast_root);
+    Persistence::load_cache(library_.radio_root(), library_.podcast_root());
     load_persistent_data();
 
-    // Load history into history_root
+    // Load history into library_.history_root()
     load_history_to_root();
 
-    // Y01: load Google accounts into account_root (Y mode)
+    // Y01: load Google accounts into library_.account_root() (Y mode)
     load_accounts_root();
     load_bilibili_root(); // Y15: B-mode
     load_tiktok_root();   // Y24.11: T-mode
@@ -146,12 +146,12 @@ void App::run() {
     // Restore last playback state
     restore_player_state();
 
-    for (auto &it : radio_root)
+    for (auto &it : library_.radio_root())
         mark_cached_nodes(it);
-    for (auto &it : podcast_root)
+    for (auto &it : library_.podcast_root())
         mark_cached_nodes(it);
 
-    if (radio_root.empty()) {
+    if (library_.radio_root().empty()) {
         // Use thread pool; App destructor safely joins (old code: .detach() had use-after-free)
         pool_.submit([this]() { load_radio_root(); });
     }
@@ -453,7 +453,7 @@ void App::run() {
     pool_.shutdown();
 
     save_persistent_data();
-    Persistence::save_cache(radio_root, podcast_root);
+    Persistence::save_cache(library_.radio_root(), library_.podcast_root());
 
     // Save player state
     auto player_state = player.get_state();
@@ -498,18 +498,18 @@ void App::run() {
 
 // Public method for loading persistent data in command-line mode
 void App::load_data() {
-    Persistence::load_cache(radio_root, podcast_root);
+    Persistence::load_cache(library_.radio_root(), library_.podcast_root());
     load_persistent_data();
     // Load region preference from INI at startup
     OnlineState::instance().load_region_from_config();
-    std::cout << "Loaded " << podcast_root.size() << " podcasts from cache" << std::endl;
+    std::cout << "Loaded " << library_.podcast_root().size() << " podcasts from cache" << std::endl;
 }
 
-// Load history from SQLite into history_root
+// Load history from SQLite into library_.history_root()
 void App::load_history_to_root() {
     auto history = DatabaseManager::instance().get_history(100); // get the most recent 100 entries
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-    history_root.clear();
+    library_.history_root().clear();
 
     for (const auto &[url, title, timestamp, mt] : history) {
         auto node = std::make_shared<TreeNode>();
@@ -531,7 +531,7 @@ void App::load_history_to_root() {
         }
         node->children_loaded = true;
         node->subtext = timestamp; // store timestamp in subtext
-        history_root.push_back(node);
+        library_.history_root().push_back(node);
     }
 }
 
@@ -539,22 +539,22 @@ void App::load_persistent_data() {
     std::vector<TreeNodePtr> podcasts, favs;
     Persistence::load_data(podcasts, favs);
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-    if (!podcast_loaded) {
+    if (!library_.podcast_loaded()) {
         for (auto &n : podcasts) {
             n->parent.reset(); // set parent pointer
-            podcast_root.push_back(n);
+            library_.podcast_root().push_back(n);
         }
-        podcast_loaded = true;
+        library_.podcast_loaded() = true;
     }
     for (auto &n : favs) {
         n->parent.reset(); // set parent pointer
-        fav_root.push_back(n);
+        library_.fav_root().push_back(n);
     }
 }
 
 void App::save_persistent_data() {
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-    Persistence::save_data(podcast_root, fav_root);
+    Persistence::save_data(library_.podcast_root(), library_.fav_root());
 }
 
 // Restore last playback state
@@ -615,10 +615,10 @@ void App::load_radio_root() {
         auto parsed = OPMLParser::parse(data);
         if (parsed) {
             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-            radio_root = parsed->children;
-            radio_loaded = true;
-            EVENT_LOG(fmt::format("Radio: {} stations loaded", radio_root.size()));
-            Persistence::save_cache(radio_root, podcast_root);
+            library_.radio_root() = parsed->children;
+            library_.radio_loaded() = true;
+            EVENT_LOG(fmt::format("Radio: {} stations loaded", library_.radio_root().size()));
+            Persistence::save_cache(library_.radio_root(), library_.podcast_root());
         }
     }
 }
@@ -658,7 +658,7 @@ void App::spawn_load_radio(TreeNodePtr node, bool force) {
                 node->parse_failed = false;
                 node->is_cached = true; // parsed — episode_cache is the persistence
                 EVENT_LOG(fmt::format("Loaded: {} items", node->children.size()));
-                Persistence::save_cache(radio_root, podcast_root);
+                Persistence::save_cache(library_.radio_root(), library_.podcast_root());
             }
         }
         {
@@ -940,7 +940,7 @@ void App::commit_feed_result(TreeNodePtr node, TreeNodePtr result, const std::st
                 // P2-C13: the full-tree save_cache is moved OUTSIDE the lock (below) so it
                 //   doesn't block UI draw()/flatten() on every feed load.
                 // Save the subscription list to the database (ensure correct loading after restart)
-                Persistence::save_data(podcast_root, fav_root);
+                Persistence::save_data(library_.podcast_root(), library_.fav_root());
             } else if (result->parse_failed) {
                 node->parse_failed = true;
                 node->error_msg = result->error_msg;
@@ -968,7 +968,7 @@ void App::commit_feed_result(TreeNodePtr node, TreeNodePtr result, const std::st
         DatabaseManager::instance().save_episode_cache(cur_url, episodes_json.dump());
         // P2-C13: full-tree cache save outside the lock (best-effort; a concurrent tree
         //   mutation only makes the restart cache slightly stale, never corrupts live state).
-        Persistence::save_cache(radio_root, podcast_root);
+        Persistence::save_cache(library_.radio_root(), library_.podcast_root());
     }
 }
 
@@ -984,7 +984,7 @@ void App::load_default_podcasts() {
 
     // Collect existing URLs to avoid duplicate additions
     std::set<std::string> existing_urls;
-    for (const auto &child : podcast_root) {
+    for (const auto &child : library_.podcast_root()) {
         if (!child->url.empty()) {
             existing_urls.insert(child->url);
         }
@@ -1357,9 +1357,9 @@ void App::load_default_podcasts() {
         if (std::string(p.url).find("youtube.com") != std::string::npos) {
             node->is_youtube = true;
         }
-        podcast_root.push_back(node);
+        library_.podcast_root().push_back(node);
     }
-    podcast_loaded = true;
+    library_.podcast_loaded() = true;
 }
 
 void App::flatten(const TreeNodePtr &node, int depth, bool is_last, int parent_idx) {
@@ -1389,25 +1389,25 @@ void App::flatten_items(const std::vector<TreeNodePtr> &tops) {
 std::vector<TreeNodePtr> &App::items_for_mode(AppMode m) {
     switch (m) {
     case AppMode::RADIO:
-        return radio_root;
+        return library_.radio_root();
     case AppMode::PODCAST:
-        return podcast_root;
+        return library_.podcast_root();
     case AppMode::FAVOURITE:
-        return fav_root;
+        return library_.fav_root();
     case AppMode::HISTORY:
-        return history_root;
+        return library_.history_root();
     case AppMode::ONLINE:
         return OnlineState::instance().online_root->children;
     case AppMode::ACCOUNT:
-        return account_root;
+        return library_.account_root();
     case AppMode::BILIBILI:
-        return bilibili_root;
+        return library_.bilibili_root();
     case AppMode::TIKTOK:
-        return tiktok_root;
+        return library_.tiktok_root();
     case AppMode::IPTV:
-        return iptv_root;
+        return library_.iptv_root();
     }
-    return radio_root;
+    return library_.radio_root();
 }
 
 std::vector<TreeNodePtr> &App::cur_items() {

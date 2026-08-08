@@ -147,7 +147,7 @@ void App::enter_marked(int marked_count) {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
         clear_marks_current();
     }
-    Persistence::save_cache(radio_root, podcast_root);
+    Persistence::save_cache(library_.radio_root(), library_.podcast_root());
 }
 
 // Expand or collapse a FOLDER / PODCAST_FEED node, dispatching by mode and cache state.
@@ -314,7 +314,7 @@ void App::toggle_mark() {
         return; // null guard
     node->marked = !node->marked;
     EVENT_LOG(fmt::format("Mark: {}", node->marked ? "ON" : "OFF"));
-    Persistence::save_cache(radio_root, podcast_root);
+    Persistence::save_cache(library_.radio_root(), library_.podcast_root());
 }
 
 // Supports two sorting scenarios:
@@ -375,7 +375,7 @@ void App::toggle_sort_order() {
 
     EVENT_LOG(fmt::format("Sort [{}]: {} ({} items)", scope_desc, reversed ? "Z→A" : "A→Z", n));
 
-    Persistence::save_cache(radio_root, podcast_root);
+    Persistence::save_cache(library_.radio_root(), library_.podcast_root());
 }
 
 } // namespace panicast

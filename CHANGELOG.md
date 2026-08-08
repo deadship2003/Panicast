@@ -4,6 +4,27 @@
 
 ---
 
+## 新架构 D10-4 — 2026-08-08 — LibraryService 所有权切割：搬树数据模型（UI 解耦 · D10 增量4）
+
+> M1（UI 解耦）第 11 步。把 App god-object 里最大的域数据块——树数据模型（8 个模式根 item 列表 + 6 个 loaded flag）——迁入**第四个 Application Service** LibraryService；`src/app/*.cpp` 全 184 处经 `\b` 词界 sed 统一重定向到 `library_` 访问器。行为零变化（纯所有权搬移 + 机械重定向，复刻 D10-1/D10-2/D8b-1）。
+
+### LibraryService（拥有树数据模型，header-only）
+- 新 `include/panicast/app/library_service.h`：私有持 8 个 `std::vector<TreeNodePtr>`（radio/podcast/fav/history/account/bilibili/tiktok/iptv `_root_`）+ 6 个 `bool`（radio/podcast/account/bilibili/tiktok/iptv `_loaded_`，初值 false）；非/常引用访问器（向量返 `vector&`/`const vector&`；flag 返 `bool&`/`bool`）。
+- header-only（仅访问器、无逻辑）→ 无需 CMake .cpp 注册。
+
+### App 重定向（184 处）
+- App 删 app.h:130-134 的 8 root + 6 flag 裸成员，换 `LibraryService library_` + include。
+- `src/app/*.cpp`：8 root token（175 处）+ 6 flag token（9 处）经 GNU sed `\b…\b` → `library_.xxx_root()` / `library_.xxx_loaded()` 统一重定向。词界 `\b` 保证 `load_radio_root()`、`load_accounts_root()`（复数）、`children_loaded`、`OnlineState::history_loaded` 等同名子串/无关标识符不受波及。
+- 转换后计数逐 token 与 sed 前完全吻合（radio_root 30 / podcast_root 68 / fav_root 43 / history_root 6 / account_root 8 / bilibili_root 8 / tiktok_root 9 / iptv_root 3；flag 1/3/2/1/1/1）→ 零遗漏、零误伤。
+
+### 边界决策（暂留 App）
+- **tree_mutex 暂留 App**：recursive_mutex 同时守树数据（现归 LibraryService）+ 视图态 `display_list`/`selected_idx`（D11 领地）。锁若现迁入 LibraryService 仍要守 App 的视图态，且视图态 D11 会再迁——现迁=双 churn 且无同处收益。故锁待 D11 视图态一并迁入时跟随。当前: `lock_guard<recursive_mutex> lock(tree_mutex); library_.podcast_root().push_back(...)`（锁在 App、数据经访问器，等价、行为零变化）。
+- **树构建方法 `load_*_root()` 留 App**：触 parser/storage/UI，全方法搬迁属 D11。
+- **`pending_select_` 留 App**：pool 任务设、UI 线程消费设 selected_idx，是 UI handoff → D11。
+- **验收**：ctest 39/39、构建 0-warning（22/22 链接）、pty 冒烟 exit 0 + clean endwin + quit dialog。第四个 Application Service 就位（Playback/Subtitle/Search/Library）。
+
+---
+
 ## 新架构 D10-2 — 2026-08-08 — SearchService 所有权切割：搬树内搜索状态（UI 解耦 · D10 增量2）
 
 > M1（UI 解耦）第 10 步。把树内搜索运行时状态（搜索词 / 命中列表 / 当前命中序号 / 总命中数）从 App 裸成员迁入**第三个 Application Service** SearchService，暴露访问器 + `reset()`；`app_search.cpp` 全部 4 成员读写改走 `search_` 访问器。行为零变化（纯所有权搬移 + 机械重定向，复刻 D10-1/D8b-1 访问器模式）。

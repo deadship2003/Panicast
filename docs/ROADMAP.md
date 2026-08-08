@@ -70,7 +70,11 @@
     - App 删 4 个搜索裸成员，换 `SearchService search_`；`app_search.cpp` 全部 4 成员读写改走 `search_` 访问器；`reset_search()` 体塌缩为 `search_.reset()`；`app_run.cpp` draw 调用点 4 形参改走访问器。机械重定向、行为零变化（复刻 D8b-1/D10-1 访问器模式）。
     - **验收**：ctest 39/39、构建 0-warning（19 文件含新 search_service.cpp）、pty 冒烟 exit 0 + clean endwin + quit dialog。**第三个 Application Service 就位**（Playback/Subtitle/Search）。
   - [ ] **D10-3 — SubtitleService 事件驱动化（reactor 通道首个真实消费者）**：订 `PlaybackTrackChanged` → 自动加载新轨字幕（解耦 PlaybackService 直调）；publish `SubtitleStatusChanged` 供 UI/remote 直订。**注**：经 D10 调研，此步为增量收益（App 仍逐帧 `poll()`），可并入 D11 UI 解耦一起做；列为可选。
-  - [ ] **D10-4 — LibraryService 所有权切割（切片）**：树根（8 个模式根 `radio_`/…/`iptv_` + 8 个 `*_loaded` flag）+ `tree_mutex` 迁入 LibraryService；逐文件改 11 个 caller（app_*.cpp）走访问器。**方法体暂留 App**（relocate 待 D11）。
+  - [x] **D10-4 — LibraryService 所有权切割（树数据模型）** ✅ 2026-08-08
+    - 新 `include/panicast/app/library_service.h`（header-only）：LibraryService 持 8 个模式根 item 列表（`radio/podcast/fav/history/account/bilibili/tiktok/iptv_root_`）+ 6 个 loaded flag（`radio/podcast/account/bilibili/tiktok/iptv_loaded_`），非/常引用访问器。
+    - App 删 8 root + 6 flag 裸成员（app.h:130-134），换 `LibraryService library_`；`src/app/*.cpp` 全 184 处（175 root + 9 flag）经 `\b` 词界 sed 统一重定向到 `library_.xxx_root()`/`library_.xxx_loaded()`（行为零变化，复刻访问器模式）。
+    - **tree_mutex 暂留 App**：它同时守视图态 `display_list`/`selected_idx`（D11 领地），故锁暂不与数据同处；待 D11 视图态一并迁入时跟随。树构建方法（`load_*_root`）亦留 App（parser/storage/UI 耦合 → D11 搬）。`pending_select_`（UI 线程 handoff）亦留 D11。
+    - **验收**：ctest 39/39、构建 0-warning（22/22 链接）、pty 冒烟 exit 0 + clean endwin + quit dialog。**第四个 Application Service 就位**（Playback/Subtitle/Search/Library），App 不再持有树数据模型。
   - [ ] **D10-5 — AccountService 所有权切割（切片，按 Y/B/T/I 模式）**：账号态迁入 AccountService。最大域，按模式分多步。
   - **关键调研结论（D10）**：字幕/搜索/库/帐号的**输入处理与逻辑体**都直探 UI/tree 耦合态（`tree_mutex`/`display_list`/`selected_idx`/`view_start`/`has_video` 分支/`player_.sub_add`）——它们干净的**全方法搬迁**被 UI 耦合挡住，属 **D11（UI 纯交互化）** 领地。故 D10 的现实收尾 = **所有权切割**（状态 + 访问器），把 God-object `App` 的成员按域逐步外迁到各 Service，为 D11 的逻辑搬迁腾出干净边界。全方法搬迁等 D11 UI 解耦后再做。
   - **验收（D10 总）**：Playback/Subtitle/Search/Library/Account 各域状态各归其 Service（App 不再持域私有态），UI 仍直调方法（D11 解耦）；每步编译绿 + ctest 绿 + 冒烟绿。

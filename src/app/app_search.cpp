@@ -65,10 +65,10 @@ void App::perform_online_search_from_favourite() {
 
     // Clear children of all online_root LINK nodes in FAVOURITE
     // They will re-sync from online_root on next expand
-    // P1-5: mutate fav_root under tree_mutex (was unlocked — raced with pool loaders).
+    // P1-5: mutate library_.fav_root() under tree_mutex (was unlocked — raced with pool loaders).
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        for (auto &f : fav_root) {
+        for (auto &f : library_.fav_root()) {
             if (f->is_link && f->url == "online_root") {
                 f->children_loaded = false;
                 f->children.clear();
@@ -79,11 +79,11 @@ void App::perform_online_search_from_favourite() {
     // Expand and refresh the current LINK node
     if (selected_idx < (int)display_list.size()) {
         auto node = display_list[selected_idx].node;
-        // P1-5: traverse + mutate fav_root under tree_mutex (recursive; the inner
-        //   block re-acquires safely). Was unlocked — raced with pool loaders mutating fav_root.
+        // P1-5: traverse + mutate library_.fav_root() under tree_mutex (recursive; the inner
+        //   block re-acquires safely). Was unlocked — raced with pool loaders mutating library_.fav_root().
         std::lock_guard<std::recursive_mutex> outer_lock(tree_mutex);
         // Find the LINK containing the current node
-        for (auto &f : fav_root) {
+        for (auto &f : library_.fav_root()) {
             if (f->is_link && f->url == "online_root") {
                 bool is_under = (f.get() == node.get());
                 if (!is_under) {

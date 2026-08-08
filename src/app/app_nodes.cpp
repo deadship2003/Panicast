@@ -206,7 +206,7 @@ void App::delete_node(int marked_count) {
     if (mode == AppMode::FAVOURITE) {
         // Check whether operating under a LINK node
         TreeNodePtr parent_link = nullptr;
-        for (auto &f : fav_root) {
+        for (auto &f : library_.fav_root()) {
             if (f->is_link) {
                 // Check whether node is a child of f or f itself
                 if (f.get() == node.get()) {
@@ -215,9 +215,9 @@ void App::delete_node(int marked_count) {
                     if (response == "Y" || response == "y") {
                         {
                             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-                            auto it = std::remove_if(fav_root.begin(), fav_root.end(),
+                            auto it = std::remove_if(library_.fav_root().begin(), library_.fav_root().end(),
                                                      [&](auto &n) { return n == node; });
-                            fav_root.erase(it, fav_root.end());
+                            library_.fav_root().erase(it, library_.fav_root().end());
                         }
                         DatabaseManager::instance().delete_favourite(node->url);
                         EVENT_LOG(fmt::format("Removed LINK: {}", node->title));
@@ -308,7 +308,7 @@ void App::delete_node(int marked_count) {
 
         EVENT_LOG(fmt::format("Deleted {} subscriptions", deleted_count));
         save_persistent_data();
-        Persistence::save_cache(radio_root, podcast_root);
+        Persistence::save_cache(library_.radio_root(), library_.podcast_root());
         if (selected_idx > 0)
             selected_idx--;
         return;
@@ -361,7 +361,7 @@ void App::delete_node(int marked_count) {
     }
 
     save_persistent_data();
-    Persistence::save_cache(radio_root, podcast_root);
+    Persistence::save_cache(library_.radio_root(), library_.podcast_root());
     if (selected_idx > 0)
         selected_idx--;
 }
@@ -420,7 +420,7 @@ void App::clear_all_marks() {
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
     clear_marks_current();
     EVENT_LOG("All marks cleared");
-    Persistence::save_cache(radio_root, podcast_root);
+    Persistence::save_cache(library_.radio_root(), library_.podcast_root());
 }
 
 // Enhanced Visual multi-select - supports all node types in all modes
@@ -455,7 +455,7 @@ void App::confirm_visual_selection() {
     visual_mode_ = false;
     visual_start_ = -1;
     EVENT_LOG(fmt::format("Marked {} items", count));
-    Persistence::save_cache(radio_root, podcast_root);
+    Persistence::save_cache(library_.radio_root(), library_.podcast_root());
 }
 
 bool App::remove_node(TreeNodePtr parent, TreeNodePtr target) {
@@ -534,7 +534,7 @@ void App::edit_node() {
     }
 
     EVENT_LOG(fmt::format("Updated: {} -> {}", new_title, new_url.substr(0, 50)));
-    Persistence::save_cache(radio_root, podcast_root);
+    Persistence::save_cache(library_.radio_root(), library_.podcast_root());
 }
 
 // Y24.27: Extracted from 7 duplicated sites in app_tree_expand.cpp + app_navigation.cpp.

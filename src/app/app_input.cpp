@@ -879,7 +879,7 @@ void App::handle_input(int ch, int marked_count) {
             if (selected_idx < (int)display_list.size()) {
                 auto node = display_list[selected_idx].node;
                 // Check whether the current node or its parent is an online_root LINK
-                for (auto &f : fav_root) {
+                for (auto &f : library_.fav_root()) {
                     if (f->is_link && f->url == "online_root") {
                         // Check whether the current node is f or a child of f
                         if (f.get() == node.get()) {

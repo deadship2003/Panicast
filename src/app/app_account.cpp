@@ -16,7 +16,7 @@
 namespace panicast
 {
 
-// ── Build/refresh account_root from the accounts table ───────────────────────
+// ── Build/refresh library_.account_root() from the accounts table ───────────────────────
 void App::load_accounts_root() {
     // Y02: ensure a primary account is active. The active account is the global "primary" used by
     //   P-mode YouTube parsing/subscribe; default to 1# (first logged-in) when none is set yet.
@@ -28,7 +28,7 @@ void App::load_accounts_root() {
     auto accounts = AccountsManager::instance().list_accounts();
     int active = AccountsManager::instance().active_account_id();
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-    account_root.clear();
+    library_.account_root().clear();
 
     if (accounts.empty()) {
         auto hint = std::make_shared<TreeNode>();
@@ -36,8 +36,8 @@ void App::load_accounts_root() {
         hint->type = NodeType::FOLDER;
         hint->is_account = false;
         hint->account_id = 0;
-        account_root.push_back(hint);
-        account_loaded = true;
+        library_.account_root().push_back(hint);
+        library_.account_loaded() = true;
         return;
     }
 
@@ -80,9 +80,9 @@ void App::load_accounts_root() {
         // Y23.1/Y23.2: Search History container (mirror O-mode online_root) — shared shape with B mode.
         node->children.push_back(make_search_history_child(node, "youtube", a.account_id));
 
-        account_root.push_back(node);
+        library_.account_root().push_back(node);
     }
-    account_loaded = true;
+    library_.account_loaded() = true;
 }
 
 // ── QR-login popup + device-flow poll ────────────────────────────────────────
@@ -287,7 +287,7 @@ void App::enter_account_node(TreeNodePtr node) {
         EVENT_LOG(fmt::format("Y: active account -> #{} ({})", node->account_id, node->title));
         {
             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-            for (auto &a : account_root)
+            for (auto &a : library_.account_root())
                 a->is_cached = (a->account_id == node->account_id);
         }
         node->expanded = !node->expanded;
@@ -599,7 +599,7 @@ void App::perform_youtube_search(const std::string &preset) {
         TreeNodePtr acct;
         {
             std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-            for (auto &c : account_root)
+            for (auto &c : library_.account_root())
                 if (c->is_account && c->account_id == aid) {
                     acct = c;
                     break;

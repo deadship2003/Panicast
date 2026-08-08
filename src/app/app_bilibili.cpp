@@ -98,10 +98,10 @@ static void write_bilibili_cookies(const BilibiliAccount &a) {
     }
 }
 
-// ── Build bilibili_root from DB ──
+// ── Build library_.bilibili_root() from DB ──
 void App::load_bilibili_root() {
     std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-    bilibili_root.clear();
+    library_.bilibili_root().clear();
     auto accounts = load_bilibili_accounts();
     if (accounts.empty()) {
         auto hint = std::make_shared<TreeNode>();
@@ -109,7 +109,7 @@ void App::load_bilibili_root() {
         hint->type = NodeType::FOLDER;
         hint->children_loaded = true;
         hint->parent.reset();
-        bilibili_root.push_back(hint);
+        library_.bilibili_root().push_back(hint);
     } else {
         for (const auto &a : accounts) {
             auto node = std::make_shared<TreeNode>();
@@ -120,10 +120,10 @@ void App::load_bilibili_root() {
             node->expanded = false;
             node->children_loaded = false;
             node->parent.reset();
-            bilibili_root.push_back(node);
+            library_.bilibili_root().push_back(node);
         }
     }
-    bilibili_loaded = true;
+    library_.bilibili_loaded() = true;
 }
 
 // DB-11: delete the Bilibili account under the cursor (wired to 'd' in B mode).
@@ -402,7 +402,7 @@ void App::refresh_bilibili_account(TreeNodePtr node) {
 }
 
 // Y23: subscribe to a Bilibili UP master from a search result ('a' on a 👤 result). Adds it to
-//   podcast_root as a feed (P-mode subscription, expandable via WBI arc/search) and caches the
+//   library_.podcast_root() as a feed (P-mode subscription, expandable via WBI arc/search) and caches the
 //   avatar/logo URL in bilibili_up_cache for future display.
 void App::subscribe_bilibili_up(TreeNodePtr node) {
     if (!node || node->url.empty() || node->channel_id.empty()) {
@@ -413,7 +413,7 @@ void App::subscribe_bilibili_up(TreeNodePtr node) {
     std::string uname = node->channel_name.empty() ? node->title : node->channel_name;
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        for (const auto &child : podcast_root) {
+        for (const auto &child : library_.podcast_root()) {
             if (child->url == node->url) {
                 EVENT_LOG(fmt::format("Already subscribed: {}", uname));
                 return;
@@ -429,9 +429,9 @@ void App::subscribe_bilibili_up(TreeNodePtr node) {
         n->subtext = node->subtext; // sign
         n->children_loaded = false;
         n->parent.reset();
-        podcast_root.insert(podcast_root.begin(), n);
-        Persistence::save_cache(radio_root, podcast_root);
-        Persistence::save_data(podcast_root, fav_root);
+        library_.podcast_root().insert(library_.podcast_root().begin(), n);
+        Persistence::save_cache(library_.radio_root(), library_.podcast_root());
+        Persistence::save_data(library_.podcast_root(), library_.fav_root());
     }
     // Cache the UP logo/metadata (mid → upic) for future remote/sixel display.
     DatabaseManager::instance().save_bili_up(mid, uname, node->art_url, 0, node->subtext);
@@ -461,8 +461,8 @@ void App::perform_bilibili_search(const std::string &preset) {
     TreeNodePtr acct;
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        if (!bilibili_root.empty() && bilibili_root[0]->is_account)
-            acct = bilibili_root[0];
+        if (!library_.bilibili_root().empty() && library_.bilibili_root()[0]->is_account)
+            acct = library_.bilibili_root()[0];
     }
     if (!acct) {
         EVENT_LOG("B: login first (press 'a' to add a Bilibili account) to search");
