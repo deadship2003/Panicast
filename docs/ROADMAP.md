@@ -65,10 +65,15 @@
     - 新 `include/panicast/app/subtitle_service.h` + `src/app/subtitle_service.cpp`：SubtitleService 持 `SubtitleManager` + `TranscriptionEngine`（原 App 裸成员），集中生命周期——`init(pool,mpv)` 内部把引擎接到自己的 SubtitleManager+pool+mpv（替代 App 的 `transcription_engine_.init(&subtitle_mgr_,…)`，inter-object 接线收进服务）；`shutdown()`/`poll()` 为系统拆除 / 每帧 handoff 入口。
     - App 加 `SubtitleService subtitle_` 成员，删 `subtitle_mgr_`/`transcription_engine_`；~16 处触发点（app_run ctor/dtor/run/主循环、app_input×10、app_remote×3、app_download×2）改走访问器 `subtitle_.subtitle_mgr()`/`subtitle_.transcription_engine()`（机械重定向、行为零变化，复刻 D8b-1 访问器模式）。PlaybackService 的 `attach()` **不动**（App 在调用点传访问器）——最小爆炸半径。
     - **验收**：ctest 39/39、构建 0-warning、pty 冒烟 exit 0；**第二个 Application Service 就位**（继 PlaybackService 后），为 M3 SubtitleController 打底。
-  - [ ] **D10-2 — SubtitleService 接管字幕 Action（输入侧解耦）**：LYRIC 切换 / offset± / ASR 按键 → `SubtitleActions` 上总线，SubtitleService 订阅（复刻 D8a 输入侧种子）。
-  - [ ] **D10-3 — SubtitleService 事件驱动化**：订 `PlaybackTrackChanged` → 自动加载新轨字幕（解耦 PlaybackService 直调）；publish `SubtitleStatusChanged` 供 UI/remote 直订（让 D9 保留的 reactor 通道有首个真实消费者）。
-  - [ ] **D10-4…** — SearchService / LibraryService / AccountService（按 Search→Library→Account 难度递增，每域一进步、可多日）。
-  - **验收（D10 总）**：字幕/搜索/库/帐号各域经 Service+事件工作。
+  - [x] **D10-2 — SearchService 所有权切割（干净一刀）** ✅ 2026-08-08
+    - 新 `include/panicast/app/search_service.h` + `src/app/search_service.cpp`：SearchService 持树内搜索状态（`search_query` / `search_matches` / `current_match_idx` / `total_matches`），暴露非/常访问器 + `reset()`。
+    - App 删 4 个搜索裸成员，换 `SearchService search_`；`app_search.cpp` 全部 4 成员读写改走 `search_` 访问器；`reset_search()` 体塌缩为 `search_.reset()`；`app_run.cpp` draw 调用点 4 形参改走访问器。机械重定向、行为零变化（复刻 D8b-1/D10-1 访问器模式）。
+    - **验收**：ctest 39/39、构建 0-warning（19 文件含新 search_service.cpp）、pty 冒烟 exit 0 + clean endwin + quit dialog。**第三个 Application Service 就位**（Playback/Subtitle/Search）。
+  - [ ] **D10-3 — SubtitleService 事件驱动化（reactor 通道首个真实消费者）**：订 `PlaybackTrackChanged` → 自动加载新轨字幕（解耦 PlaybackService 直调）；publish `SubtitleStatusChanged` 供 UI/remote 直订。**注**：经 D10 调研，此步为增量收益（App 仍逐帧 `poll()`），可并入 D11 UI 解耦一起做；列为可选。
+  - [ ] **D10-4 — LibraryService 所有权切割（切片）**：树根（8 个模式根 `radio_`/…/`iptv_` + 8 个 `*_loaded` flag）+ `tree_mutex` 迁入 LibraryService；逐文件改 11 个 caller（app_*.cpp）走访问器。**方法体暂留 App**（relocate 待 D11）。
+  - [ ] **D10-5 — AccountService 所有权切割（切片，按 Y/B/T/I 模式）**：账号态迁入 AccountService。最大域，按模式分多步。
+  - **关键调研结论（D10）**：字幕/搜索/库/帐号的**输入处理与逻辑体**都直探 UI/tree 耦合态（`tree_mutex`/`display_list`/`selected_idx`/`view_start`/`has_video` 分支/`player_.sub_add`）——它们干净的**全方法搬迁**被 UI 耦合挡住，属 **D11（UI 纯交互化）** 领地。故 D10 的现实收尾 = **所有权切割**（状态 + 访问器），把 God-object `App` 的成员按域逐步外迁到各 Service，为 D11 的逻辑搬迁腾出干净边界。全方法搬迁等 D11 UI 解耦后再做。
+  - **验收（D10 总）**：Playback/Subtitle/Search/Library/Account 各域状态各归其 Service（App 不再持域私有态），UI 仍直调方法（D11 解耦）；每步编译绿 + ctest 绿 + 冒烟绿。
 - [ ] **D11 — UI 纯交互化：移除 UI 对 Core 的全部直接调用**
   - UI 只发 Action + 订阅事件；不再直调 player/parse/storage。grep 验证 UI 层无 Core 直调。
   - **验收**：UI 层零 Core 直调；全功能正常。

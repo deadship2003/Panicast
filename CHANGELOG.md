@@ -4,6 +4,26 @@
 
 ---
 
+## 新架构 D10-2 — 2026-08-08 — SearchService 所有权切割：搬树内搜索状态（UI 解耦 · D10 增量2）
+
+> M1（UI 解耦）第 10 步。把树内搜索运行时状态（搜索词 / 命中列表 / 当前命中序号 / 总命中数）从 App 裸成员迁入**第三个 Application Service** SearchService，暴露访问器 + `reset()`；`app_search.cpp` 全部 4 成员读写改走 `search_` 访问器。行为零变化（纯所有权搬移 + 机械重定向，复刻 D10-1/D8b-1 访问器模式）。
+
+### SearchService（拥有树内搜索状态）
+- 新 `include/panicast/app/search_service.h` + `src/app/search_service.cpp`：私有持 `std::string search_query_` / `std::vector<TreeNodePtr> search_matches_` / `int current_match_idx_ = -1` / `int total_matches_ = 0`。
+- 非/常访问器 `search_query()` / `search_matches()`（返回引用）+ `current_match_idx()`/`set_current_match_idx(int)` / `total_matches()`/`set_total_matches(int)`；`reset()` 一次清四态。
+
+### App 重定向
+- App 删 4 个搜索裸成员（`search_query` / `search_matches` / `current_match_idx` / `total_matches`），换 `SearchService search_` + include。
+- `app_search.cpp`：`search_query = q;` → `search_.search_query() = q;`；所有 `search_matches`（push_back / 递归实参 / 循环 / move 赋值 / `.size()` / 下标）→ `search_.search_matches()`；两处 int 读写改 `set_/()` 访问器；`reset_search()` 体塌缩为 `search_.reset()`。
+- `app_run.cpp` draw 调用点 4 形参（搜索词 / 当前序号 / 总命中 / …）改走 `search_` 访问器。
+- **注意**：`jump_to_match(0)`（start_search 命中后跳首个）传字面量 `0`，非 `current_match_idx`——保留原语义。
+
+### 结论与遗留
+- **关键调研**：搜索/字幕/库/帐号的**输入处理与逻辑体**直探 UI/tree 耦合态（`tree_mutex`/`display_list`/`selected_idx`/`view_start`），干净的全方法搬迁被 UI 耦合挡住 → 属 **D11（UI 纯交互化）** 领地。故 D10 收尾策略改为**所有权切割**：逐域把 App 的域私有态外迁到各 Service（状态归位），为 D11 逻辑搬迁腾出干净边界。
+- **验收**：ctest 39/39、构建 0-warning（19 文件含新 search_service.cpp）、pty 冒烟 exit 0 + clean endwin + quit dialog。第三个 Application Service 就位（Playback/Subtitle/Search）。
+
+---
+
 ## 新架构 D10-1 — 2026-08-08 — SubtitleService 干净一刀：搬字幕/ASR 所有权 + 生命周期（UI 解耦 · D10 增量1）
 
 > M1（UI 解耦）第 9 步。把 `SubtitleManager` + `TranscriptionEngine`（字幕检测/加载/状态机 + whisper.cpp 离线/实时 ASR）从 App 裸成员迁入**第二个 Application Service** SubtitleService，集中生命周期接线；App 的 ~16 处触发点改走访问器。行为零变化（纯所有权搬移 + 机械重定向，复刻 D8b-1）。PlaybackService 一行未动。

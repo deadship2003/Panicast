@@ -417,7 +417,8 @@ void App::run() {
             // Y24.7: L-mode poll already ran above (handoff + activation); no separate call needed.
             ui.draw(mode, display_list, selected_idx, state, view_start, app_state,
                     playback_.playback_node(),
-                    marked, search_query, current_match_idx, total_matches, sel_node, downloads,
+                    marked, search_.search_query(), search_.current_match_idx(),
+                    search_.total_matches(), sel_node, downloads,
                     visual_mode_, visual_start_, playback_.playlist(), current_index_snap,
                     play_mode, hist_titles, next_snap);
         } // release pl_draw_lock before input processing (avoids deadlock with play_current)

@@ -177,10 +177,7 @@ void App::load_search_history_children(TreeNodePtr node) {
 }
 
 void App::reset_search() {
-    search_query.clear();
-    search_matches.clear();
-    current_match_idx = -1;
-    total_matches = 0;
+    search_.reset();
 }
 
 // Supports ESC to cancel search
@@ -194,7 +191,7 @@ void App::perform_search() {
     if (q.empty())
         return;
     reset_search();
-    search_query = q;
+    search_.search_query() = q;
     std::string ql = Utils::to_lower(q);
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);
@@ -214,45 +211,45 @@ void App::perform_search() {
                 for (auto &sib : parent->children) {
                     if (sib->type == cur_node->type &&
                         Utils::to_lower(sib->title).find(ql) != std::string::npos)
-                        search_matches.push_back(sib);
+                        search_.search_matches().push_back(sib);
                 }
                 // Different-type siblings (e.g., feed nodes if cursor is on an episode)
                 for (auto &sib : parent->children) {
                     if (sib->type != cur_node->type &&
                         Utils::to_lower(sib->title).find(ql) != std::string::npos)
-                        search_matches.push_back(sib);
+                        search_.search_matches().push_back(sib);
                 }
                 // 2. Search the parent's subtree (children of siblings)
                 for (auto &sib : parent->children) {
                     if (sib != cur_node) {
                         for (auto &child : sib->children)
-                            search_recursive(child, ql, search_matches);
+                            search_recursive(child, ql, search_.search_matches());
                     }
                 }
             }
             // 3. Search the current node's own subtree
             for (auto &child : cur_node->children)
-                search_recursive(child, ql, search_matches);
+                search_recursive(child, ql, search_.search_matches());
         }
 
         // 4. Global search (everything not yet covered) — but skip the subtree already searched
         for (auto &it : cur_items())
-            search_recursive(it, ql, search_matches);
+            search_recursive(it, ql, search_.search_matches());
 
         // Deduplicate (peers/subtree may overlap with global)
         std::set<TreeNodePtr> seen;
         std::vector<TreeNodePtr> unique;
-        for (auto &m : search_matches) {
+        for (auto &m : search_.search_matches()) {
             if (seen.insert(m).second)
                 unique.push_back(m);
         }
-        search_matches = std::move(unique);
+        search_.search_matches() = std::move(unique);
     }
-    total_matches = search_matches.size();
-    if (total_matches > 0) {
-        current_match_idx = 0;
+    search_.set_total_matches(search_.search_matches().size());
+    if (search_.total_matches() > 0) {
+        search_.set_current_match_idx(0);
         jump_to_match(0);
-        EVENT_LOG(fmt::format("Found {} matches", total_matches));
+        EVENT_LOG(fmt::format("Found {} matches", search_.total_matches()));
     } else {
         EVENT_LOG("No matches found");
     }
@@ -267,16 +264,17 @@ void App::search_recursive(const TreeNodePtr &node, const std::string &query,
 }
 
 void App::jump_search(int dir) {
-    if (total_matches == 0)
+    if (search_.total_matches() == 0)
         return;
-    current_match_idx = (current_match_idx + dir + total_matches) % total_matches;
-    jump_to_match(current_match_idx);
+    search_.set_current_match_idx(
+        (search_.current_match_idx() + dir + search_.total_matches()) % search_.total_matches());
+    jump_to_match(search_.current_match_idx());
 }
 
 void App::jump_to_match(int idx) {
-    if (idx < 0 || idx >= total_matches)
+    if (idx < 0 || idx >= search_.total_matches())
         return;
-    auto node = search_matches[idx];
+    auto node = search_.search_matches()[idx];
     reveal_node(node);
     {
         std::lock_guard<std::recursive_mutex> lock(tree_mutex);

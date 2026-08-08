@@ -1,4 +1,21 @@
 
+## D10-2 — SearchService 所有权切割：树内搜索状态搬所有权（M1 第 10 人日，D10 增量2）
+
+**Context:** D10-1 把字幕/ASR 引擎搬入 SubtitleService 后，继续抽下一域。原计划 D10-2 = "字幕按键→SubtitleActions 上总线"，但 D10 四域深入勘察后**重排优先级**：① 字幕的 `L` 键是多源编排器（非 D8a 式纯 toggle），且字幕加载 `load_async` 与播放/视频态强耦合（`has_video` 分支 + `player_.sub_add`）——其**输入/逻辑全方法搬迁**被播放耦合挡住；② Search 的逻辑体同样直探 UI 导航态（`jump_to_match` 改写 `selected_idx`/`view_start` + 持 `tree_mutex`/`display_list`）。结论：四域（字幕/搜索/库/帐号）的干净全方法搬迁都需先解 UI 耦合 → 属 **D11（UI 纯交互化）**。故 D10 现实收尾策略改为**所有权切割**：逐域把 App 的域私有态外迁到各 Service，为 D11 腾边界。Search 4 成员最局部、最干净，选作 D10-2。
+
+**Decision: D10-2 做 SearchService 所有权切割（搬 4 个搜索成员 + 访问器重定向），方法体留 App。** 与 D10-1/D8b-1 一致的"干净一刀"：状态归位到 Service，App 各读写点经访问器，机械改名、行为零变化。全方法搬迁（`start_search`/`jump_search`/`jump_to_match`/`search_recursive` 搬进服务并解 UI 耦合）留 D11。
+
+**Approach（4 成员 → 访问器）:**
+- `search_query_` / `search_matches_`（`std::string` / `std::vector<TreeNodePtr>`）：暴露非/常引用访问器（写用 `search_.search_query() = q;`、`search_.search_matches().push_back(...)`）。
+- `current_match_idx_` / `total_matches_`（`int`）：getter + `set_(int)` setter（不能用 replace_all——二者是 `set_...` 的子串，会腐蚀；逐点定向改）。
+- `reset()`：一次清四态；`reset_search()` 体塌缩为 `search_.reset()`。
+
+**Why 访问器而非门面（per-operation）:** 与 D10-1/D8b-1 同理——访问器零逻辑、机械、与既有先例一致，且是过渡缝（D11 逻辑搬迁后访问器调用自然消解）。本域无 inter-object 接线，故无 `init()`（区别于 SubtitleService）。
+
+**Gotcha:** `start_search` 命中首跳传 `jump_to_match(0)`（字面量 0，非 `current_match_idx`），重定向时勿误改。`jump_search` 的环形索引 `((idx + dir + total) % total)` 全部经访问器组合，等价。
+
+**Followups:** D10-3（SubtitleService 订 PlaybackTrackChanged 自动加载字幕 + publish SubtitleStatusChanged，增量收益、可并入 D11）；D10-4（LibraryService 所有权切割：8 模式根 + 8 loaded flag + tree_mutex，11 caller 逐文件改访问器，最大切片）；D10-5（AccountService 按模式切片）；D11（UI 纯交互化，届时搜索/字幕/库/帐号的逻辑体方可干净搬入各 Service）。
+
 ## D10-1 — SubtitleService 干净一刀：字幕/ASR 引擎搬所有权 + 生命周期（M1 第 9 人日，D10 增量1）
 
 **Context:** D9 收官后 PlaybackService 独占全部播放运行时状态，但字幕/ASR（`SubtitleManager` + `TranscriptionEngine`）仍是 App 裸成员，被 ~16 处触发点（app_run 构造/析构/主循环、app_input×10、app_remote×3、app_download×2）+ PlaybackService（经 attach 裸指针）直接调用。D10 要抽更多 Application Service（Library/Search/Subtitle/Account）。四域勘察：Library=tree_mutex 11 文件共用的脊椎（HARD）、Account=最大最交织（HARD）、Subtitle=逻辑已自封装于两对象但触发点散落（MEDIUM）、Search=4 成员状态最局部但 jump/reveal 改写 selected_idx/view_start UI 导航状态（MEDIUM）。

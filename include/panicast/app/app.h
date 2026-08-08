@@ -80,6 +80,7 @@ extern char **environ; // Required by posix_spawnp (capture_exec / ffprobe verif
 #include "panicast/storage/youtube_cache.h"
 #include "panicast/storage/persistence.h"
 #include "panicast/app/subtitle_service.h" // D10-1: subtitles/ASR Application Service (owns SubtitleManager + TranscriptionEngine)
+#include "panicast/app/search_service.h"   // D10-2: in-tree search Application Service (owns search state)
 #include "panicast/ui/border.h"
 #include "panicast/ui/ui.h"
 #include "panicast/theme/colors.h"
@@ -174,9 +175,10 @@ private:
     //   occupied (active + within their completion display window), further items wait here and
     //   are promoted as slots free. Keeps the download list capped and the INFO panel uncluttered.
     std::deque<TreeNodePtr> pending_downloads_;
-    std::string search_query;
-    std::vector<TreeNodePtr> search_matches;
-    int current_match_idx = -1, total_matches = 0;
+    // D10-2: in-tree search state (search_query/matches/idx/total) moved into SearchService.
+    //   app_search.cpp reads/writes via search_. accessors; the search METHODS stay here for now
+    //   (they reach into tree_mutex/display_list/selected_idx — UI-coupled; relocate after D11).
+    SearchService search_;
     bool visual_mode_ = false;
     int visual_start_ = -1;
 
