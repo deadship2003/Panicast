@@ -4,6 +4,12 @@
 
 ---
 
+## 规划 — 2026-08-09 — ASR "本地字幕文件优先" 缺口入计划（D11-3a 收口，延后实现）
+
+> 用户提出 ASR 流程缺本地字幕文件优先逻辑。深挖 4 处不一致（remote `asr_start` 无本地检查 / track-load `find_sidecar` 漏下载目录 ASR SRT / `:asr` 注释与行为边界不清 / L 键优先链内联 UI 未收口）。**决策：不当下打补丁，收口进 D11-3a**——统一 `find_local_srt`+`find_sidecar` 为单一 `resolve_subtitle_source(node)` 解析器，3 个 ASR 入口（L 键/`:asr`/remote）+ track-load 全经此，"有本地字幕源（内嵌/本地SRT/online📜）就不跑 ASR" 统一生效。待 D11-2 视图态迁移解锁。详见 `DECISIONS_LOG.md`（D11-3a 规划）。**纯文档、无代码改动。**
+
+---
+
 ## 新架构 D11-1 — 2026-08-09 — PlaybackTrackEnded：切掉字幕最后残留直调（播放↔字幕全解耦 · D11 增量1）
 
 > M1（UI 解耦）第 14 步、D11 第 1 增量。D10-3 Step 2 后 PlaybackService 仅剩 2 处 `subtitle_svc_->stop_realtime()` 直接调用（on_playback_ended/play_current 入口，杀 ASR）。本增量新增 `PlaybackTrackEnded{}` 事件，两处改 publish；SubtitleService 订阅 → `stop_realtime()`。**PlaybackService 彻底删除 `subtitle_svc_` 指针、attach 的 SubtitleService 参数、前向声明、include**——播放域零 SubtitleService 引用，播放↔字幕所有直接耦合切断、全走总线。

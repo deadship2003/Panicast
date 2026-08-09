@@ -1,4 +1,24 @@
 
+## D11-3a 规划 — ASR "本地字幕文件优先" 缺口分析 + 收口计划（M1 第 14 人日续，规划/延后）
+
+**Context:** 用户提出 "ASR 流程缺失了本地字幕文件优先的逻辑，需要补回迭代计划，并在合适时机实现。" ASR（whisper.cpp，离线 F-mode 产 .srt sidecar + 实时 L 键渐进）昂贵；**原则**：有本地字幕源就不该跑 ASR。优先级应为 内嵌 > 本地 ASR SRT > online 📜 transcript > ASR。深挖全部 ASR 入口 + track-load + worker 后定位四处不一致。
+
+**Finding（四处缺口，详 `transcription_engine.cpp:299/449` worker 的 skip-existing-SRT 已具备、不重复）:**
+- **① remote `asr_start`（`app_remote.cpp:509`）无本地字幕检查**——仅守 `has_media && pn && !realtime_running()`，有本地 SRT/内嵌字幕也照跑 ASR。**主缺口。**
+- **② track-load `find_sidecar`（`subtitle_manager.cpp:121`）只查 `local_file` 旁（.json/.srt/.vtt/.lrc/.transcript），不查下载目录 `<title>.srt`**——而 L 键的 `find_local_srt`（`app_input.cpp:734`）查两处。`local_file` 为空则 `find_sidecar` 返回 ""，漏掉 L 键能找到的 ASR SRT。**两解析器不一致。**
+- **③ `:asr`（`app_input.cpp:241`）注释写 "force ASR (skip online transcript)"，实则连本地 SRT 也跳**——语义应明确为 "force bypass all local sources"（显式 force，合理但注释/行为边界要清）。
+- **④ L 键优先链（`app_input.cpp:756-822` VO-open 与 LYRIC 两路）内联在 UI 输入处理器**——embedded > `find_local_srt` > online > ASR 的链子是对的（✅ 全链），但未收口、与 ①②③ 各自为政。
+
+**Decision: 不当下打补丁，收口进 D11-3a（字幕/ASR 编排统一进 SubtitleController）。** 把 L 键字幕编排（embedded>本地SRT>online>ASR 链）从 UI 输入处理器搬进 SubtitleService 的单一 `resolve_subtitle_source(node)` 解析器；**统一 `find_local_srt`（下载目录+本地旁）与 `find_sidecar`（仅本地旁）为一个解析器**（修缺口②）；三个 ASR 入口（L 键/`:asr`/remote `asr_start`）+ track-load 全部经此解析器，"有本地字幕源就不跑 ASR" 统一生效（修缺口①③④）。`offset`（`:z`/`:Z` sub-delay）随迁。
+
+**Why 不当下打补丁（最小改 app_remote 加 find_local_srt 检查）:** 缺口的根因是**编排逻辑散在 4 处、各查各的**——给 remote 加一行本地检查只是把第 4 份拷贝补齐，下次再增入口又漏；且 `find_local_srt`/`find_sidecar` 两套不一致的解析逻辑本身需合并。D11-3a 正是"字幕/ASR 编排收口"的领地（D11 视图态迁移后 UI 不再直探 tree 耦合态、可干净搬 L 键编排）。当下打补丁违反 strangler-fig "敏感一刀留到 UI 解耦后"的纪律，且在冒烟测不出字幕正确性的前提下增加风险面。
+
+**Ordering:** D11-3a 待 **D11-2（视图态 display_list/selected_idx/view_start + tree_mutex + pending_select_ 迁入 LibraryService）** 解锁后做——L 键编排经访问器读节点而非直探 tree，搬迁才干净。
+
+**Gotcha:** `:asr` 是**显式 force**（用户明知要跑 ASR），收口后须保留 "bypass all local sources" 的 force 语义，不能被 resolve_subtitle_source 的"有本地源就 return"吞掉——解析器需 force 入参。
+
+**Followups:** D11-2 先做（解锁）→ D11-3a 收口（统一解析器 + 4 入口路由）→ 人工验字幕/ASR（remote 触发、track-load 自动加载、`:asr` force、L 键全链）。
+
 ## D11-1 — PlaybackTrackEnded：字幕最后残留直调改事件（M1 第 14 人日，D11 增量1）
 
 **Context:** D10-3 Step 2 把字幕加载事件化后，PlaybackService 仅剩 2 处 `subtitle_svc_->stop_realtime()` 直接调用（on_playback_ended 入口 + play_current 入口）——"曲目结束但不进阶"（error/stop，reason≠0）路径不发 PlaybackTrackChanged，ASR 仍须停，故 Step 2 保留为残留直调、注明 D11 切。

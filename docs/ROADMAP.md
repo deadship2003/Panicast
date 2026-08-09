@@ -95,7 +95,11 @@
     - = D10-3 字幕事件化收尾：播放↔字幕**所有**直接耦合切断，全走总线（PlaybackTrackChanged 加载 + PlaybackTrackEnded 停 ASR）。stop_realtime 幂等（已验证），advance 路径 Ended+begin_track 双触发无害。
     - **验收**：ctest 39/39、构建 0-warning（21/21）、pty 冒烟 exit 0 + clean endwin + quit dialog。
   - [ ] **D11-2 — 视图态 + tree_mutex 迁入 LibraryService**（干净一刀）：display_list/selected_idx/view_start + tree_mutex + pending_select_ 迁入 LibraryService（锁与数据/视图同处）；机械重定向到访问器（复刻 D8b-1/D10-4 模式）。为 D11-3 逻辑搬迁解锁。
-  - [ ] **D11-3 — 各 Service 方法体/逻辑搬迁**（敏感一刀）：搜索 jump/reveal、字幕 L 键编排 + offset、库 load_*_root、帐号 mode handler——都直探 tree_mutex/display_list/selected_idx/has_video/player_.sub_add，待 D11-2 视图态迁入后经访问器搬迁。
+  - [ ] **D11-3 — 各 Service 方法体/逻辑搬迁**（敏感一刀，待 D11-2 视图态迁入解锁）。按域拆：
+    - [ ] **D11-3a — 字幕/ASR 编排收口进 SubtitleController + 本地字幕文件优先**（用户 2026-08-09 提出）。把 L 键字幕编排（`app_input.cpp:756-822` 的 embedded>本地SRT>online>ASR 优先链）从 UI 输入处理器搬进 SubtitleService 的单一 `resolve_subtitle_source(node)` 解析器；**统一 `find_local_srt`（查下载目录 `<title>.srt` + 本地文件旁）与 `find_sidecar`（仅本地文件旁）为一个解析器**——修 track-load 自动加载漏掉下载目录 ASR SRT 的不一致；三个 ASR 入口（L 键 / `:asr` / remote `asr_start`）+ track-load 全部经此解析器，**"本地字幕文件优先"统一生效：有本地字幕源（内嵌 / 本地 ASR SRT / online 📜）就不跑 ASR**。`offset`（`:z`/`:Z` sub-delay）随迁。
+      - **现状缺口（待修）**：① remote `asr_start`（`app_remote.cpp:509`）无本地字幕检查，有本地源也跑 ASR；② track-load `find_sidecar` 不查下载目录，漏掉 L 键能找到的 ASR SRT；③ `:asr` 注释说"skip online"实则连本地 SRT 也跳（应明确为"force bypass all"）；④ L 键优先链内联在 UI、未收口。offline/realtime worker 的 skip-existing-SRT（`transcription_engine.cpp:299/449`）已具备，不重复。
+    - [ ] **D11-3b — 搜索 jump/reveal 逻辑搬入 SearchService**。
+    - [ ] **D11-3c — 库 load_\*_root + 帐号 mode handler 搬迁**。
   - [ ] **D11-4 — grep 验证 UI 层零 Core 直调**。
   - **验收（D11 总）**：UI 层零 Core 直调；全功能正常。
 - [ ] **D12 — IFrontend 抽象 + 验证可换 UI**
