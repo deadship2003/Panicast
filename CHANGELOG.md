@@ -4,6 +4,35 @@
 
 ---
 
+## 新架构 D12-1 — 2026-08-10 — DisplayContext 视图模型：解耦 3 运行时 singleton（D12 增量1）
+
+> M1（UI 解耦）第 20 步、D12 第 1 增量。D11-4 验收认定"UI 自查运行时状态（非收视图模型）"是真耦合；本增量切第一刀。新增 `DisplayContext` 视图模型（`include/panicast/ui/ui.h`，紧邻 `DisplayItem`），App 每帧构建推进 `ui.draw()`；UI 不再自查 `SleepTimer`/`OnlineState`/`TikTokRegion`。
+
+### DisplayContext（新视图模型 struct）
+- `sleep_active` / `sleep_remaining`（秒）——取代 status_bar 的 `SleepTimer::instance()` 查询。
+- `online_region_name`（已解析的区域名）——取代 ui.cpp 的 `ITunesSearch::get_region_name(OnlineState::instance().current_region)`（2 处）。
+- `tiktok_region`（区域码）——取代 ui.cpp 的 `TikTokRegion::current()`。
+
+### 改动
+- `UI::draw(...)` / `draw_status(...)` 末尾新增 `const DisplayContext &dctx = {}` 参数（默认值=单调用方可增量采纳）。
+- `app_run.cpp` 主循环每帧构建 dctx（`sleep_remaining` 仅在 active 时计算，镜像原 status_bar 守卫）+ 推进 `ui.draw(..., dctx)`。
+- src/ui：ONLINE/TIKTOK title switch + `draw_status` 改读 dctx。**src/ui 运行时 singleton 查询归零**（grep 验证）。
+
+### URLClassifier 留（不剥离）
+- `URLClassifier::classify`/`is_youtube` 是**无状态纯函数**（URL 串→`URLType` 枚举、表驱动、无 I/O 无 `instance()`）——性质同 Utils，§2.1/§3 已列为横切基础设施。UI 对 URL 串分类选图标=对字符串调工具，非运行时状态查询。3 处（info_panel×2、tree_renderer×1）保留。
+
+### 行为等价性
+- App 每帧多算一次 `get_region_name`（仅 ONLINE 模式 title 原本才调，现每帧调）——纯表查可忽略；区域码/睡眠定时值来源不变（同一 singleton）。`sleep_remaining` 仅在 active 时计算（与原 status_bar 守卫一致）。
+
+### 验收
+- ctest 39/39、构建 0-warning（26/26）、pty 冒烟 exit 0 + clean endwin。
+- src/ui grep：零 `SleepTimer::|OnlineState::|TikTokRegion::|ITunesSearch::` 调用。
+
+### 后续
+- D12-2（游标事件化 → jump_to_match/reveal_node 搬 SearchService）→ D12-3（IFrontend）→ M1 达成。
+
+---
+
 ## 新架构 D11-4 — 2026-08-10 — UI 层依赖不变量确立 + grep 门固化（D11 收官 · 基础设施豁免）
 
 > M1（UI 解耦）第 19 步、**D11 收官**。审计 UI→Core 实际调用面：只有横切基础设施（`Utils::*` 文本/显示工具 ~100 处、`LOG`/`EVENT_LOG` 16 处、`get_emoji_width` 2 处）；Core **业务**直调（Paths/crypto/ThreadPool/EventBus/process_utils/safe_tmp）= **0**。用户选 **A（基础设施豁免）**：LOG/Utils 不剥离——同类软件（mpv/cmus/Qt/LLVM/Chromium）界面层都直接用日志与工具函数，日志是横切关注点，剥离只给文件改名、零耦合收益。

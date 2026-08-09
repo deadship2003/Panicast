@@ -430,7 +430,7 @@ void UI::draw(
     bool visual_mode, int visual_start, const std::vector<PlaylistItem> &playlist,
     int playlist_index, //Play mode + INFO play-context (7-line: 3 history + current + 3 next)
     PlayMode play_mode, const std::vector<std::string> &history_titles,
-    const std::vector<int> &next_indices) {
+    const std::vector<int> &next_indices, const DisplayContext &dctx) {
     getmaxyx(stdscr, h, w);
     // NULL window guard: safe_wresize may null the window on failure; skip this frame to avoid dereferencing NULL
     if (!left_win || !right_win || !status_win || !lyric_win)
@@ -532,10 +532,8 @@ void UI::draw(
     case AppMode::ONLINE:
         mode_str =
             use_emoji_title
-                ? fmt::format("🔍 ONLINE [{}]",
-                              ITunesSearch::get_region_name(OnlineState::instance().current_region))
-                : fmt::format("[O] ONLINE [{}]", ITunesSearch::get_region_name(
-                                                     OnlineState::instance().current_region));
+                ? fmt::format("🔍 ONLINE [{}]", dctx.online_region_name)
+                : fmt::format("[O] ONLINE [{}]", dctx.online_region_name);
         break;
     case AppMode::ACCOUNT:
         mode_str = use_emoji_title ? "Ｙ ACCOUNT" : "[Y] ACCOUNT";
@@ -544,7 +542,7 @@ void UI::draw(
         mode_str = use_emoji_title ? "Ｂ BILIBILI" : "[B] BILIBILI";
         break; // Y15 (fullwidth B: glibc wcwidth=2)
     case AppMode::TIKTOK: {
-        const std::string &r = TikTokRegion::current();
+        const std::string &r = dctx.tiktok_region;
         // Y24.13: CN region = Douyin (douyin.com); show Douyin in the title.
         if (r == "CN")
             mode_str = use_emoji_title ? fmt::format("🎵 Douyin [{}]", r)
@@ -645,7 +643,7 @@ void UI::draw(
         draw_lyric_bar(lyric_win, state);
         wnoutrefresh(lyric_win);
     } else {
-        draw_status(status_win, state, selected_node);
+        draw_status(status_win, state, selected_node, dctx);
         wnoutrefresh(status_win); // double-buffer optimization
     }
 

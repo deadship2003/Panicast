@@ -1,4 +1,20 @@
 
+## D12-1 — DisplayContext 视图模型：UI 不再自查 3 运行时 singleton（M1 第 20 人日，D12 增量1）
+
+**Context:** D11-4 验收认定 UI 的"真耦合"是**自查运行时状态**（4 处 singleton 读：SleepTimer/OnlineState/TikTokRegion/URLClassifier），而非横切基础设施（Utils/LOG，已豁免）。D12 切第一刀。但审计 4 处时发现 URLClassifier 性质不同：它是**无状态纯函数**（表驱动 URL 串→枚举，无 `instance()`、无 I/O），与 Utils 同类——不是运行时状态查询。故真该解耦的是 3 个**有状态** singleton。
+
+**Decision: 新增 `DisplayContext` 视图模型，App 每帧构建推进 `ui.draw()`，解耦 SleepTimer/OnlineState/TikTokRegion 三处；URLClassifier 作为纯函数保留。** DisplayContext 紧邻 `DisplayItem`（UI 既有视图模型），含 `sleep_active`/`sleep_remaining`/`online_region_name`（已解析名）/`tiktok_region`。`UI::draw`/`draw_status` 末尾加 `const DisplayContext &dctx = {}` 参数（默认值让单调用方可增量采纳）。§2.1 显式把 `URLClassifier::classify/is_youtube` 列入"允许的横切基础设施"白名单（§3 早把它列为基础设施，与之对齐）。
+
+**Why URLClassifier 不解耦（纯函数判据）:** `static constexpr` 模式表 + `static URLType classify(const string&)`——无实例、无状态、无 I/O。UI 对 URL 字符串调它选图标，等价于对字符串调 `Utils::truncate_*`：横切基础设施，稳定依赖原则下 UI 可依赖。剥离它（pre-classify 进 TreeNode/DisplayItem）要给每个节点预算 `url_type`，徒增字段+缓存复杂度，零架构收益。
+
+**Why online_region_name 在 App 解析（而非传 region 码让 UI 调 get_region_name）:** 若传码，UI 仍要调 `ITunesSearch::get_region_name`（parsers/ 静态方法）——把 net/parsers 调用留在 UI。故 App 一次性解析成名，UI 只渲染纯字符串。代价：每帧多一次 `get_region_name` 表查（仅 ONLINE 模式 title 原本才调，现每帧调）——纯查可忽略。
+
+**Gotcha — sleep_remaining 镜像原守卫:** 原 status_bar 只在 `is_active()` 时读 `remaining_seconds()`（避免不活动时的语义）。App 构造 dctx 时同样 `sleep_remaining = sleep_active ? remaining_seconds() : 0`——UI 只在 `dctx.sleep_active` 时读 sleep_remaining，等价且安全（app_remote.cpp:164-165 早已用同一守卫模式）。
+
+**Acceptance:** src/ui 零 `SleepTimer::|OnlineState::|TikTokRegion::|ITunesSearch::` 调用（grep 验证，仅剩注释散文）；ctest 39/39、0-warning（26/26）、pty 冒烟 exit 0 + clean endwin。
+
+**Followups:** D12-2（游标事件化 → jump_to_match/reveal_node 无反向依赖搬 SearchService）→ D12-3（IFrontend 抽象）→ M1 达成（UI 解耦）。
+
 ## D11-4 — UI 层依赖不变量确立：基础设施豁免（M1 第 19 人日 / D11 收官）
 
 **Context:** D11 标题原写"移除 UI 对 Core 的**全部**直接调用"。D11-4 grep 审计 UI→Core 实际调用面：仅 {`Utils::*` 文本/显示工具(~100处)、`LOG`/`EVENT_LOG`(16处)、`get_emoji_width`(2处)}——全是横切基础设施；Core **业务**直调（Paths/crypto/ThreadPool/EventBus/process_utils/safe_tmp）= 0。问题："全部"是否含 Utils/LOG？用户要求参照同类软件给出专业建议。

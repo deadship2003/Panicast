@@ -116,9 +116,12 @@
   - [x] **D11-4 — grep 验证 UI 层零 Core 业务直调（D11 收官）** ✅ 2026-08-10。审计 UI→Core 实际调用面 = {`Utils::*` 文本/显示工具(~100处)、`LOG`/`EVENT_LOG`(16处)、`get_emoji_width`(2处)}——**全是横切基础设施**（性质等同标准库；mpv/cmus/Qt/LLVM/Chromium 界面层都直接用日志/工具）；Core **业务**直调（Paths/crypto/ThreadPool/EventBus/process_utils/safe_tmp）= **0**。用户选 A（基础设施豁免）：LOG/Utils **不剥离**（剥离横切基础设施=给文件改名，零耦合收益）。**纠正 D11 旧标题**"移除 UI 对 Core 的全部直接调用"→ 正确不变量"UI 只依赖稳定基础设施 + 视图模型"（稳定依赖原则），写进 `docs/ARCHITECTURE.md §2.1`。把"UI 零 Core 业务直调"固化进 `scripts/check.sh` §4（grep 门，出现即报警）。
     - **遗留（D12 前沿，非 Core）**：UI 有 4 处 net/playback/app singleton 读（`SleepTimer`/`OnlineState`/`URLClassifier`/`TikTokRegion`）——UI 自查状态而非收视图模型，是真正该解耦的耦合，归 D12 `IFrontend`。
   - **验收（D11 总）**：UI 层零 Core **业务**直调（grep 门绿）；Utils/LOG 作为横切基础设施保留（`docs/ARCHITECTURE.md §2.1`）；全功能正常。✅
-- [ ] **D12 — IFrontend 抽象 + 验证可换 UI**
-  - 定义 `IFrontend`（订阅事件渲染 + 输入→Action）；ncurses UI 实现之。确认 Core 不依赖 ncurses、UI 可换（Qt 可后接）。
-  - **验收**：ncurses 经 IFrontend；UI 可换性就位。→ **M1 达成（UI 解耦）**
+- [ ] **D12 — UI 视图模型化 + IFrontend 抽象（验可换 UI）**（拆 D12-1/2/3 增量）
+  - [x] **D12-1 — DisplayContext 视图模型：解耦 3 运行时 singleton** ✅ 2026-08-10。UI 不再自查 `SleepTimer`/`OnlineState`/`TikTokRegion`（运行时状态——D11-4 认定的"真耦合"）；App 每帧构建 `DisplayContext{sleep_active, sleep_remaining, online_region_name, tiktok_region}`（紧邻 `DisplayItem`）推进 `ui.draw()`，UI 的 ONLINE/TIKTOK title + `draw_status` 改读 dctx。`URLClassifier` **留**（无状态纯函数 classify/is_youtube、表驱动，性质同 Utils；§2.1/§3 已列为基础设施）。**src/ui 运行时 singleton 查询归零**。
+    - **验收**：ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin。
+  - [ ] **D12-2 — 游标事件化 → jump_to_match/reveal_node 搬入 SearchService**。游标(selected_idx)经访问器/事件让 SearchService 无反向依赖读视图态（D10-2/D11-3b 头注释要求的前置条件）。
+  - [ ] **D12-3 — IFrontend 抽象（ncurses 实现）**。定义 `IFrontend`（订阅事件渲染 + 输入→Action），ncurses UI 实现之；确认 Core 不依赖 ncurses、UI 可换（Qt 可后接）。
+  - **验收（D12 总）**：src/ui 零运行时状态查询（D12-1）+ 游标事件化（D12-2）+ ncurses 经 IFrontend、UI 可换性就位（D12-3）。→ **M1 达成（UI 解耦）**
 
 ## 里程碑 M2 — Provider 化 + Media 收敛（每 parser 一小步）
 - [ ] **Dn** — 各 parser 确认 Provider 化（youtube/bilibili/itunes/rss/m3u/opml/tiktok）；Media 域从 TreeNode 逐步收敛。每个一进步、保持可运行。

@@ -11,7 +11,8 @@
 namespace panicast
 {
 
-void UI::draw_status(WINDOW *win, const MPVController::State &state, TreeNodePtr selected_node) {
+void UI::draw_status(WINDOW *win, const MPVController::State &state, TreeNodePtr selected_node,
+                     const DisplayContext &dctx) {
     werase(win);
     box(win, 0, 0);
     int ww = getmaxx(win);
@@ -45,9 +46,11 @@ void UI::draw_status(WINDOW *win, const MPVController::State &state, TreeNodePtr
 
     // Get the middle URL content (the part inside the brackets)
     std::string mid_content; // content inside the brackets
-    bool show_timer = SleepTimer::instance().is_active();
+    // D12-1: sleep-timer state is pushed in via dctx (was SleepTimer::instance() — runtime state
+    //   the UI must not query; see docs/ARCHITECTURE.md §2.1).
+    bool show_timer = dctx.sleep_active;
     if (show_timer) {
-        int remaining = SleepTimer::instance().remaining_seconds();
+        int remaining = dctx.sleep_remaining;
         int hours = remaining / 3600;
         int minutes = (remaining % 3600) / 60;
         int seconds = remaining % 60;

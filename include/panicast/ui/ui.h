@@ -82,6 +82,19 @@ struct DisplayItem {
     int parent_idx;
 };
 
+// D12-1: ambient runtime display state pushed IN by App each frame. The UI must NOT query these
+//   singletons itself — they hold runtime/business state (sleep timer, selected regions), which is
+//   exactly the "UI queries runtime state instead of receiving a view-model" coupling D11-4 flagged
+//   as the D12 frontier (see docs/ARCHITECTURE.md §2.1). App reads them once per frame and resolves
+//   region codes to display names, so the UI only ever renders plain values. Pure functions
+//   (Utils::*, URLClassifier::classify) remain direct calls — they are stateless cross-cutting infra.
+struct DisplayContext {
+    bool sleep_active = false;
+    int sleep_remaining = 0;        // seconds (valid only when sleep_active)
+    std::string online_region_name; // resolved name for the ONLINE title
+    std::string tiktok_region;      // current TikTok region code (e.g. "CN")
+};
+
 // UILayout struct removed: duplicated LayoutMetrics and was never instantiated (dead code).
 // Actual layout computation goes through LayoutGuard::compute + LayoutMetrics uniformly.
 // =========================================================
@@ -183,7 +196,10 @@ public:
               //Play mode + INFO play-context (7-line: 3 history + current + 3 next)
               PlayMode play_mode = PlayMode::CYCLE,
               const std::vector<std::string> &history_titles = {},
-              const std::vector<int> &next_indices = {});
+              const std::vector<int> &next_indices = {},
+              // D12-1: ambient runtime display state (sleep timer + regions). Defaulted so the
+              //   single existing caller can adopt it incrementally; never left empty in practice.
+              const DisplayContext &dctx = {});
 
     //Input cancel marker (uses string concatenation to avoid hex-escape issues)
     static constexpr const char *INPUT_CANCELLED =
@@ -335,7 +351,8 @@ private:
     // │   Priority 2: left version number - truncate from the right (toward the middle) │
     // │   Priority 3: right author time - truncate from the left (toward the middle) │
     // └─────────────────────────────────────────────────────────────────────────┘
-    void draw_status(WINDOW *win, const MPVController::State &state, TreeNodePtr selected_node);
+    void draw_status(WINDOW *win, const MPVController::State &state, TreeNodePtr selected_node,
+                     const DisplayContext &dctx = {});
 
     // V2.39: INFO area display
     //Added playlist parameter

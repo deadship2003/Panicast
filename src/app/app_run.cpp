@@ -417,12 +417,23 @@ void App::run() {
             // INFO area renders the 7-line play context from playlist/current_index/
             //   play_mode + hist_titles + next_snap.
             // Y24.7: L-mode poll already ran above (handoff + activation); no separate call needed.
+            // D12-1: push runtime display state into the UI — it must not query these singletons
+            //   itself (runtime/business state; see docs/ARCHITECTURE.md §2.1). Region codes are
+            //   resolved to display names here so the UI renders plain values. URLClassifier stays
+            //   a direct call inside the UI (stateless pure function, cross-cutting infra).
+            DisplayContext dctx;
+            dctx.sleep_active = SleepTimer::instance().is_active();
+            dctx.sleep_remaining = dctx.sleep_active ? SleepTimer::instance().remaining_seconds() : 0;
+            dctx.online_region_name =
+                ITunesSearch::get_region_name(OnlineState::instance().current_region);
+            dctx.tiktok_region = TikTokRegion::current();
+
             ui.draw(mode, library_.display_list(), library_.selected_idx(), state, library_.view_start(), app_state,
                     playback_.playback_node(),
                     marked, search_.search_query(), search_.current_match_idx(),
                     search_.total_matches(), sel_node, downloads,
                     visual_mode_, visual_start_, playback_.playlist(), current_index_snap,
-                    play_mode, hist_titles, next_snap);
+                    play_mode, hist_titles, next_snap, dctx);
         } // release pl_draw_lock before input processing (avoids deadlock with play_current)
 
         // Wide-char input: wget_wch cleanly distinguishes special keys (KEY_CODE_YES) from
