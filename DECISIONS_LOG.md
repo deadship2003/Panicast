@@ -1,4 +1,20 @@
 
+## D11-4 — UI 层依赖不变量确立：基础设施豁免（M1 第 19 人日 / D11 收官）
+
+**Context:** D11 标题原写"移除 UI 对 Core 的**全部**直接调用"。D11-4 grep 审计 UI→Core 实际调用面：仅 {`Utils::*` 文本/显示工具(~100处)、`LOG`/`EVENT_LOG`(16处)、`get_emoji_width`(2处)}——全是横切基础设施；Core **业务**直调（Paths/crypto/ThreadPool/EventBus/process_utils/safe_tmp）= 0。问题："全部"是否含 Utils/LOG？用户要求参照同类软件给出专业建议。
+
+**Decision: 选 A（基础设施豁免）——LOG/Utils 不剥离，纠正 D11 标题为正确不变量。** 新不变量（稳定依赖原则）：**UI 只依赖稳定基础设施 + 视图模型，不直调 Core 业务/运行时状态。** 写进 `docs/ARCHITECTURE.md §2.1`；把"UI 零 Core 业务直调"固化进 `scripts/check.sh` §4（grep 门）。Utils/LOG/get_emoji_width 列入白名单（允许）。
+
+**Why LOG 不剥离（同类软件佐证）:** 日志是教科书级**横切关注点**（AOSD）——所有主流项目界面层都直接用：mpv（`mp_msg` 在 OSD）、cmus（`ui_curses.c` 直接调日志+utils）、Qt（`qDebug`/`qCInfo` 在 View）、LLVM（`errs()`/`LLVM_DEBUG`）、Chromium（`LOG` 在 views/）。无一项目把日志对 UI 藏起来。剥离横切基础设施 = 给文件改名，**零耦合收益**（UI 仍在调同一函数）。且本项目 `EVENT_LOG` 本就是 UI 右侧日志环形缓冲（ARCHITECTURE §3）——它是 UI 自己的面板。
+
+**Why 纠正标题而非照搬:** 旧标题与项目自身分层定义冲突——`docs/ARCHITECTURE.md` §2 明写 `core = 基础设施`，"基础设施"即供各层使用。照"移除全部 Core 直调"执行 = 把 printf 式工具赶出 UI = cargo-cult 分层。正确判据是**稳定依赖原则**（Robert Martin）：UI 可依赖不随业务变的稳定基础设施，不可依赖随业务变的运行时状态。Utils/LOG 稳定 → 可依赖；DB/网络/账号/播放 singleton 易变 → 不可依赖。
+
+**Gotcha — 真正的耦合在别处（非 Core）:** UI 有 4 处 net/playback/app singleton 读（`SleepTimer::instance()` / `OnlineState::instance()` / `URLClassifier::classify` / `TikTokRegion::current`）——UI **自查**业务/运行时状态而非**收视图模型**。这才是 mpv/Qt/cmus 式该解耦的真耦合，但属 D12 `IFrontend` 范畴，不在 D11-4 的"Core 直调"判据内，本轮仅记录、不门控（grep 门只盯 Core 业务符号）。
+
+**Acceptance:** UI 零 Core 业务直调（grep 门绿）；ctest 39/39、0-warning、冒烟绿（无 C++ 改动，沿用 D11-3c 15df9ab）。D11（1/2/3/4）收官。
+
+**Followups:** D12（`IFrontend` 抽象 + 4 singleton→视图模型解耦 + 游标事件化，届时 jump_to_match/reveal_node 可无反向依赖搬 SearchService）→ **M1 达成（UI 解耦）**。
+
 ## D11-3c — 库 load_*_root + 帐号 mode handler 搬迁（M1 第 18 人日，D11 增量3c / Round 3）
 
 **Context:** D11-3c 原任务"库 load_*_root + 帐号 mode handler 搬进 LibraryService"。LibraryService 已拥每模式树数据（D10-4）+ 视图态/tree_mutex（D11-2），但**构造这些 root 的方法仍散在 App**（app_run/account/bilibili/tiktok/iptv/search 各文件）——库域拥数据却不拥构造，分裂。用户在 6 个全搬（A）vs 分批（B）间选了 **A（6 个全搬，一提交）**。

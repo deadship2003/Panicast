@@ -4,6 +4,28 @@
 
 ---
 
+## 新架构 D11-4 — 2026-08-10 — UI 层依赖不变量确立 + grep 门固化（D11 收官 · 基础设施豁免）
+
+> M1（UI 解耦）第 19 步、**D11 收官**。审计 UI→Core 实际调用面：只有横切基础设施（`Utils::*` 文本/显示工具 ~100 处、`LOG`/`EVENT_LOG` 16 处、`get_emoji_width` 2 处）；Core **业务**直调（Paths/crypto/ThreadPool/EventBus/process_utils/safe_tmp）= **0**。用户选 **A（基础设施豁免）**：LOG/Utils 不剥离——同类软件（mpv/cmus/Qt/LLVM/Chromium）界面层都直接用日志与工具函数，日志是横切关注点，剥离只给文件改名、零耦合收益。
+
+### 纠正 D11 标题
+- 旧：移除 UI 对 Core 的"全部"直接调用（与项目自身 `core=基础设施` 定义自相矛盾）。
+- 新（稳定依赖原则）：**UI 只依赖稳定基础设施 + 视图模型，不直调 Core 业务/运行时状态**。写进 `docs/ARCHITECTURE.md §2.1`。
+
+### 固化：scripts/check.sh §4 层边界自检
+- grep 门：`src/ui/` 出现 `Paths::|machine_key|token_seal|token_open|Key32|ThreadPool|EventBus::|which_binary|safe_tmp|popen(` → 报警（咨询、不阻断）。
+- 白名单（允许的横切基础设施）：`Utils::*` / `LOG` / `EVENT_LOG` / `get_emoji_width`。
+- 当前：**绿**（0 命中）。
+
+### 验收
+- grep 门绿；ctest 39/39、构建 0-warning（无 C++ 改动，沿用 D11-3c 15df9ab）、pty 冒烟 exit 0。
+- D11（1/2/3/4）收官。
+
+### 遗留 → D12
+- UI 的 4 处非 Core singleton 读（`SleepTimer`/`OnlineState`/`URLClassifier`/`TikTokRegion`）：UI 自查状态 → 改收视图模型（`IFrontend` 抽象）。这是真正该投力的解耦，非 D11-4 的 Core 范畴。
+
+---
+
 ## 新架构 D11-3c — 2026-08-09 — 库 load_*_root + 帐号 mode handler 搬迁（D11 增量3c · Round 3）
 
 > M1（UI 解耦）第 18 步、D11 第 3 增量 c（敏感一刀）。用户选 A（6 个全搬）。LibraryService 已拥每模式树**数据**（8 root 列表 + 6 loaded flag，D10-4）+ 视图态 + tree_mutex（D11-2）；本增量把**构造这些 root 的方法**搬进去——库域既拥数据又拥构造。6 个 `load_*_root`（radio/accounts/bilibili/tiktok/iptv/history）+ 2 共享 helper（`make_search_history_child`、`load_bilibili_accounts`）从 App 逐字搬入；`load_tiktok_accounts`（一行）内联。无 AccountService（D10-5）：UI 耦合的帐号 op（QR 登录/激活/删除）留 App。

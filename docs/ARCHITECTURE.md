@@ -31,6 +31,16 @@ src/<module>/*.cpp              实现
 
 入口：`src/main.cpp` → `App::run()`（`src/app/app_run.cpp`）。
 
+### 2.1 层间依赖规则（UI 解耦不变量 · D11-4 确立）
+
+**核心判据（稳定依赖原则）**：某层能否依赖 X，看 X 是否随业务变化——稳定基础设施可依赖，易变业务/运行时状态不可依赖。
+
+UI（`src/ui/`）是纯呈现层，依赖规则：
+- **允许（横切基础设施，性质等同标准库）**：`Utils::*`（文本/显示工具）、`LOG`/`EVENT_LOG`（后者是 UI 右侧日志环形缓冲，见 §3）、`get_emoji_width`（终端度量）。同类软件（mpv / cmus / Qt / LLVM / Chromium）的界面层都直接用日志与工具函数——日志是**横切关注点**（cross-cutting concern），不服从"只能往下调"的字面分层。
+- **禁止（Core 业务 / 运行时状态）**：`Paths`（文件系统）、`crypto`、`ThreadPool`、`EventBus`、`process_utils`、`safe_tmp`，以及 `storage`/`net`/`playback`/`app` 的业务调用。UI 不得直查业务 singleton，应经视图模型 / 事件获得数据（D12 `IFrontend`）。
+
+> 由 `scripts/check.sh` §4 grep 门固化：`src/ui/` 出现 Core 业务符号即报警（咨询、不阻断）。Utils / LOG 不剥离——剥离横切基础设施只给文件改名，不消除任何真实耦合（`DECISIONS_LOG` D11-4）。当前门**绿**（0 命中）。
+
 ## 3. 已有核心抽象（重构须复用，勿另起炉灶）
 
 - **Provider 模式（自注册）**：

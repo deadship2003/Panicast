@@ -51,4 +51,23 @@ else
   warn "ctest 未通过或无测试（若 GTest 未装则测试被禁用：apt install libgtest-dev）"
 fi
 echo
+
+# ── 4. 层边界自检（咨询）：UI 层零 Core「业务」直调（D11-4 验收门） ──────────
+#   UI 是纯呈现层。依赖不变量（见 docs/ARCHITECTURE.md §2.1 / 稳定依赖原则）：
+#     允许——横切基础设施：Utils::* 文本/显示工具、LOG/EVENT_LOG（UI 自己的日志面板，
+#           见 ARCHITECTURE §3）、get_emoji_width 终端度量。性质等同标准库；mpv/cmus/
+#           Qt/LLVM/Chromium 的界面层都直接用日志（横切关注点，不服从"只能往下调"的字面分层）。
+#     禁止——Core 业务：Paths（文件系统）/crypto/ThreadPool/EventBus/process_utils/safe_tmp。
+#   （net/playback/app 的 singleton 读——URLClassifier/SleepTimer/OnlineState/TikTokRegion——
+#    是 D12 IFrontend 的前沿：UI 自查状态而非收视图模型，本轮仅记录、不门控；见 DECISIONS_LOG D11-4。）
+info "层边界自检（咨询）：UI 层零 Core 业务直调"
+viols=$(grep -rnE 'Paths::|machine_key|token_seal|token_open|Key32|ThreadPool|EventBus::|which_binary|safe_tmp|popen\(' src/ui/ 2>/dev/null || true)
+if [ -z "$viols" ]; then
+  say "UI 层零 Core 业务直调 ✓"
+else
+  warn "UI 层出现 Core 业务直调（违反 docs/ARCHITECTURE.md §2.1 分层）："
+  printf '%s\n' "$viols"
+  warn "  须经 App/服务层；详见 DECISIONS_LOG D11-4"
+fi
+echo
 say "预检完成。冒烟：./build/panicast --version"
