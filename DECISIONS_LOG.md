@@ -1,4 +1,20 @@
 
+## D13 — Provider 化审计固化 + ParserRegistry 契约测试（M2 第 1 人日，M2 启动）
+
+**Context:** roadmap M2 第一句"各 parser 确认 Provider 化（youtube/bilibili/itunes/rss/m3u/opml/tiktok）"读起来像"有 7 个 parser 待 Provider 化"。但 `IFeedParser` 契约（`feed_parser.h`）要求 `URLType supports()` + `TreeNodePtr parse(ParseInput{data,url})`——输入是"已抓取的 body"，输出是单个 feed 树。审计每个 parser 对此契约的真实形态，才能判断哪些该 Provider 化、哪些本就不该。
+
+**Decision: 审计固化（文档）+ Registry 契约测试（代码）。** ① 审计结论：feed 形态 parser 已 Provider 化——`RSSParser`(RSS_PODCAST)/`OpmlParser`(OPML)/`YouTubeChannelParser`(YOUTUBE_CHANNEL) 经 `REGISTER_PARSER` 自注册，`app_run.cpp` 三处 `ParserRegistry::instance().create(cur_type)` 派发（YOUTUBE_CHANNEL/PLAYLIST、YOUTUBE_RSS/RSS_PODCAST、OPML）。以下**刻意不经** `IFeedParser`：`BilibiliParser`（WBI 签名 arc API + SESSDATA 凭证 → 静态方法 `parse_user_videos(sessdata,mid,url,title)`，输入非 body）、`ITunesSearch`（搜索 API 单例，头注释自承"not a feed parser"）、`parse_m3u`（IPTV 频道表加载器：在 `app_iptv` 动态抓 index/regions/countries .m3u + group-title 分组建树，非单一 feed）、TikTok（yt-dlp `--flat-playlist`，在 `app_run` `parse_tiktok_user_videos`）、`transcript_parser`（字幕关注点 → `SubtitleParserRegistry`）。`default` 分支直调 `RSSParser::parse` 是刻意的"未知类型尽力猜 RSS"回退（Registry 对未知返 nullptr，不能替代）。② 写进 `docs/ARCHITECTURE.md §2 表 + §3`。③ 新增 `ParserRegistry` 契约测试（`tests/test_units.cpp`，3 例）：`DummyFeedParser` 经公开 `reg()` 注册 → `create()` 派发 → 未注册类型 nullptr → 单例稳定。CMake test_units 加 `src/parsers/feed_parser.cpp`（依赖极轻）。
+
+**Why 测试只锁契约、不锁注册清单:** 要断言"RSS_PODCAST 已注册"得把 rss_parser.cpp（libxml2）+ opml + youtube（network/yt-dlp）链进测试——重依赖、高风险，违背"小增量"。Registry 该回归守的是 reg/create/nullptr/单例**机制**，不是某 parser 是否注册（后者由生产代码的 `REGISTER_PARSER` 宏自证，且设计上可变）。故测试里真实 parser 不链入 → Registry 空、隔离验证机制。
+
+**Why 不把 m3u/bilibili 强塞进 IFeedParser:** "确认 Provider 化"不是"把所有 parser 塞进同一个接口"。m3u 是频道表加载器（多 URL + 分组）、bilibili 是凭证 API——硬套 `parse(ParseInput{data,url})→TreeNodePtr` 是削足适履，制造虚假一致性。正确的是识别"哪些是 feed 形态"（已 Provider 化）+ 记录其余的正当理由。这正是"确认"（audit）的本意。
+
+**Gotcha — default 分支不是 Provider 化缺口:** `app_run.cpp` default 分支 `RSSParser::parse(data,cur_url)` 直调 RSSParser，看似"该走 Registry 却没走"。但 default 捕获的是所有未识别 URLType（直链视频等），刻意向 RSS 猜测；改走 `create(cur_type)` 会因未知类型返 nullptr 而静默失败。故直调是**正确**的，非缺口。
+
+**Acceptance:** ctest 42/42（+3 `ParserRegistry.*`）、0-warning、pty 冒烟 exit 0 + clean endwin。无生产行为改动（仅 +测试 + 文档）；§4 层间门绿。
+
+**Followups:** M2 真正的工作 = **Media 域从 TreeNode 逐步收敛**（D14：D4 的 `MediaID`/`Media` adapter 让模块逐步传句柄而非裸 `TreeNodePtr`/URL——待选首个收敛起点）。D12-2 游标事件化仍 defer。
+
 ## D12-3c — App 经 IFrontend 持有 UI（UI 可换性就位 · M1 达成）（M1 第 23 人日，D12 增量3c）
 
 **Context:** 3b 建好 `IFrontend` 契约、UI 实现它、字幕/App 层经契约说话，但 App 仍以具体类型 `UI ui;`(app.h:125) 作**值成员**——App 直接具名 UI 类型，UI 并不真正"可换"（换 Qt 要改 App 成员类型 + 所有 `ui.`）。M1 的终点是 App 经接口持有前端：构造时具名具体实现、使用时全经 `IFrontend`。

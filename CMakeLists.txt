@@ -494,7 +494,8 @@ if(BUILD_TESTING)
             src/core/crypto.cpp
             src/core/paths.cpp
             src/core/logger.cpp
-            src/net/proxy_manager.cpp)
+            src/net/proxy_manager.cpp
+            src/parsers/feed_parser.cpp)  # D13: ParserRegistry dispatch contract test
         target_link_libraries(test_units PRIVATE GTest::gtest_main Threads::Threads)
         if(fmt_FOUND)
             target_link_libraries(test_units PRIVATE fmt::fmt)

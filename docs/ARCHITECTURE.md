@@ -21,7 +21,7 @@ src/<module>/*.cpp              实现
 | `core` | 基础设施：types/constants/logger/event_log/thread_pool/crypto/paths/terminal/safe_tmp/platform/utils |
 | `config` | INI 配置（`ini_config.h`） |
 | `net` | 网络：HTTP（`network.cpp` 代理入口）、URL 分类、yt-dlp 运行、Google OAuth、Bilibili API、远程控制（server/session/ws/command_bus/protocol）、TikTok 区域 |
-| `parsers` | 解析器（`IFeedParser` + Registry）：rss/itunes/opml/m3u/youtube_channel/bilibili/transcript |
+| `parsers` | feed 解析器（`IFeedParser` + `ParserRegistry` 自注册：rss/opml/youtube_channel）+ 非feed解析器（bilibili API/itunes 搜索/m3u/tiktok/transcript） |
 | `playback` | libmpv 封装（`mpv_controller`）、睡眠定时 |
 | `storage` | 持久化：database + 各 repo（history/tree/feed_cache/account/player_state/accounts/cache/youtube_cache）+ `persistence` 抽象 |
 | `subtitle` | 字幕：`subtitle_parser`（`ISubtitleParser` + Registry）、`subtitle_manager`、`transcription_engine`（ASR/whisper） |
@@ -48,7 +48,7 @@ UI（`src/ui/`）是纯呈现层，依赖规则：
 ## 3. 已有核心抽象（重构须复用，勿另起炉灶）
 
 - **Provider 模式（自注册）**：
-  - `IFeedParser` + `ParserRegistry` + `REGISTER_PARSER(XxxParser)` 宏（`include/panicast/parsers/feed_parser.h`）。新增解析器 = 实现接口 + 末尾一行宏，零改 switch。
+  - `IFeedParser` + `ParserRegistry` + `REGISTER_PARSER(XxxParser)` 宏（`include/panicast/parsers/feed_parser.h`）。新增解析器 = 实现接口 + 末尾一行宏，零改 switch。**M2 审计（D13）确认**：feed 形态的解析器已 Provider 化——`RSSParser`(RSS_PODCAST)/`OpmlParser`(OPML)/`YouTubeChannelParser`(YOUTUBE_CHANNEL) 自注册；以下**刻意不经** `IFeedParser`（各自非 feed 形态）：`BilibiliParser`（WBI 签名 arc API + SESSDATA 凭证，静态方法）、`ITunesSearch`（搜索 API 单例）、`parse_m3u`（IPTV 频道表加载器，多 URL + group-title 分组，在 `app_iptv`）、TikTok（yt-dlp flat-playlist，在 `app_run`）、`transcript_parser`（字幕关注点 → `SubtitleParserRegistry`）。`ParserRegistry::create()` 对未注册类型返回 nullptr（派发契约测试见 `tests/test_units.cpp`）；`app_run` 的 `default` 分支直调 `RSSParser::parse` 是刻意的"未知类型尽力猜 RSS"回退。
   - `ISubtitleParser` + `SubtitleParserRegistry`（`include/panicast/subtitle/subtitle_parser.h`），按格式（json/srt/vtt/lrc/twt）注册。
 - **远程控制解耦**：`RemoteControlInterface`（`include/panicast/net/remote_protocol.h`）—— App 实现该接口，`RemoteServer`/`RemoteSession` 依赖接口而非 App。可组合、可测。
 - **持久化抽象**：`include/panicast/storage/persistence.h` + 各 `*_repo`。

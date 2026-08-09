@@ -4,6 +4,29 @@
 
 ---
 
+## 新架构 D13 — 2026-08-10 — Provider 化审计固化 + ParserRegistry 契约测试（M2 启动 · 增量1）
+
+> M2（Provider 化 + Media 收敛）第一步。roadmap M2 写"各 parser 确认 Provider 化"——本增量做该审计并固化结论：feed 形态的解析器（rss/opml/youtube_channel）早已经 `IFeedParser`+`ParserRegistry` 自注册；bilibili/itunes/m3u/tiktok/transcript **刻意不经** `IFeedParser`（各自非 feed 形态：API/搜索/频道表/flat-playlist/字幕）。审计结论写进 `docs/ARCHITECTURE.md §3` + ADR；新增 `ParserRegistry` 派发契约测试锁定 reg/create 契约。
+
+### 改动
+- `tests/test_units.cpp`：新增 `ParserRegistry` 契约测试（3 例）——`DummyFeedParser`（仅测试用）经公开 `reg()` 注册、`create()` 派发、未注册类型返 nullptr、单例稳定。真实 parser（rss/opml/youtube）**不**链入测试二进制 → Registry 在测试中为空、隔离派发契约于重量实现（libxml2/network）。
+- `CMakeLists.txt`：test_units 加 `src/parsers/feed_parser.cpp`（依赖极轻：仅 `feed_parser.h`→types.h，无 libxml2/network）。
+- `docs/ARCHITECTURE.md §2 表 + §3`：把"rss/itunes/opml/m3u/.../transcript"含混列举换成精确的 **Provider 状态表**（自注册 vs 刻意排除 + 各 parser 理由）。
+- `docs/ROADMAP.md`：M2 "确认 Provider 化" 打勾；写明下一步 D14（Media 域从 TreeNode 收敛）。
+
+### 设计
+- **审计结论=Provider 化已就位**：`app_run.cpp` 的 feed 派发经 `ParserRegistry::instance().create(cur_type)`（YOUTUBE_CHANNEL/PLAYLIST、YOUTUBE_RSS/RSS_PODCAST、OPML 三处）。其余 URLType 分支直调（BilibiliParser/parse_tiktok_user_videos/默认 RSSParser 回退）均**刻意**：它们输入不是"已抓取 body"，是凭证/API/flat-playlist，套 `parse(ParseInput{data,url})→TreeNodePtr` 是削足适履。
+- **测试只锁契约、不锁清单**：不写"RSS_PODCAST 已注册"这类断言（要链重量 parser）；只锁 `ParserRegistry` 的 reg/create/nullptr/单例机制——这是该抽象真正该回归守的部分。注册清单由生产代码的 `REGISTER_PARSER` 宏自证。
+
+### 验收
+- ctest 42/42（+3：`ParserRegistry.SingletonIdentity`/`CreateIsNullWhenUnregistered`/`RegisterThenDispatch`）、构建 0-warning、pty 冒烟 exit 0 + clean endwin。
+- 无生产行为改动（仅 +测试 + 文档）；§4 层间门绿。
+
+### 后续
+- M2 真正的肉：**Media 域从 TreeNode 逐步收敛**（D14：D4 的 `MediaID`/`Media` adapter 逐步让模块传句柄而非裸 `TreeNodePtr`/URL——选首个收敛起点）。
+
+---
+
 ## 新架构 D12-3c — 2026-08-10 — App 经 IFrontend 持有 UI（UI 可换性就位 · M1 达成）
 
 > M1（UI 解耦）收官步、D12 第 3 增量 c。3b 建好契约、UI 实现它、字幕/App 层经契约说话；本增量让 **App 自己**经 `unique_ptr<IFrontend>` 持有 UI——App 不再以具体类型 `UI ui;` 作成员，渲染/输入/弹窗/状态推入全经契约。→ **UI 可换（Qt 可后接同一契约）· M1 达成**。

@@ -13,6 +13,7 @@
 #include "panicast/core/event_log.h"
 #include "panicast/net/proxy_manager.h"
 #include "panicast/domain/media.h"
+#include "panicast/parsers/feed_parser.h"
 
 // ─── Since panicast.cpp is a single file, we mirror the pure-function logic for independent testing ───
 // Real integration tests require splitting the modules (v0.6 work)
@@ -478,6 +479,58 @@ TEST(Media, FromNodeCopiesUrlTitle) {
     auto empty = panicast::media_from_node(nullptr);
     EXPECT_FALSE(empty.id.valid());
     EXPECT_TRUE(empty.url.empty());
+}
+
+// ─── ParserRegistry tests (D13: IFeedParser self-registering dispatch contract) ──
+// The real feed parsers (RSS/OPML/YouTube) are NOT linked into the test binary, so
+// ParserRegistry starts empty here. This isolates the reg()/create() dispatch contract
+// from the heavy parser implementations (libxml2/network). Which parsers self-register in
+// production is proven by their REGISTER_PARSER macros, not asserted here.
+namespace {
+class DummyFeedParser : public panicast::IFeedParser {
+public:
+    explicit DummyFeedParser(panicast::URLType t) : t_(t) {}
+    panicast::URLType supports() const override { return t_; }
+    panicast::TreeNodePtr parse(const panicast::ParseInput &) override {
+        return std::make_shared<panicast::TreeNode>();
+    }
+private:
+    panicast::URLType t_;
+};
+}  // namespace
+
+TEST(ParserRegistry, SingletonIdentity) {
+    auto &a = panicast::ParserRegistry::instance();
+    auto &b = panicast::ParserRegistry::instance();
+    EXPECT_EQ(&a, &b);
+}
+
+TEST(ParserRegistry, CreateIsNullWhenUnregistered) {
+    // No real parsers linked -> registry empty. RSS_PODCAST / YOUTUBE_CHANNEL are never
+    // registered by any test below, so they stay nullptr regardless of test order.
+    EXPECT_EQ(panicast::ParserRegistry::instance().create(panicast::URLType::RSS_PODCAST).get(),
+              nullptr);
+    EXPECT_EQ(panicast::ParserRegistry::instance().create(panicast::URLType::YOUTUBE_CHANNEL).get(),
+              nullptr);
+}
+
+TEST(ParserRegistry, RegisterThenDispatch) {
+    auto &reg = panicast::ParserRegistry::instance();
+    reg.reg(panicast::URLType::OPML,
+            []() -> std::unique_ptr<panicast::IFeedParser> {
+                return std::make_unique<DummyFeedParser>(panicast::URLType::OPML);
+            });
+    auto p = reg.create(panicast::URLType::OPML);
+    ASSERT_NE(p.get(), nullptr);
+    EXPECT_EQ(p->supports(), panicast::URLType::OPML);
+    // Registering a second key does not evict the first; each key dispatches its own factory.
+    reg.reg(panicast::URLType::YOUTUBE_RSS,
+            []() -> std::unique_ptr<panicast::IFeedParser> {
+                return std::make_unique<DummyFeedParser>(panicast::URLType::YOUTUBE_RSS);
+            });
+    EXPECT_EQ(reg.create(panicast::URLType::YOUTUBE_RSS)->supports(),
+              panicast::URLType::YOUTUBE_RSS);
+    EXPECT_NE(reg.create(panicast::URLType::OPML).get(), nullptr);
 }
 
 int main(int argc, char **argv) {

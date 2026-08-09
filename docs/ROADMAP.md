@@ -129,7 +129,9 @@
   - **验收（D12 总）**：src/ui 零运行时状态查询（D12-1 ✅）+ 游标事件化（D12-2 — defer，属显示编排/控制器职责、非 UI 可换必需）+ ncurses 经 IFrontend、UI 可换性就位（D12-3 ✅）。→ **M1 达成（UI 解耦核心目标）**：UI 经 `IFrontend` 契约可换（App 持 `unique_ptr<IFrontend>`）、ncurses 收敛 ui/+theme/、src/ui 零运行时状态查询。残留：`UI::is_input_cancelled` 输入标记（12 处静态，输入契约）+ D12-2 游标事件化——均不阻 UI 可换。
 
 ## 里程碑 M2 — Provider 化 + Media 收敛（每 parser 一小步）
-- [ ] **Dn** — 各 parser 确认 Provider 化（youtube/bilibili/itunes/rss/m3u/opml/tiktok）；Media 域从 TreeNode 逐步收敛。每个一进步、保持可运行。
+- [x] **D13 — Provider 化审计固化 + ParserRegistry 契约测试（M2 启动）** ✅ 2026-08-10。审计 roadmap 所列 7 parser 对 `IFeedParser`（`supports()` + `parse(ParseInput{data,url})→TreeNodePtr`）契约的真实形态：**feed 形态已 Provider 化**——RSSParser/OpmlParser/YouTubeChannelParser 经 `REGISTER_PARSER` 自注册、`app_run` 三处 `ParserRegistry::create()` 派发；**刻意不经 IFeedParser**（非 feed 形态）：BilibiliParser（WBI+SESSDATA 凭证 API）、ITunesSearch（搜索 API）、parse_m3u（IPTV 频道表加载器）、TikTok（yt-dlp flat-playlist）、transcript_parser（字幕→SubtitleParserRegistry）。结论写进 `ARCHITECTURE §3` + ADR；新增 `ParserRegistry` 契约测试（3 例，锁 reg/create/nullptr/单例机制，不锁注册清单）。→ **"确认 Provider 化"条款完成**：无缺口，design 已就位。
+  - **验收**：ctest 42/42、构建 0-warning、pty 冒烟 exit 0 + clean endwin；无生产行为改动（+测试 +文档）。
+- [ ] **D14 — Media 域从 TreeNode 逐步收敛（M2 主线）**。D4 的 `MediaID`/`Media` adapter 让模块逐步传句柄而非裸 `TreeNodePtr`/URL。待选首个收敛起点（某个 service↔service 或 service↔playback 边界）。每个一进步、保持可运行。
 
 ## 里程碑 M3 — 字幕/ASR
 - [ ] **Dn** — `SubtitleController` 中介者（修 READY/L-key 冲突）；ASR 作 SubtitleProducer。
