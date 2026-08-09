@@ -232,9 +232,8 @@ private:
     void load_search_history_children(TreeNodePtr node);
     // Y23.1: B/Y search-record cache (mirror O-mode online_root).
     TreeNodePtr build_search_result_node(const std::string &source, const nlohmann::json &r);
-    // Y23.2: shared container + finalizer (mode-agnostic; mode is just `source`).
-    TreeNodePtr make_search_history_child(TreeNodePtr account_node, const std::string &source,
-                                          int account_id);
+    // D11-3c: make_search_history_child relocated to LibraryService (pure node construction).
+    // Y23.2: shared finalizer (mode-agnostic; mode is just `source`).
     void finalize_search(const std::string &source, int account_id, TreeNodePtr account_node,
                          const std::string &query, const nlohmann::json &results_json);
     void load_search_record_children(TreeNodePtr node, const std::string &source);
@@ -338,11 +337,11 @@ private:
     void refresh_node();
 
     // ── app_run.cpp ─────────────────────────────────────────────────────────────
-    void load_history_to_root();
+    // D11-3c: load_history_to_root relocated to LibraryService (the history_root_ owner).
     void load_persistent_data();
     void save_persistent_data();
     void restore_player_state();
-    void load_radio_root();
+    // D11-3c: load_radio_root relocated to LibraryService (the radio_root_ owner).
     void spawn_load_radio(TreeNodePtr node, bool force = false);
     void spawn_load_feed(TreeNodePtr node);
     // Y24.40: spawn_load_feed's worker lambda split into focused helpers (was a ~230-line god lambda).
@@ -373,9 +372,8 @@ private:
     remove_from_current(TreeNodePtr target); // erase a top-level item, else recurse to its parent
 
     // ── app_account.cpp (Y01: Y mode + Google account login) ───────────────────
-    // Build/refresh account_root from AccountsManager (each Google account = a node with
-    //   "History"/"Subscriptions" children). Call after login/delete/sync.
-    void load_accounts_root();
+    // D11-3c: load_accounts_root (build/refresh account_root) relocated to LibraryService
+    //   (the account_root_ owner). UI-coupled login/activate/delete ops stay here.
     // a (another=false) / A (another=true): run SmartTube-style OAuth device flow with a QR
     //   popup, fetch identity, persist the account, set it active, refresh the tree.
     void start_account_login(bool another);
@@ -394,8 +392,7 @@ private:
     // Y23.9/D9-3: BUFFERING state (playback_pending_(_start_) + the 30s timeout / has_media logic)
     //   moved into PlaybackService (advance_buffering). App owns NO playback-state member now.
     void perform_youtube_search(const std::string &preset = "");
-    // Y15: B-mode (Bilibili) — login (QR + cookie import), browse (following), search, play.
-    void load_bilibili_root();
+    // Y15: B-mode (Bilibili). D11-3c: load_bilibili_root relocated to LibraryService.
     // DB-11: delete the Bilibili account under the cursor (wired to 'd' in B mode).
     void delete_bilibili_account_node(TreeNodePtr node);
     void start_bilibili_login();
@@ -414,7 +411,7 @@ private:
     // Y24.11/16: T-mode (TikTok/Douyin) — anonymous, no login. Subscribed items listed from DB;
     //   'a' adds @user/video URL, '/' opens @user/#tag/URL, Enter loads a creator's videos via
     //   yt-dlp --flat-playlist (+--geo-bypass-country), 'b' cycles region (13: 12 TikTok + CN=Douyin).
-    void load_tiktok_root();
+    //   D11-3c: load_tiktok_root relocated to LibraryService (the tiktok_root_ owner).
     void add_tiktok_user();
     void
     tiktok_subscribe(const std::string &input); // shared core: TikTok creator / Douyin video leaf
@@ -427,8 +424,7 @@ private:
     }
 
     // ── app_iptv.cpp (Y24.50: I-mode, iptv-org playlists) ──────────────────────────
-    void
-    load_iptv_root(); // build the catalog top-level (All/Region/Country/Category/Language/Custom)
+    // D11-3c: load_iptv_root (catalog top-level) relocated to LibraryService (the iptv_root_ owner).
     void expand_iptv_node(TreeNodePtr node); // lazy fetch+parse m3u/json on expand (async, cached)
     // yt-dlp --flat-playlist listing (TikTok creator / tag; Douyin user unsupported — no DouyinUserIE).
     //   region = TikTok geo-bypass country code (Douyin: "CN"). cookies_file optional. Retries on

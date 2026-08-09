@@ -165,28 +165,7 @@ static std::vector<TreeNodePtr> build_catalog(const std::string &body, const std
     return kids;
 }
 
-void App::load_iptv_root() {
-    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
-    if (!library_.iptv_root().empty())
-        return; // catalog already built
-
-    auto add = [&](const std::string &title, const std::string &url) {
-        auto n = std::make_shared<TreeNode>();
-        n->title = title;
-        n->url = url;
-        n->type = NodeType::FOLDER;
-        n->children_loaded = false; // lazy fetch on expand
-        n->parent.reset();
-        library_.iptv_root().push_back(n);
-    };
-    add("All Channels", "iptv:all");
-    add("By Region", "iptv:regions");
-    add("By Country", "iptv:countries");
-    add("By Category", "iptv:categories");
-    add("By Language", "iptv:languages");
-    add("Custom", "iptv:custom");
-    library_.iptv_loaded() = true;
-}
+// D11-3c: load_iptv_root relocated to LibraryService (the iptv_root_ owner).
 
 void App::expand_iptv_node(TreeNodePtr node) {
     if (!node)

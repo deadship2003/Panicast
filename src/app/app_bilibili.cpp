@@ -30,45 +30,8 @@ using json = nlohmann::json;
 //   The bilibili_accounts table was created by SCHEMA_VERSION 42.
 // Y24.27: BilibiliAccount struct moved to database.h
 
-static std::vector<BilibiliAccount> load_bilibili_accounts() {
-    // Y24.27: use DatabaseManager (was direct sqlite3_* — bypassed encapsulation).
-    //   P2-S7: sessdata/bili_jct/dedeuserid are stored encrypted (token_seal). Decrypt on load;
-    //   legacy v43 plaintext rows fail token_open → treated as plaintext and re-encrypted in place.
-    auto raw = DatabaseManager::instance().list_bilibili_accounts();
-    std::vector<BilibiliAccount> out;
-    bool reencrypt_needed = false;
-    const Key32 mk = machine_key();
-    for (auto &a : raw) {
-        std::string s_enc = a.sessdata, j_enc = a.bili_jct, d_enc = a.dedeuserid;
-        if (s_enc.empty() || !token_open(mk, s_enc, a.sessdata)) {
-            a.sessdata = s_enc;
-            if (!s_enc.empty())
-                reencrypt_needed = true;
-        }
-        if (j_enc.empty() || !token_open(mk, j_enc, a.bili_jct)) {
-            a.bili_jct = j_enc;
-            if (!j_enc.empty())
-                reencrypt_needed = true;
-        }
-        if (d_enc.empty() || !token_open(mk, d_enc, a.dedeuserid)) {
-            a.dedeuserid = d_enc;
-            if (!d_enc.empty())
-                reencrypt_needed = true;
-        }
-        out.push_back(a);
-    }
-    if (reencrypt_needed) {
-        for (const auto &a : out) {
-            BilibiliAccount enc = a;
-            enc.sessdata = a.sessdata.empty() ? "" : token_seal(mk, a.sessdata);
-            enc.bili_jct = a.bili_jct.empty() ? "" : token_seal(mk, a.bili_jct);
-            enc.dedeuserid = a.dedeuserid.empty() ? "" : token_seal(mk, a.dedeuserid);
-            DatabaseManager::instance().upsert_bilibili_account(enc);
-        }
-        LOG("[Bilibili] re-encrypted legacy plaintext credentials at rest");
-    }
-    return out;
-}
+// D11-3c: load_bilibili_accounts relocated to LibraryService (public — load_bilibili_root + the
+//   ops below call library_.load_bilibili_accounts()). The remaining static DB ops stay here.
 
 static int save_bilibili_account(const BilibiliAccount &a) {
     // Y24.27: use DatabaseManager (was direct sqlite3_* — bypassed encapsulation).
@@ -98,33 +61,7 @@ static void write_bilibili_cookies(const BilibiliAccount &a) {
     }
 }
 
-// ── Build library_.bilibili_root() from DB ──
-void App::load_bilibili_root() {
-    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
-    library_.bilibili_root().clear();
-    auto accounts = load_bilibili_accounts();
-    if (accounts.empty()) {
-        auto hint = std::make_shared<TreeNode>();
-        hint->title = "(no Bilibili account — press 'a' to login)";
-        hint->type = NodeType::FOLDER;
-        hint->children_loaded = true;
-        hint->parent.reset();
-        library_.bilibili_root().push_back(hint);
-    } else {
-        for (const auto &a : accounts) {
-            auto node = std::make_shared<TreeNode>();
-            node->title = a.uname.empty() ? ("Bili #" + a.uid) : (a.uname + "  <Bili>");
-            node->type = NodeType::FOLDER;
-            node->is_account = true; // reuse is_account flag
-            node->account_id = a.id;
-            node->expanded = false;
-            node->children_loaded = false;
-            node->parent.reset();
-            library_.bilibili_root().push_back(node);
-        }
-    }
-    library_.bilibili_loaded() = true;
-}
+// D11-3c: load_bilibili_root relocated to LibraryService (the bilibili_root_ owner).
 
 // DB-11: delete the Bilibili account under the cursor (wired to 'd' in B mode).
 void App::delete_bilibili_account_node(TreeNodePtr node) {
@@ -146,7 +83,7 @@ void App::delete_bilibili_account_node(TreeNodePtr node) {
     } else {
         EVENT_LOG(fmt::format("B: failed to delete account #{}", id));
     }
-    load_bilibili_root();
+    library_.load_bilibili_root();
 }
 
 // ── Login: QR scan (like Y mode) or cookie import ──
@@ -262,7 +199,7 @@ done:
     int aid = save_bilibili_account(acc);
     write_bilibili_cookies(acc);
     EVENT_LOG(fmt::format("B: account #{} logged in ({})", aid, acc.uname));
-    load_bilibili_root();
+    library_.load_bilibili_root();
 }
 
 // ── Cookie import: user provides a cookies.txt path ──
@@ -293,7 +230,7 @@ void App::expand_bilibili_account(TreeNodePtr node) {
     hist->parent = node;
     node->children.push_back(hist);
     // Y23.1/Y23.2: Search History container — shared shape with Y mode.
-    node->children.push_back(make_search_history_child(node, "bilibili", node->account_id));
+    node->children.push_back(library_.make_search_history_child(node, "bilibili", node->account_id));
     node->children_loaded = true;
     node->expanded = true;
 }
@@ -303,7 +240,7 @@ void App::expand_bili_followings(TreeNodePtr node) {
     if (!node || !node->is_bili_followings)
         return;
     int aid = node->account_id;
-    auto accounts = load_bilibili_accounts();
+    auto accounts = library_.load_bilibili_accounts();
     BilibiliAccount acc;
     for (const auto &a : accounts)
         if (a.id == aid) {
@@ -343,7 +280,7 @@ void App::expand_bili_history(TreeNodePtr node) {
     if (!node || !node->is_bili_history)
         return;
     int aid = node->account_id;
-    auto accounts = load_bilibili_accounts();
+    auto accounts = library_.load_bilibili_accounts();
     BilibiliAccount acc;
     for (const auto &a : accounts)
         if (a.id == aid) {
@@ -472,7 +409,7 @@ void App::perform_bilibili_search(const std::string &preset) {
     pool_.submit([this, query, acct]() {
         // Use the first logged-in account's SESSDATA if available (member-only search); else "".
         std::string sessdata;
-        auto accounts = load_bilibili_accounts();
+        auto accounts = library_.load_bilibili_accounts();
         if (!accounts.empty())
             sessdata = accounts.front().sessdata;
 

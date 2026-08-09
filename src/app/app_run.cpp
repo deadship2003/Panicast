@@ -94,7 +94,7 @@ void App::run() {
     //   both events stay published as the reactor channel for future direct UI/remote subscribers
     //   (D10+). Only HistoryChanged is still consumed here (rebuild the history tree).
     action_subs_.push_back(EventBus::instance().subscribe<HistoryChanged>(
-        [this](const HistoryChanged &) { load_history_to_root(); }));
+        [this](const HistoryChanged &) { library_.load_history_to_root(); }));
     // D7: Keymap (key→Action) + nav input Actions.
     build_keymap();
     action_subs_.push_back(
@@ -138,12 +138,12 @@ void App::run() {
     load_persistent_data();
 
     // Load history into library_.history_root()
-    load_history_to_root();
+    library_.load_history_to_root();
 
     // Y01: load Google accounts into library_.account_root() (Y mode)
-    load_accounts_root();
-    load_bilibili_root(); // Y15: B-mode
-    load_tiktok_root();   // Y24.11: T-mode
+    library_.load_accounts_root();
+    library_.load_bilibili_root(); // Y15: B-mode
+    library_.load_tiktok_root();   // Y24.11: T-mode
 
     // Restore last playback state
     restore_player_state();
@@ -155,7 +155,7 @@ void App::run() {
 
     if (library_.radio_root().empty()) {
         // Use thread pool; App destructor safely joins (old code: .detach() had use-after-free)
-        pool_.submit([this]() { load_radio_root(); });
+        pool_.submit([this]() { library_.load_radio_root(); });
     }
     // Always load built-in podcasts, merging with cached data
     load_default_podcasts();
@@ -507,35 +507,7 @@ void App::load_data() {
     std::cout << "Loaded " << library_.podcast_root().size() << " podcasts from cache" << std::endl;
 }
 
-// Load history from SQLite into library_.history_root()
-void App::load_history_to_root() {
-    auto history = DatabaseManager::instance().get_history(100); // get the most recent 100 entries
-    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
-    library_.history_root().clear();
-
-    for (const auto &[url, title, timestamp, mt] : history) {
-        auto node = std::make_shared<TreeNode>();
-        node->title = title.empty() ? "Unknown" : title;
-        node->url = url;
-        // N06: display category from the DB (no runtime URL inference of the icon).
-        node->media_type = static_cast<MediaType>(mt);
-        node->media_type_set = true;
-        // Determine type from the URL
-        URLType url_type = URLClassifier::classify(url);
-        if (URLClassifier::is_video(url_type)) {
-            node->type = NodeType::PODCAST_EPISODE;
-            node->is_youtube = true;
-        } else if (url.find(".mp3") != std::string::npos || url.find(".aac") != std::string::npos ||
-                   url.find(".m3u8") != std::string::npos) {
-            node->type = NodeType::RADIO_STREAM;
-        } else {
-            node->type = NodeType::PODCAST_EPISODE;
-        }
-        node->children_loaded = true;
-        node->subtext = timestamp; // store timestamp in subtext
-        library_.history_root().push_back(node);
-    }
-}
+// D11-3c: load_history_to_root relocated to LibraryService (the history_root_ owner).
 
 void App::load_persistent_data() {
     std::vector<TreeNodePtr> podcasts, favs;
@@ -610,20 +582,7 @@ void App::restore_player_state() {
     }
 }
 
-void App::load_radio_root() {
-    EVENT_LOG("Fetching Radio stations...");
-    std::string data = Network::fetch("https://opml.radiotime.com/Browse.ashx?formats=mp3,aac");
-    if (!data.empty()) {
-        auto parsed = OPMLParser::parse(data);
-        if (parsed) {
-            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
-            library_.radio_root() = parsed->children;
-            library_.radio_loaded() = true;
-            EVENT_LOG(fmt::format("Radio: {} stations loaded", library_.radio_root().size()));
-            Persistence::save_cache(library_.radio_root(), library_.podcast_root());
-        }
-    }
-}
+// D11-3c: load_radio_root relocated to LibraryService (the radio_root_ owner).
 
 void App::spawn_load_radio(TreeNodePtr node, bool force) {
     {

@@ -16,75 +16,8 @@
 namespace panicast
 {
 
-// ── Build/refresh library_.account_root() from the accounts table ───────────────────────
-void App::load_accounts_root() {
-    // Y02: ensure a primary account is active. The active account is the global "primary" used by
-    //   P-mode YouTube parsing/subscribe; default to 1# (first logged-in) when none is set yet.
-    if (AccountsManager::instance().active_account_id() <= 0) {
-        auto all0 = AccountsManager::instance().list_accounts();
-        if (!all0.empty())
-            AccountsManager::instance().set_active_account(all0.front().account_id);
-    }
-    auto accounts = AccountsManager::instance().list_accounts();
-    int active = AccountsManager::instance().active_account_id();
-    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
-    library_.account_root().clear();
-
-    if (accounts.empty()) {
-        auto hint = std::make_shared<TreeNode>();
-        hint->title = "(no Google account — press 'a' to login)";
-        hint->type = NodeType::FOLDER;
-        hint->is_account = false;
-        hint->account_id = 0;
-        library_.account_root().push_back(hint);
-        library_.account_loaded() = true;
-        return;
-    }
-
-    for (const auto &a : accounts) {
-        auto node = std::make_shared<TreeNode>();
-        node->is_account = true;
-        node->account_id = a.account_id;
-        node->type = NodeType::FOLDER;
-        node->title = a.label.empty() ? a.google_email : a.label;
-        if (a.google_email != node->title) {
-            node->title = node->title + "  <" + a.google_email + ">";
-        }
-        node->account_email = a.google_email;
-        node->account_token_expires = a.token_expires_at;
-        node->account_last_sync = a.last_sync_at;
-        node->account_sub_count =
-            (int)AccountsManager::instance().load_subscriptions(a.account_id).size();
-        node->is_cached = (a.account_id == active); // reuse is_cached to mark "active"
-        node->expanded = false;
-        node->children_loaded = false;
-        node->parent.reset();
-
-        // Two fixed children: History + Subscriptions (lazy-loaded on expand).
-        auto hist = std::make_shared<TreeNode>();
-        hist->title = "History";
-        hist->type = NodeType::FOLDER;
-        hist->is_yt_history = true;
-        hist->account_id = a.account_id;
-        hist->parent = node;
-        node->children.push_back(hist);
-
-        auto subs = std::make_shared<TreeNode>();
-        subs->title = "Subscriptions";
-        subs->type = NodeType::FOLDER;
-        subs->is_yt_subscriptions = true;
-        subs->account_id = a.account_id;
-        subs->parent = node;
-        node->children.push_back(subs);
-
-        // Y23.1/Y23.2: Search History container (mirror O-mode online_root) — shared shape with B mode.
-        node->children.push_back(make_search_history_child(node, "youtube", a.account_id));
-
-        library_.account_root().push_back(node);
-    }
-    library_.account_loaded() = true;
-}
-
+// D11-3c: load_accounts_root relocated to LibraryService (the account_root_ owner). The UI-coupled
+//   account ops below (QR login / activate / delete / refresh) stay here in App.
 // ── QR-login popup + device-flow poll ────────────────────────────────────────
 namespace
 {
@@ -271,7 +204,7 @@ void App::start_account_login(bool another) {
         // Initial sync (subscriptions + watch history) — best-effort, in this pool task.
         sync_account_subscriptions(aid);
         sync_account_history(aid);
-        load_accounts_root();
+        library_.load_accounts_root();
     });
     // Success is already reported in the LOG panel (EVENT_LOG above); no popup — only QR pops up.
 }
@@ -476,7 +409,7 @@ void App::delete_account_node(TreeNodePtr node) {
         return;
     AccountsManager::instance().delete_account(node->account_id);
     EVENT_LOG(fmt::format("Y: account #{} deleted", node->account_id));
-    load_accounts_root();
+    library_.load_accounts_root();
 }
 
 // ── r: re-sync the selected account ──────────────────────────────────────────
@@ -495,7 +428,7 @@ void App::resync_account_node(TreeNodePtr node) {
     pool_.submit([this, aid]() {
         sync_account_subscriptions(aid);
         sync_account_history(aid);
-        load_accounts_root();
+        library_.load_accounts_root();
     });
 }
 
@@ -662,7 +595,7 @@ void App::subscribe_youtube_channel(TreeNodePtr node) {
         // re-fetch subscriptions to keep DB in sync with YouTube, then refresh the tree
         auto subs = GoogleOAuth::fetch_subscriptions(token);
         AccountsManager::instance().replace_subscriptions(aid, subs);
-        load_accounts_root();
+        library_.load_accounts_root();
         EVENT_LOG(fmt::format("Y: subscribed {}", who));
     });
 }

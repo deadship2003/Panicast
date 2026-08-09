@@ -26,9 +26,7 @@ using json = nlohmann::json;
 // ── tiktok_accounts DB ops (mirror bilibili_accounts style; no credentials to encrypt) ──
 // Y24.27: TiktokAccount struct moved to database.h
 
-static std::vector<TiktokAccount> load_tiktok_accounts() {
-    return DatabaseManager::instance().list_tiktok_accounts();
-}
+// D11-3c: load_tiktok_accounts (a one-liner) was inlined into LibraryService::load_tiktok_root.
 
 static int save_tiktok_account(const TiktokAccount &a) {
     return DatabaseManager::instance().upsert_tiktok_account(a);
@@ -192,47 +190,7 @@ TreeNodePtr App::parse_tiktok_user_videos(const std::string &url, const std::str
     return result;
 }
 
-// ── Build library_.tiktok_root() from DB ──
-void App::load_tiktok_root() {
-    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
-    library_.tiktok_root().clear();
-    // Y24.16: root title is static — the region is shown only in the status-bar border
-    //   (🎵 TIKTOK [US] / 🎵 Douyin [CN]), so 'b' switching region can't desync the root label.
-    auto accounts = load_tiktok_accounts();
-    if (accounts.empty()) {
-        auto hint = std::make_shared<TreeNode>();
-        hint->title = "(no TikTok/Douyin items — press 'a' to add @user/video URL, '/' to open "
-                      "@user/#tag/URL)";
-        hint->type = NodeType::FOLDER;
-        hint->children_loaded = true;
-        hint->parent.reset();
-        library_.tiktok_root().push_back(hint);
-    } else {
-        for (const auto &a : accounts) {
-            auto node = std::make_shared<TreeNode>();
-            node->is_account = true; // reuse is_account flag so 'd' can delete it
-            node->account_id = a.id;
-            node->url = a.url;
-            node->parent.reset();
-            if (a.platform == "douyin_video") {
-                // Y24.16: Douyin single video (option A) — playable leaf. yt-dlp has no DouyinUserIE,
-                //   so Douyin can't list a creator's videos; we subscribe individual videos instead.
-                node->title = (a.uname.empty() ? std::string("Douyin Video") : a.uname);
-                node->type = NodeType::PODCAST_EPISODE;
-                node->children_loaded = true; // playable leaf: Enter plays (peers = siblings)
-            } else {
-                std::string tag = (a.platform == "douyin") ? " Douyin" : " TikTok";
-                node->title = (a.uname.empty() ? a.handle : a.uname) + " <" + tag + ">";
-                node->type = NodeType::FOLDER;
-                node->expanded = false;
-                node->children_loaded =
-                    false; // spawn_load_feed classifies → TIKTOK_USER / DOUYIN_USER
-            }
-            library_.tiktok_root().push_back(node);
-        }
-    }
-    library_.tiktok_loaded() = true;
-}
+// D11-3c: load_tiktok_root relocated to LibraryService (the tiktok_root_ owner).
 
 // Y24.16: shared subscribe core used by 'a' (add) and '/' (direct input) — no duplication.
 //   TikTok @user/profile/video URL → creator (listable via yt-dlp tiktok:user).
@@ -252,7 +210,7 @@ void App::tiktok_subscribe(const std::string &input) {
                 int id = save_tiktok_account(a);
                 EVENT_LOG(
                     fmt::format("T: saved Douyin video {} ({})", handle, id ? "ok" : "failed"));
-                load_tiktok_root();
+                library_.load_tiktok_root();
             });
         } else {
             EVENT_LOG("T: Douyin user video list unsupported (yt-dlp has no DouyinUserIE), paste a "
@@ -270,7 +228,7 @@ void App::tiktok_subscribe(const std::string &input) {
         int id = save_tiktok_account(a);
         EVENT_LOG(fmt::format("T: saved TikTok {}{} ({})", handle,
                               uname.empty() ? "" : (" (" + uname + ")"), id ? "ok" : "failed"));
-        load_tiktok_root();
+        library_.load_tiktok_root();
     });
 }
 
@@ -307,7 +265,7 @@ void App::delete_tiktok_user_node(TreeNodePtr node) {
     } else {
         EVENT_LOG(fmt::format("T: failed to delete creator #{}", id));
     }
-    load_tiktok_root();
+    library_.load_tiktok_root();
 }
 
 // Y24.16: '/' in T mode — direct input (no full-text search; that's infeasible anonymously:

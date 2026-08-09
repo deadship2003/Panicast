@@ -3,8 +3,9 @@
 #include <mutex>
 #include <vector>
 
-#include "panicast/core/types.h" // TreeNodePtr
-#include "panicast/ui/ui.h"      // DisplayItem (view model for display_list_)
+#include "panicast/core/types.h"             // TreeNodePtr
+#include "panicast/storage/database.h"       // D11-3c: BilibiliAccount (load_bilibili_accounts return)
+#include "panicast/ui/ui.h"                  // DisplayItem (view model for display_list_)
 
 namespace panicast
 {
@@ -19,9 +20,14 @@ namespace panicast
 //   last view-state ownership and unblocks D11-3 (method-body relocation can reach them via
 //   accessors instead of direct member access).
 //
-//   The tree-building METHODS (load_radio_root / load_podcast_root / …) stay in App for now: they
-//   reach into tree_mutex + parser/storage + the UI, so their full relocation waits for D11
-//   (UI pure-interaction). This cut only relocates the DATA so App stops owning the tree model.
+//   D11-3c: the tree-building METHODS (load_radio_root / load_accounts_root / load_bilibili_root /
+//   load_tiktok_root / load_iptv_root / load_history_to_root) + the shared helpers
+//   (make_search_history_child, load_bilibili_accounts) are NOW relocated here from App — the
+//   library domain owns both its data (D10-4) and its construction. Bodies are verbatim from App
+//   (internal member access: X_root_ / tree_mutex_ / X_loaded_); deps (AccountsManager /
+//   DatabaseManager / Network / parsers / Persistence / crypto) are downward. The account-mode
+//   builder lives here (no AccountService — D10-5); its UI-coupled ops (QR login / activate /
+//   delete) stay in App.
 class LibraryService
 {
 public:
@@ -74,6 +80,26 @@ public:
     int view_start() const { return view_start_; }
     TreeNodePtr &pending_select() { return pending_select_; }
     const TreeNodePtr &pending_select() const { return pending_select_; }
+
+    // ── Tree-building methods (D11-3c relocated from App — verbatim bodies, internal member
+    //   access). Each (re)builds one mode's root list from its data source under tree_mutex. ──
+    // Y-mode (Google account) root. UI-free (the QR-login/activate/delete ops stay in App).
+    void load_accounts_root();
+    // B-mode (Bilibili) root + its shared account loader (decrypts credentials; public — 3 other
+    //   App bilibili ops also call it).
+    void load_bilibili_root();
+    std::vector<BilibiliAccount> load_bilibili_accounts();
+    // T-mode (TikTok/Douyin) root.
+    void load_tiktok_root();
+    // I-mode (IPTV) catalog top-level (All/Region/Country/Category/Language/Custom).
+    void load_iptv_root();
+    // History root (most recent 100 played entries).
+    void load_history_to_root();
+    // Radio root (fetched from radio-browser OPML).
+    void load_radio_root();
+    // Shared "Search History" container child (Y + B use it) — pure node construction.
+    TreeNodePtr make_search_history_child(TreeNodePtr account_node, const std::string &source,
+                                          int account_id);
 
 private:
     std::vector<TreeNodePtr> radio_root_, podcast_root_, fav_root_, history_root_, account_root_,

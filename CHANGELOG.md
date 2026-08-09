@@ -4,6 +4,32 @@
 
 ---
 
+## 新架构 D11-3c — 2026-08-09 — 库 load_*_root + 帐号 mode handler 搬迁（D11 增量3c · Round 3）
+
+> M1（UI 解耦）第 18 步、D11 第 3 增量 c（敏感一刀）。用户选 A（6 个全搬）。LibraryService 已拥每模式树**数据**（8 root 列表 + 6 loaded flag，D10-4）+ 视图态 + tree_mutex（D11-2）；本增量把**构造这些 root 的方法**搬进去——库域既拥数据又拥构造。6 个 `load_*_root`（radio/accounts/bilibili/tiktok/iptv/history）+ 2 共享 helper（`make_search_history_child`、`load_bilibili_accounts`）从 App 逐字搬入；`load_tiktok_accounts`（一行）内联。无 AccountService（D10-5）：UI 耦合的帐号 op（QR 登录/激活/删除）留 App。
+
+### LibraryService（+8 方法，逐字搬、内部成员访问）
+- `load_radio_root` / `load_accounts_root` / `load_bilibili_root` / `load_tiktok_root` / `load_iptv_root` / `load_history_to_root`：各（重）建一个模式的 root 列表（tree_mutex 保护），逐字搬、`library_.X_root()`→`X_root_`、`library_.X_loaded()`→`X_loaded_`。
+- `load_bilibili_accounts()`：**public**（凭证解密 token_open/seal + legacy 明文重加密）——load_bilibili_root + 3 个 B 站 op（followings/history/search）都调它。从 app_bilibili.cpp 的 file-static 搬入（core/crypto.h 随迁，layering OK）。
+- `make_search_history_child()`：纯节点构造，Y(load_accounts_root)+B(expand_bilibili_account) 共用。
+- `load_tiktok_accounts`：一行 `DatabaseManager::list_tiktok_accounts()`，内联进 load_tiktok_root。
+
+### App（瘦成 UI 耦合 op）
+- 删 6 个 `App::load_*_root` + `App::make_search_history_child` + app_bilibili.cpp 的 static `load_bilibili_accounts` + app_tiktok.cpp 的 static `load_tiktok_accounts`（各留 relocation 注释）。
+- 17 处调用点（app_input 模式派发 / app_run 启动+HistoryChanged 回调+radio pool / app_account 4 处 / app_bilibili 6 处 / app_tiktok 3 处）机械重定向 `library_.X()`。
+- app.h 删 7 条声明，留 relocation 注释。
+
+### 行为等价性
+- 方法体逐字搬；tree_mutex 是 D11-2 已搬的同一对象，锁范围不变；构造/析构序不变（library_ 析构晚于 pool_，锁存活过工作线程）。
+
+### 验收
+- ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin + quit dialog。
+
+### 遗留 / 手动验证（用户侧）
+- pty 测不出 6 模式树构建正确性（Y/B/T/I/H/R）；下一步 D11-4（grep 验证 UI 零 Core 直调）→ D12（IFrontend）。
+
+---
+
 ## 新架构 D11-3b — 2026-08-09 — 搜索算法收口进 SearchService（model/view 分离 · D11 增量3b · Round 2）
 
 > M1（UI 解耦）第 17 步、D11 第 3 增量 b。用户原则"搜索只负责搜索，折叠/展开是另一回事"——对应主流 TUI（ranger/cmus/less）的 model/view 分离：**SearchService 产出匹配列表+游标（model），reveal/拍平/滚动是视图（view）留 App**。把显示解耦的纯搜索算法搬进 SearchService；显示编排（jump_to_match/reveal_node）因依赖 mode/cur_items/flatten/LINES 且 D10-2 头注释要求游标事件化后才能整体搬，本轮**留 App**（避免 SearchService→LibraryService 反向依赖）。

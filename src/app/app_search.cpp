@@ -263,20 +263,8 @@ void App::reveal_node(TreeNodePtr node) {
 //   logic is shared here. Mode-specific code is only the fetch+serialize (the providers below).
 // ═════════════════════════════════════════════════════════════════════════
 
-// Y23.2: shared "Search History" container child — used by both Y (load_accounts_root) and
-//   B (expand_bilibili_account) so the container shape is identical.
-TreeNodePtr App::make_search_history_child(TreeNodePtr account_node, const std::string &source,
-                                           int account_id) {
-    auto shist = std::make_shared<TreeNode>();
-    shist->title = "Search History";
-    shist->type = NodeType::FOLDER;
-    shist->is_search_parent = true;
-    shist->url = "searchhist:" + source;
-    shist->account_id = account_id;
-    shist->children_loaded = false;
-    shist->parent = account_node;
-    return shist;
-}
+// D11-3c: make_search_history_child relocated to LibraryService (pure node construction, shared by
+//   load_accounts_root + expand_bilibili_account).
 
 // Y23.2: shared "build result nodes from JSON + save to cache + add 🔍 record" — the providers
 //   (perform_youtube_search / perform_bilibili_search) only differ in HOW they produce

@@ -100,7 +100,7 @@
     - src/app/*.cpp（11 文件）机械重定向：tree_mutex 用**定点** `s/(tree_mutex)/(library_.tree_mutex())/g`（注释安全——散文是 "under tree_mutex" 永非 "(tree_mutex)"）+ 补 `s/tree_mutex);/.../g` 收 5 处**跨行 lock** 调用；display_list/selected_idx/view_start/pending_select_ 用 `\b` 词界 blanket。1 处 struct-access 误伤手修（`app_remote.cpp:150` `s.selected_idx`）；7 处注释散文手修还原。scope 限 src/app/（ui.*/remote_protocol.h 同名异义不触）。
     - **行为零变化**：同一 mutex 对象（搬非拷）、锁序不变、构造/析构序不变（library_@133 析构晚于 pool_@160→锁存活过线程）。D4 不变量（on_playback_ended 仅 UI 线程，涉 playlist_mutex_）不受影响。
     - **验收**：ctest 39/39、构建 0-warning（21/21）、pty 冒烟 exit 0 + clean endwin + quit dialog。
-  - [ ] **D11-3 — 各 Service 方法体/逻辑搬迁**（敏感一刀，待 D11-2 视图态迁入解锁）。按域拆：
+  - [x] **D11-3 — 各 Service 方法体/逻辑搬迁**（敏感一刀）✅ 2026-08-09（3a/3b/3c 全完）。按域拆：
     - [x] **D11-3a — 字幕/ASR 编排收口进 SubtitleController + 本地字幕文件优先**（用户 2026-08-09 提出）✅ 2026-08-09。把 L 键字幕编排（`app_input.cpp` 的 embedded>本地SRT>online>ASR 优先链）从 UI 输入处理器搬进 SubtitleService 的单一 `resolve_subtitle_source(node)` 解析器；**统一 `find_local_srt`（查下载目录 `<title>.srt` + 本地文件旁）与 `find_sidecar`（仅本地文件旁）为 `SubtitleManager::find_local_subtitle`**——修 track-load 自动加载漏掉下载目录 ASR SRT 的不一致；三个 ASR 入口（L 键 / `:asr` / remote `asr_start`）+ track-load 全部经此解析器，**"本地字幕文件优先"统一生效：有本地字幕源（内嵌 / 本地 ASR SRT / online 📜）就不跑 ASR**。
       - **实现**：① 新增 `SubtitleManager::find_local_subtitle(node)`（下载目录 `<sanitize(title)>.srt` 或缓存本地文件 `<base>.srt` 优先，回退 `find_sidecar` 同名任意字幕扩展）——`probe_sidecar` + `load_async`（track-load 路径）改调它，修缺口②；② 新增 `ResolvedSubtitle{None,Embedded,LocalSrt,Online}` + `SubtitleService::resolve_subtitle_source(node)`（优先链单一真相源）；③ L 键（`app_input.cpp` VO-open + LYRIC 两路）删内联 `find_local_srt` lambda、改调 resolver 分支 src.kind；④ remote `asr_start`（`app_remote.cpp`）加 `resolve_subtitle_source` 检查——有 Embedded/local/online 源则 `begin_track` 加载而非 ASR，修缺口①；⑤ `:asr` 保留 force-bypass 语义、注释澄清为"bypass all local sources"（修缺口③）。
       - **行为**：`:asr` 仍是唯一强制绕过路径；L 键/remote 现统一尊重"本地优先"。offline/realtime worker 的 skip-existing-SRT 不重复。
@@ -109,7 +109,10 @@
       - **行为零变化**：算法体逐字搬、匹配顺序+去重不变；App 的锁范围、游标读取位置、显示调用序全不变。
       - **验收**：ctest 39/39、构建 0-warning（18/18）、pty 冒烟 exit 0 + clean endwin + quit dialog。
       - **遗留**：jump_to_match/reveal_node 的搬迁待游标事件化（D12 IFrontend / cursor 事件）后做——届时无反向依赖。
-    - [ ] **D11-3c — 库 load_\*_root + 帐号 mode handler 搬迁**。
+    - [x] **D11-3c — 库 load_\*_root + 帐号 mode handler 搬迁**✅ 2026-08-09。用户选 A（6 个全搬）。把 6 个 `load_*_root`（radio/accounts/bilibili/tiktok/iptv/history）+ 2 个共享 helper（`make_search_history_child` 纯节点构造；`load_bilibili_accounts` 凭证解密，public——3 个 B 站 op 也调）搬进 LibraryService（库域既拥数据 D10-4 又拥其构造）；`load_tiktok_accounts`（一行）内联进 load_tiktok_root。逐字搬、内部成员访问（`library_.X_root()`→`X_root_`、`library_.tree_mutex()`→`tree_mutex_`、`library_.X_loaded()`→`X_loaded_`）；17 处调用点机械重定向 `library_.X()`；UI 耦合的帐号 op（QR 登录/激活/删除）留 App（无 AccountService——D10-5）。
+      - **行为零变化**：方法体逐字搬、tree_mutex 是 D11-2 已搬的同一对象（搬非拷）、锁范围不变；构造/析构序不变（library_@133 锁存活过 pool_@160 工作线程）。
+      - **验收**：ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin + quit dialog。
+      - **遗留/手动验证（用户侧）**：pty 测不出 6 模式树构建正确性（Y/B/T/I/H/R）；audio/video 字幕、L 键 ASR、remote asr_start 本地优先（D11-3a）。下一步 D11-4（grep 验证 UI 零 Core 直调）。
   - [ ] **D11-4 — grep 验证 UI 层零 Core 直调**。
   - **验收（D11 总）**：UI 层零 Core 直调；全功能正常。
 - [ ] **D12 — IFrontend 抽象 + 验证可换 UI**

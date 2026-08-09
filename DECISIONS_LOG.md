@@ -1,4 +1,22 @@
 
+## D11-3c — 库 load_*_root + 帐号 mode handler 搬迁（M1 第 18 人日，D11 增量3c / Round 3）
+
+**Context:** D11-3c 原任务"库 load_*_root + 帐号 mode handler 搬进 LibraryService"。LibraryService 已拥每模式树数据（D10-4）+ 视图态/tree_mutex（D11-2），但**构造这些 root 的方法仍散在 App**（app_run/account/bilibili/tiktok/iptv/search 各文件）——库域拥数据却不拥构造，分裂。用户在 6 个全搬（A）vs 分批（B）间选了 **A（6 个全搬，一提交）**。
+
+**Decision: 6 个 load_*_root + 2 helper 一次性搬进 LibraryService，逐字搬 + 内部成员访问反转。** bodies 行为不动，只改访问：`library_.X_root()`→`X_root_`、`library_.tree_mutex()`→`tree_mutex_`、`library_.X_loaded()`→`X_loaded_`。调用点（17 处）机械重定向 `library_.X()`。
+
+**Why 全搬（A）不分批（B）:** 6 个方法同质（都是"从数据源建一个 mode 的 root 列表，tree_mutex 保护"），同一领地同一模式，一提交完成让"库域拥数据+构造"一步到位、不留半搬中间态；分批只增 commit 数不降风险（每个都是逐字搬 + 机械重定向，pty 测不出树构建正确性，风险面相同）。
+
+**Why load_bilibili_accounts 设 public（非 private helper）:** 它有 1 个"搬走"的调用方（load_bilibili_root）+ 3 个"留下"的调用方（App 的 expand_bili_followings / expand_bili_history / perform_bilibili_search 都要解密后的 SESSDATA）。若 private 则 3 个 App op 无法访问；故 public，App 经 `library_.load_bilibili_accounts()` 调。core/crypto.h（token_open/seal/machine_key）随它进 LibraryService——crypto 在可复用 core/，layering OK（service→core 向下）。
+
+**Why make_search_history_child 搬、load_tiktok_accounts 内联:** make_search_history_child 有 2 个调用方（load_accounts_root 搬走 + expand_bilibili_account 留 App），纯节点构造，搬进 LibraryService 两边都经 `library_.make_search_history_child()`。load_tiktok_accounts 只 1 个调用方（load_tiktok_root，搬走）、且是一行 `DatabaseManager::list_tiktok_accounts()`——直接内联，不留单调用方的一行 static。
+
+**Gotcha — 帐号 mode 无 AccountService:** D10-5 决定不为 Account 建 Service。load_accounts_root（Y-mode 树构建，UI-free）搬进 LibraryService（库域统一拥树构造）；UI 耦合的帐号 op（start_account_login QR / 激活 / delete_account_node）留 App——它们调 `library_.load_accounts_root()` 刷新树。
+
+**Gotcha — 行为零变化靠 tree_mutex 是同一对象:** D11-2 已把 tree_mutex 搬进 LibraryService（搬非拷）。本增量方法体内的 `lock(tree_mutex_)` 与 App 调用点的 `lock(library_.tree_mutex())` 锁的是**同一把** recursive_mutex——锁序、锁范围、线程可见性全不变。构造/析构序不变（library_@133 析构晚于 pool_@160，锁存活过工作线程）。
+
+**Followups:** D11-3（3a/3b/3c）全完 → D11-4（grep 验证 UI 层零 Core 直调）→ D12（IFrontend 抽象 + 游标事件化，届时 jump_to_match/reveal_node 可无反向依赖搬 SearchService）。手动验证（用户侧）：6 模式树构建（Y/B/T/I/H/R）正确性 pty 测不出。
+
 ## D11-3b — 搜索算法收口进 SearchService（M1 第 17 人日，D11 增量3b / Round 2 / model-view 分离）
 
 **Context:** D11-3b 原任务"搜索 jump/reveal 搬入 SearchService"。但 jump_to_match/reveal_node 是**显示编排**（依赖 `mode`/`cur_items()`/`flatten_items()`/`LINES`，直接改写 display_list/selected_idx/view_start），D10-2 头注释明确要求**游标事件化后**才能整体搬——否则 SearchService 须引入 `LibraryService*` 反向依赖 + mode/flatten 回调（目前无服务持有跨服务 LibraryService 引用）。且 pty 冒烟测不出搜索正确性。用户经讨论选了"搜索只负责搜索，折叠/展开是另一回事"的原则。

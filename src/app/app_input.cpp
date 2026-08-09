@@ -25,16 +25,16 @@ void App::switch_mode(AppMode new_mode) {
         OnlineState::instance().load_search_history();
         break;
     case AppMode::ACCOUNT:
-        load_accounts_root();
+        library_.load_accounts_root();
         break;
     case AppMode::BILIBILI:
-        load_bilibili_root();
+        library_.load_bilibili_root();
         break;
     case AppMode::TIKTOK:
-        load_tiktok_root();
+        library_.load_tiktok_root();
         break;
     case AppMode::IPTV:
-        load_iptv_root();
+        library_.load_iptv_root();
         break;
     }
     reset_search();
