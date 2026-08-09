@@ -59,7 +59,7 @@ extern char **environ; // Required by posix_spawnp (capture_exec / ffprobe verif
 #include "panicast/core/safe_tmp.h"
 #include "panicast/core/terminal.h"
 #include "panicast/core/utils.h"
-#include "panicast/core/win_raii.h"
+#include "panicast/ui/win_raii.h"
 #include "panicast/net/url_classifier.h"
 #include "panicast/config/ini_config.h"
 #include "panicast/net/url_guard.h"

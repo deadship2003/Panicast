@@ -40,6 +40,8 @@ UI（`src/ui/`）是纯呈现层，依赖规则：
 - **禁止（Core 业务 / 运行时状态）**：`Paths`（文件系统）、`crypto`、`ThreadPool`、`EventBus`、`process_utils`、`safe_tmp`，以及 `storage`/`net`/`playback`/`app` 的**业务/运行时状态查询**（即带 `instance()` 的有状态 singleton——如 `SleepTimer`/`OnlineState`/`TikTokRegion`）。UI 不得直查运行时状态，应经视图模型 / 事件获得数据。**D12-1 已解耦**这 3 个运行时 singleton → App 每帧构建 `DisplayContext`（睡眠定时 + 区域名）推进 `ui.draw()`。
 
 > 由 `scripts/check.sh` §4 grep 门固化：`src/ui/` 出现 Core 业务符号即报警（咨询、不阻断）。Utils / LOG / URLClassifier 不剥离——剥离横切基础设施只给文件改名，不消除任何真实耦合（`DECISIONS_LOG` D11-4）。当前门**绿**（0 命中）。D12-1 后 `src/ui/` 的运行时 singleton 查询（`SleepTimer`/`OnlineState`/`TikTokRegion`）已**归零**——改由 `DisplayContext` 视图模型推入；`URLClassifier`（纯函数）保留。
+>
+> **ncurses 边界（D12-3a · M1 验收）**：ncurses 收敛在 `ui/`（渲染）+ `theme/`（呈现层）——二者本就是 ncurses 的归属层。`core/` 与 `config/` **零 ncurses 依赖**（`core/win_raii.h` 已归位 `ui/`；`config/ini_config.h` 颜色映射改原生 int）。core 基础设施对终端的操作走原生 termios/ANSI 转义直写 `/dev/tty`、绕过 ncurses（utils/process_utils/terminal 仅注释提及 ncurses）。
 
 ## 3. 已有核心抽象（重构须复用，勿另起炉灶）
 

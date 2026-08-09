@@ -1,4 +1,18 @@
 
+## D12-3a — 收 ncurses：Core/config 零 ncurses 依赖（M1 第 21 人日，D12 增量3a · IFrontend 前置）
+
+**Context:** D12-3（IFrontend）的 M1 验收明写"Core 不依赖 ncurses"。审计发现**此前并不成立**：`core/win_raii.h`（ncurses `WINDOW*` RAII：newwin/keypad/delwin）+ `config/ini_config.h`（`resolve_color` 颜色名→码映射用 `COLOR_BLACK`…`COLOR_WHITE` 宏）都 `#include <ncurses.h>`。core/ 另 4 处（utils.h / text_utils.cpp / process_utils.cpp / terminal.cpp）提及 ncurses 仅**注释**——它们用原生 termios/ANSI 转义直写 `/dev/tty` 绕过 ncurses（core 基础设施正确做法），零 ncurses API。故真依赖仅 win_raii + ini_config 两处。
+
+**Decision: 把 ncurses 收敛进 ui/ + theme/（呈现层）；core/ 与 config/ 零 ncurses。** ① `core/win_raii.h` → `ui/win_raii.h`（`git mv`，内容不变）——ncurses WINDOW RAII 是纯 UI 关注点，归位 ui/（ui/ 可依赖 ncurses）；app.h include 路径更新。② `config/ini_config.h` 的 `COLOR_*` 宏换原生 int 字面量 0-7 + 删 `#include <ncurses.h>`——config 解析不再拉 ncurses。theme/colors.h 留（呈现层，非 Core，其 ncurses 可接受）。
+
+**Why win_raii 搬非删:** WinRAII 当前无引用（grep 仅自引用；app.h include 它但未用——pre-existing 死 include）。但它是合法 UI 工具（ncurses 窗口 RAII），D12-3b 的 NcursesFrontend 可能用；搬去 ui/（它的本位）比删更可逆，core/ 同样达成 ncurses-free。死 include 清理留作后续。
+
+**Why 原生 int 而非自定义命名常量:** `COLOR_BLACK`…`COLOR_WHITE` 是 ncurses 宏=0-7（curses API 规定）。换自定义常量要么与 ncurses 宏重名冲突（同 TU 含两者即重定义）、要么造新名再让 ncurses 侧映射=churn。原生 int 0-7 与 ncurses 值完全一致、零冲突，既有注释已明示 0-7=标准 ANSI。
+
+**Acceptance:** core/ 零 ncurses API（grep 排除注释=空）；ncurses.h 仅 ui/+theme/ 引用；ctest 39/39、0-warning（48/48）、pty 冒烟 exit 0 + clean endwin。**M1 验收"Core 不依赖 ncurses"达成。**
+
+**Followups:** D12-3b（抽 IFrontend 接口 ~25 方法，ncurses UI 实现，App 持 IFrontend&，UI 可换/Qt 可后接）→ M1 达成。D12-2（jump_to_match/reveal_node 搬 SearchService）defer——属显示编排/控制器职责，非 IFrontend 必需（D11-3b ADR 曾质疑其价值）。
+
 ## D12-1 — DisplayContext 视图模型：UI 不再自查 3 运行时 singleton（M1 第 20 人日，D12 增量1）
 
 **Context:** D11-4 验收认定 UI 的"真耦合"是**自查运行时状态**（4 处 singleton 读：SleepTimer/OnlineState/TikTokRegion/URLClassifier），而非横切基础设施（Utils/LOG，已豁免）。D12 切第一刀。但审计 4 处时发现 URLClassifier 性质不同：它是**无状态纯函数**（表驱动 URL 串→枚举，无 `instance()`、无 I/O），与 Utils 同类——不是运行时状态查询。故真该解耦的是 3 个**有状态** singleton。

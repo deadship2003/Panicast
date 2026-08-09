@@ -120,7 +120,9 @@
   - [x] **D12-1 — DisplayContext 视图模型：解耦 3 运行时 singleton** ✅ 2026-08-10。UI 不再自查 `SleepTimer`/`OnlineState`/`TikTokRegion`（运行时状态——D11-4 认定的"真耦合"）；App 每帧构建 `DisplayContext{sleep_active, sleep_remaining, online_region_name, tiktok_region}`（紧邻 `DisplayItem`）推进 `ui.draw()`，UI 的 ONLINE/TIKTOK title + `draw_status` 改读 dctx。`URLClassifier` **留**（无状态纯函数 classify/is_youtube、表驱动，性质同 Utils；§2.1/§3 已列为基础设施）。**src/ui 运行时 singleton 查询归零**。
     - **验收**：ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin。
   - [ ] **D12-2 — 游标事件化 → jump_to_match/reveal_node 搬入 SearchService**。游标(selected_idx)经访问器/事件让 SearchService 无反向依赖读视图态（D10-2/D11-3b 头注释要求的前置条件）。
-  - [ ] **D12-3 — IFrontend 抽象（ncurses 实现）**。定义 `IFrontend`（订阅事件渲染 + 输入→Action），ncurses UI 实现之；确认 Core 不依赖 ncurses、UI 可换（Qt 可后接）。
+  - [x] **D12-3a — 收 ncurses：Core/config 零 ncurses 依赖** ✅ 2026-08-10。`core/win_raii.h`（ncurses WINDOW RAII，错放 core/）→ `ui/`（纯 UI 关注点归位）。`config/ini_config.h` 的 `resolve_color` 颜色名→码映射把 `COLOR_*` 宏换成原生 int 字面量 0-7（值与 ncurses 完全一致）+ 删 `#include <ncurses.h>`。**ncurses 收敛进 ui/ + theme/（呈现层）；core/ 与 config/ 零 ncurses** → **M1 验收"Core 不依赖 ncurses"达成**。theme/colors.h 留（呈现层，非 Core）。
+    - **验收**：ctest 39/39、构建 0-warning（48/48）、pty 冒烟 exit 0；ncurses.h 仅 ui/+theme/ 引用，core/ 零 ncurses API。
+  - [ ] **D12-3b — 抽 IFrontend 接口**。定义 `IFrontend`（订阅事件渲染 + 输入→Action，~25 方法），ncurses UI 实现之，App 持 `IFrontend&`；UI 可换（Qt 可后接）。→ **M1 达成（UI 解耦）**。
   - **验收（D12 总）**：src/ui 零运行时状态查询（D12-1）+ 游标事件化（D12-2）+ ncurses 经 IFrontend、UI 可换性就位（D12-3）。→ **M1 达成（UI 解耦）**
 
 ## 里程碑 M2 — Provider 化 + Media 收敛（每 parser 一小步）

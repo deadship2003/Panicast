@@ -4,6 +4,27 @@
 
 ---
 
+## 新架构 D12-3a — 2026-08-10 — 收 ncurses：Core/config 零 ncurses 依赖（D12 增量3a · M1 验收"Core 不依赖 ncurses"达成）
+
+> M1（UI 解耦）第 21 步、D12 第 3 增量 a（IFrontend 前置）。审计发现 M1 验收"Core 不依赖 ncurses"**此前并不成立**：`core/win_raii.h`（ncurses WINDOW RAII）+ `config/ini_config.h`（颜色名→码映射用 `COLOR_*` 宏）都 `#include <ncurses.h>`。本增量把 ncurses 收敛进 ui/ + theme/（呈现层）。
+
+### 改动
+- `core/win_raii.h` → `ui/win_raii.h`（`git mv`，内容不变）：ncurses WINDOW RAII 是纯 UI 关注点，归位 ui/。app.h include 路径更新。（WinRAII 类当前无引用，留作 D12-3b NcursesFrontend 备用。）
+- `config/ini_config.h`：`resolve_color` 的 `{"black", COLOR_BLACK},…` 换原生 int 字面量 `{"black",0},…{"white",7}`（值与 ncurses COLOR_* 完全一致），删 `#include <ncurses.h>`。
+- `theme/colors.h`：留（呈现层，非 Core；其 ncurses 依赖可接受）。
+
+### 勘察细节
+- core/ 另 4 处提及 ncurses（utils.h / text_utils.cpp / process_utils.cpp / terminal.cpp）**仅注释**——用原生 termios/ANSI 转义直写 `/dev/tty`、绕过 ncurses（core 基础设施正确做法），零 ncurses API。
+
+### 验收
+- ctest 39/39、构建 0-warning（48/48）、pty 冒烟 exit 0 + clean endwin。
+- ncurses.h 仅 ui/+theme/ 引用；core/ 零 ncurses API（grep 排除注释=空）。**M1 验收"Core 不依赖 ncurses"达成。**
+
+### 后续
+- D12-3b（抽 IFrontend 接口，App 持 IFrontend&，UI 可换）→ M1 达成。D12-2（jump_to_match 搬迁）defer。
+
+---
+
 ## 新架构 D12-1 — 2026-08-10 — DisplayContext 视图模型：解耦 3 运行时 singleton（D12 增量1）
 
 > M1（UI 解耦）第 20 步、D12 第 1 增量。D11-4 验收认定"UI 自查运行时状态（非收视图模型）"是真耦合；本增量切第一刀。新增 `DisplayContext` 视图模型（`include/panicast/ui/ui.h`，紧邻 `DisplayItem`），App 每帧构建推进 `ui.draw()`；UI 不再自查 `SleepTimer`/`OnlineState`/`TikTokRegion`。

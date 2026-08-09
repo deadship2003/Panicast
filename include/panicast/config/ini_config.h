@@ -8,7 +8,6 @@
 #include <fstream>
 #include <map>
 #include <mutex>
-#include <ncurses.h>
 #include <set>
 #include <shared_mutex>
 #include <sstream>
@@ -600,10 +599,12 @@ public:
         t.erase(t.find_last_not_of(" \t") + 1);
         if (t.empty())
             return fallback;
+        // D12-3a: raw ANSI/ncurses color indices (0-7) — decoupled from <ncurses.h> so this
+        //   config header need not pull ncurses (see docs/ARCHITECTURE.md §2.1). Values are
+        //   identical to ncurses COLOR_BLACK..COLOR_WHITE; -1 = default passthrough.
         static const std::map<std::string, short> names = {
-            {"black", COLOR_BLACK},   {"red", COLOR_RED},     {"green", COLOR_GREEN},
-            {"yellow", COLOR_YELLOW}, {"blue", COLOR_BLUE},   {"magenta", COLOR_MAGENTA},
-            {"cyan", COLOR_CYAN},     {"white", COLOR_WHITE}, {"default", -1}};
+            {"black", 0}, {"red", 1}, {"green", 2}, {"yellow", 3},
+            {"blue", 4},  {"magenta", 5}, {"cyan", 6}, {"white", 7}, {"default", -1}};
         auto it = names.find(t);
         if (it != names.end())
             return it->second;
