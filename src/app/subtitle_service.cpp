@@ -129,4 +129,29 @@ void SubtitleService::begin_track(TreeNodePtr node, bool has_video) {
     }
 }
 
+// D11-3a: central "本地字幕文件优先" resolver. Returns the first available non-ASR source so ASR is
+//   only started when nothing cheaper exists. Embedded (mpv active sub) implies video; LocalSrt uses
+//   the unified find_local_subtitle (download-dir + adjacent); Online is the RSS 📜 transcript.
+ResolvedSubtitle SubtitleService::resolve_subtitle_source(TreeNodePtr node) {
+    ResolvedSubtitle r;
+    if (!node)
+        return r;
+    if (mpv_ && mpv_->has_active_subtitle()) {
+        r.kind = ResolvedSubtitle::Embedded;
+        return r;
+    }
+    std::string local = subtitle_mgr_.find_local_subtitle(node);
+    if (!local.empty()) {
+        r.kind = ResolvedSubtitle::LocalSrt;
+        r.path = local;
+        return r;
+    }
+    if (node->has_subtitle && !node->subtitle_url.empty()) {
+        r.kind = ResolvedSubtitle::Online;
+        r.path = node->subtitle_url;
+        return r;
+    }
+    return r; // None → caller falls back to ASR
+}
+
 } // namespace panicast

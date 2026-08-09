@@ -1,4 +1,20 @@
 
+## D11-3a 实现 — 字幕/ASR 编排收口 + "本地字幕文件优先"（M1 第 16 人日，D11 增量3a / 敏感一刀 / Round 1）
+
+**Context:** D11-3a 规划（见下）定了 4 处缺口收口方案。D11-2（视图态迁入 LibraryService）已解锁，L 键编排可经访问器读节点、搬进 SubtitleService。本增量实现该收口——ASR 只在没有更廉价字幕源时才跑。
+
+**Decision: 两件新东西 + 三入口收口。** ① `SubtitleManager::find_local_subtitle(node)` 统一本地字幕查找器（下载目录 `<sanitize(title)>.srt`/缓存本地文件 `<base>.srt` 优先，回退 `find_sidecar`），取代 `probe_sidecar`/`load_async` 里只查本地文件旁的旧逻辑（修缺口②）；② `SubtitleService::resolve_subtitle_source(node)` 返回 `ResolvedSubtitle{None,Embedded,LocalSrt,Online}`（优先链单一真相源）；③ L 键删内联 `find_local_srt` lambda + 两路内联链改调 resolver；④ remote `asr_start` 加本地检查（Embedded/LocalSrt/Online→`begin_track`，None→ASR，修缺口①）；⑤ `:asr` 保留 force 直调、注释澄清（修缺口③）。
+
+**Why `:asr` 不走 resolve_subtitle_source（force 入参的替代）:** 规划 Gotcha 提过 "解析器需 force 入参"。实现取更简方案——`:asr` **根本不调** resolver，直调 `start_realtime`。force 是"绕过所有本地源"的语义，与其在 resolver 加 `bool force` 让 L 键/remote 传 false、`:asr` 传 true，不如让 force 路径绕开解析器（它本就是"无视解析结果"）。resolver 保持纯查询语义，`:asr` 是唯一不走它的入口——更清晰。
+
+**Why remote LocalSrt/Online 走 `begin_track` 而非手写 sub_add/load_async:** `begin_track` 是 track 字幕编排的标准入口（video→Method A，audio→Method B，内部已调统一的 `find_local_subtitle`）。remote 检测到本地/online 源后调它，与 track-load 走同一路径，不另起一份编排逻辑（避免再散一份）。Embedded 单独处理（mpv 已在渲，`begin_track`(video) 会 reset Method B 略浪费）——仅记日志、不动。
+
+**Gotcha — resolve_subtitle_source 的 None 隐含 node 非空保证:** resolver 开头 `if (!node) return r;`（None），故 LocalSrt/Online/Embedded 三种非 None 皆隐含 `node != null`。L 键分支因此可对 LocalSrt/Online 安全 `pn->has_asr_srt = ...`，无需重复 null 守卫。唯 None 分支可能带 null pn 落到 `start_realtime(pn, ...)`——与搬前等价（原 `find_local_srt` 对 null 返 ""、online 守 `pn &&`，最终同样 start_realtime(null)）。
+
+**Gotcha — LYRIC 路的 Embedded 边界微宽:** 原 LYRIC embedded 守 `pst.has_video && player.has_active_subtitle()`；resolver 仅查 `mpv_->has_active_subtitle()`（audio 无内嵌 sub，故等价）。理论边角（has_active_subtitle() 真但 has_video 假）实践不发生，接受。
+
+**Followups:** D11-3b（搜索 jump/reveal 搬入 SearchService）/ D11-3c（库 load_\*_root + 帐号 handler）→ D11-4（grep 验证 UI 零 Core 直调）→ D12（IFrontend）。手动验证（用户侧）：remote asr_start 本地优先、track-load 下载目录 SRT、L 键各路、audio/video 字幕方法。
+
 ## D11-2 — 视图态 + tree_mutex 迁入 LibraryService（M1 第 15 人日，D11 增量2 / 干净一刀）
 
 **Context:** D10-4 把树数据模型（8 root + 6 loaded）搬进 LibraryService 时，`tree_mutex` 故意留 App——它同时守视图态 `display_list`/`selected_idx`（D11 领地），锁不与数据同处。D11-2 是 D11 的"干净一刀"：把视图态 + handoff + 锁一并搬进 LibraryService，为 D11-3 各 Service 方法体搬迁解锁（方法体改经访问器读视图态、不再直探 App 成员）。

@@ -4,6 +4,29 @@
 
 ---
 
+## 新架构 D11-3a — 2026-08-09 — 字幕/ASR 编排收口 + "本地字幕文件优先"（D11 增量3a · Round 1）
+
+> M1（UI 解耦）第 16 步、D11 第 3 增量 a（敏感一刀）。用户提出 ASR 流程缺本地字幕文件优先逻辑——深挖 4 处不一致，本增量统一收口：ASR 只在**没有**更廉价字幕源时才跑。新增 `SubtitleManager::find_local_subtitle(node)`（下载目录 `<title>.srt` + 本地文件旁同名 sidecar 统一解析）+ `SubtitleService::resolve_subtitle_source(node)`（`ResolvedSubtitle{None,Embedded,LocalSrt,Online}` 优先链单一真相源）。L 键、remote `asr_start`、track-load 全经此；`:asr` 保留唯一强制绕过。**字幕编排逻辑从 UI 输入处理器搬进 SubtitleService**（D11-3 "方法体搬迁"第一刀，跨字幕域）。
+
+### SubtitleManager（统一本地字幕查找器）
+- 新增 `static find_local_subtitle(node)`：先查下载目录 `<sanitize(title)>.srt`（ASR F-mode 批输出位）或缓存本地文件 `<base>.srt`，回退 `find_sidecar`（本地文件旁任意字幕扩展）。**取代** `probe_sidecar`/`load_async` 里原本只查"本地文件旁"的 `find_sidecar`——修缺口②（track-load 自动加载此前漏掉下载目录 ASR SRT，L 键却能找到）。
+
+### SubtitleService（解析器单一真相源）
+- 新增 `ResolvedSubtitle{None,Embedded,LocalSrt,Online}` + `resolve_subtitle_source(node)`：内嵌（mpv 有活动 sub）> 本地 SRT（`find_local_subtitle`）> online（`node->has_subtitle + subtitle_url`）> None（回退 ASR）。`!node` 直接返回 None。
+
+### 三个 ASR 入口收口
+- **L 键**（`app_input.cpp`）：删内联 `find_local_srt` lambda + 两路（VO-open / LYRIC）内联 embedded>local-srt>online 检查，改 `auto src = subtitle_.resolve_subtitle_source(pn);` 一次、分支 `src.kind`（VO-open：Embedded→mpv 自渲/LocalSrt→`sub_add`/Online→`sub_add`/None→video ASR；LYRIC：同优先链 + `load_async`/None→audio ASR）。保留 vo_open 判断、LYRIC toggle、realtime_running 不重启等 UI 逻辑。修缺口④。
+- **remote `asr_start`**（`app_remote.cpp`）：原先**无本地检查**——有本地源也跑 ASR。现加 `resolve_subtitle_source`：Embedded→日志（已在渲）/LocalSrt·Online→`begin_track` 加载/None→realtime ASR。修缺口①。
+- **`:asr`**（`app_input.cpp`）：行为不变（仍直调 `start_realtime`），注释从"skip online transcript"澄清为"force bypass all local sources（embedded/local-SRT/online）"——确认它是唯一强制绕过入口。修缺口③。
+
+### 行为
+- `:asr` 仍是唯一强制绕过路径；L 键/remote 现统一尊重"本地字幕文件优先"。offline/realtime worker 的 skip-existing-SRT（`transcription_engine.cpp`）已具备，不重复。
+
+### 验收
+- ctest 39/39、构建 0-warning（22/22）、pty 冒烟 exit 0 + clean endwin + quit dialog。
+
+---
+
 ## 规划 — 2026-08-09 — ASR "本地字幕文件优先" 缺口入计划（D11-3a 收口，延后实现）
 
 > 用户提出 ASR 流程缺本地字幕文件优先逻辑。深挖 4 处不一致（remote `asr_start` 无本地检查 / track-load `find_sidecar` 漏下载目录 ASR SRT / `:asr` 注释与行为边界不清 / L 键优先链内联 UI 未收口）。**决策：不当下打补丁，收口进 D11-3a**——统一 `find_local_srt`+`find_sidecar` 为单一 `resolve_subtitle_source(node)` 解析器，3 个 ASR 入口（L 键/`:asr`/remote）+ track-load 全经此，"有本地字幕源（内嵌/本地SRT/online📜）就不跑 ASR" 统一生效。待 D11-2 视图态迁移解锁。详见 `DECISIONS_LOG.md`（D11-3a 规划）。**纯文档、无代码改动。**

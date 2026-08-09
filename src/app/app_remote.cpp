@@ -510,10 +510,22 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
         auto pst = player.get_state();
         auto pn = playback_.playback_node();
         if (pst.has_media && pn && !subtitle_.transcription_engine().realtime_running()) {
-            const std::string &url = pst.current_url;
-            bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
-            subtitle_.transcription_engine().start_realtime(pn, url, is_streaming);
-            EVENT_LOG("Remote: ASR start");
+            // D11-3a: respect "本地字幕文件优先". If a cheaper source exists, load it instead of
+            //   burning ASR — this was the missing-local-check gap (remote always force-ASR'd).
+            //   :asr remains the only force-bypass path.
+            auto src = subtitle_.resolve_subtitle_source(pn);
+            if (src.kind == ResolvedSubtitle::Embedded) {
+                EVENT_LOG("Remote: embedded subtitle already active — no ASR needed");
+            } else if (src.kind != ResolvedSubtitle::None) {
+                // LocalSrt or Online — load via the standard track orchestration.
+                subtitle_.begin_track(pn, pst.has_video);
+                EVENT_LOG("Remote: local/online subtitle found — loading instead of ASR");
+            } else {
+                const std::string &url = pst.current_url;
+                bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
+                subtitle_.transcription_engine().start_realtime(pn, url, is_streaming);
+                EVENT_LOG("Remote: ASR start");
+            }
         } else {
             EVENT_LOG("Remote: ASR start — nothing playing or already running");
         }

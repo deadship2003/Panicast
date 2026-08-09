@@ -27,6 +27,16 @@ class ThreadPool;
 class MPVController;
 class UI;
 
+// D11-3a: the result of resolving the best AVAILABLE (non-ASR) subtitle source for a track.
+//   resolve_subtitle_source returns the first that applies, in priority order, so every ASR entry
+//   point (L-key / :asr / remote asr_start) applies the SAME "本地字幕文件优先" chain instead of
+//   each re-implementing it. ASR is the fallback the CALLER starts when kind == None.
+struct ResolvedSubtitle {
+    enum Kind { None, Embedded, LocalSrt, Online };
+    Kind kind = None;
+    std::string path; // LocalSrt: the file path; Online: the node's subtitle_url (also in path for convenience)
+};
+
 class SubtitleService {
 public:
     // Wire the transcription engine to this service's own SubtitleManager + the shared pool + mpv
@@ -55,6 +65,14 @@ public:
     //   sidecar probe, then mpv sub_add (Method A) for mpv formats or load_async (Method B) otherwise;
     //   !has_video → Method B load_async. Fully async — never blocks play().
     void begin_track(TreeNodePtr node, bool has_video);
+
+    // D11-3a: resolve the best available NON-ASR subtitle source for a track, in priority order
+    //   (Embedded [mpv has an active sub track] > LocalSrt [unified find_local_subtitle: download-dir
+    //   + adjacent] > Online [node->has_subtitle + subtitle_url]). Returns {None} when nothing local/
+    //   online exists → caller falls back to ASR. `:asr` intentionally does NOT call this (it forces
+    //   ASR past all local sources). Centralizes "本地字幕文件优先": remote asr_start + L-key both go
+    //   through here, so ASR only runs when no cheaper source exists.
+    ResolvedSubtitle resolve_subtitle_source(TreeNodePtr node);
 
     // ── Engine access (transitional — D10-2/3 replace direct use with Actions/events) ──
     //   PlaybackService.attach() and App's input/remote/download sites use these; they are the

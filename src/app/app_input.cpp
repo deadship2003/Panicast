@@ -237,14 +237,17 @@ void App::open_command_window() {
     std::transform(s.begin(), s.end(), s.begin(),
                    [](unsigned char c) { return (char)std::tolower(c); });
 
-    // Y24.25: ":asr" = force ASR (skip online transcript, go directly to local ASR flow).
+    // Y24.25: ":asr" = force ASR. D11-3a: this is the ONE entry point that intentionally does NOT
+    //   call resolve_subtitle_source — it bypasses ALL local/online sources (embedded / local ASR
+    //   SRT / online 📜) and goes straight to real-time transcription. L-key / remote asr_start do
+    //   respect "本地字幕文件优先"; :asr is the manual override when you want ASR regardless.
     if (s == "asr") {
         auto pst = player.get_state();
         if (pst.has_media && !subtitle_.transcription_engine().realtime_running()) {
             std::string url = pst.current_url;
             bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
             subtitle_.transcription_engine().start_realtime(playback_.playback_node(), url, is_streaming);
-            EVENT_LOG("Force ASR (skipping online transcript)");
+            EVENT_LOG("Force ASR (bypassing embedded/local-SRT/online sources)");
         } else {
             EVENT_LOG("ASR: nothing playing or already running");
         }
@@ -730,47 +733,28 @@ void App::handle_input(int ch, int marked_count) {
             std::string url = pst.current_url;
             bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
 
-            // Resolve a local ASR SRT sidecar for the playing node ("" if none).
-            auto find_local_srt = [&]() -> std::string {
-                if (!pn)
-                    return "";
-                std::string dl_dir = Utils::get_download_dir();
-                std::string base = Utils::sanitize_filename(pn->title);
-                std::string srt = dl_dir + "/" + base + ".srt";
-                std::string local = CacheManager::instance().get_local_file(url);
-                if (!local.empty()) {
-                    std::string lf_base = local;
-                    size_t dot = lf_base.find_last_of('.');
-                    if (dot != std::string::npos)
-                        lf_base = lf_base.substr(0, dot);
-                    srt = lf_base + ".srt";
-                }
-                if (std::filesystem::exists(srt)) {
-                    if (!local.empty())
-                        pn->local_file = local;
-                    return srt;
-                }
-                return "";
-            };
+            // D11-3a: source resolution centralized in SubtitleService::resolve_subtitle_source
+            //   (embedded > local SRT [unified find_local_subtitle] > online). ASR only when none.
+            //   Resolved LAZILY per path (after the LYRIC gates) — find_local_subtitle stats the
+            //   WSL2 /mnt/e mount, so skip it when the L-press just closes the panel.
 
             if (vo_open) {
                 // VO open: ONE-SHOT ensure subtitles in the mpv video window (mpv controls display).
                 // Priority (local first): embedded > local ASR SRT > online > video ASR.
-                if (player.has_active_subtitle()) {
+                auto src = subtitle_.resolve_subtitle_source(pn);
+                if (src.kind == ResolvedSubtitle::Embedded) {
                     EVENT_LOG("L: embedded subtitle present (English via slang) - no ASR, mpv "
                               "renders in video window");
                     break;
                 }
-                std::string srt = find_local_srt();
-                if (!srt.empty()) {
+                if (src.kind == ResolvedSubtitle::LocalSrt) {
                     pn->has_asr_srt = true;
-                    pn->asr_srt_path = srt;
-                    player.sub_add(srt);
-                    EVENT_LOG(fmt::format("L: local ASR SRT -> video window: {}", srt));
+                    pn->asr_srt_path = src.path;
+                    player.sub_add(src.path);
+                    EVENT_LOG(fmt::format("L: local ASR SRT -> video window: {}", src.path));
                     break;
                 }
-                if (pn && pn->has_subtitle &&
-                    !pn->subtitle_url.empty()) {
+                if (src.kind == ResolvedSubtitle::Online) {
                     player.sub_add(pn->subtitle_url);
                     EVENT_LOG("L: online transcript -> video window");
                     break;
@@ -793,25 +777,25 @@ void App::handle_input(int ch, int marked_count) {
             if (subtitle_.transcription_engine().realtime_running()) {
                 break;
             }
-            // Take a source, LOCAL FIRST:
+            // Take a source, LOCAL FIRST (embedded implies video — feeds LYRIC via the fallback,
+            //   nothing to load).
             //   video file: embedded > local ASR SRT > online > audio ASR
             //   audio file: local ASR SRT > online > audio ASR
-            if (pst.has_video && player.has_active_subtitle()) {
+            auto src = subtitle_.resolve_subtitle_source(pn);
+            if (src.kind == ResolvedSubtitle::Embedded) {
                 EVENT_LOG("L: embedded subtitle (English) -> LYRIC");
                 break; // sub-text feeds LYRIC via the fallback; nothing to load
             }
-            std::string srt = find_local_srt();
-            if (!srt.empty()) {
+            if (src.kind == ResolvedSubtitle::LocalSrt) {
                 pn->has_asr_srt = true;
-                pn->asr_srt_path = srt;
-                pn->subtitle_url = srt;
+                pn->asr_srt_path = src.path;
+                pn->subtitle_url = src.path;
                 pn->subtitle_type = "srt";
                 subtitle_.subtitle_mgr().load_async(pn, pool_);
-                EVENT_LOG(fmt::format("L: local ASR SRT -> LYRIC: {}", srt));
+                EVENT_LOG(fmt::format("L: local ASR SRT -> LYRIC: {}", src.path));
                 break;
             }
-            if (pn && pn->has_subtitle &&
-                !pn->subtitle_url.empty()) {
+            if (src.kind == ResolvedSubtitle::Online) {
                 subtitle_.subtitle_mgr().load_async(pn, pool_);
                 EVENT_LOG("L: online transcript -> LYRIC");
                 break;
