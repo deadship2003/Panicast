@@ -194,58 +194,16 @@ void App::perform_search() {
     search_.search_query() = q;
     std::string ql = Utils::to_lower(q);
     {
+        // D11-3b: the F20 context-aware collection moved into SearchService (display-decoupled).
+        //   App reads the cursor from display_list, holds tree_mutex (both cur_items() and the
+        //   cursor are tree state), then hands the algorithm the roots + cursor. collect_context_
+        //   matches fills search_matches_ + sets total_matches_ (order + dedup unchanged).
         std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
-
-        // F20: context-aware search — prioritize matches at the cursor's peer level (same parent),
-        //   then the subtree, then the rest of the tree. This avoids "global search" when the user
-        //   is browsing a specific feed/folder and expects results nearby first.
         TreeNodePtr cur_node = (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size())
                                    ? library_.display_list()[library_.selected_idx()].node
                                    : nullptr;
-
-        if (cur_node) {
-            // 1. Search peers (same parent's children, same type priority)
-            auto parent = cur_node->parent.lock();
-            if (parent) {
-                // Same-type peers first (e.g., if cursor is on an episode, search episodes first)
-                for (auto &sib : parent->children) {
-                    if (sib->type == cur_node->type &&
-                        Utils::to_lower(sib->title).find(ql) != std::string::npos)
-                        search_.search_matches().push_back(sib);
-                }
-                // Different-type siblings (e.g., feed nodes if cursor is on an episode)
-                for (auto &sib : parent->children) {
-                    if (sib->type != cur_node->type &&
-                        Utils::to_lower(sib->title).find(ql) != std::string::npos)
-                        search_.search_matches().push_back(sib);
-                }
-                // 2. Search the parent's subtree (children of siblings)
-                for (auto &sib : parent->children) {
-                    if (sib != cur_node) {
-                        for (auto &child : sib->children)
-                            search_recursive(child, ql, search_.search_matches());
-                    }
-                }
-            }
-            // 3. Search the current node's own subtree
-            for (auto &child : cur_node->children)
-                search_recursive(child, ql, search_.search_matches());
-        }
-
-        // 4. Global search (everything not yet covered) — but skip the subtree already searched
-        for (auto &it : cur_items())
-            search_recursive(it, ql, search_.search_matches());
-
-        // Deduplicate (peers/subtree may overlap with global)
-        std::set<TreeNodePtr> seen;
-        std::vector<TreeNodePtr> unique;
-        for (auto &m : search_.search_matches()) {
-            if (seen.insert(m).second)
-                unique.push_back(m);
-        }
-        search_.search_matches() = std::move(unique);
+        search_.collect_context_matches(cur_items(), cur_node, ql);
     }
-    search_.set_total_matches(search_.search_matches().size());
     if (search_.total_matches() > 0) {
         search_.set_current_match_idx(0);
         jump_to_match(0);
@@ -255,20 +213,11 @@ void App::perform_search() {
     }
 }
 
-void App::search_recursive(const TreeNodePtr &node, const std::string &query,
-                           std::vector<TreeNodePtr> &results) {
-    if (Utils::to_lower(node->title).find(query) != std::string::npos)
-        results.push_back(node);
-    for (auto &child : node->children)
-        search_recursive(child, query, results);
-}
-
+// D11-3b: search_recursive moved to SearchService. jump_search now delegates the cursor math to
+//   search_.cycle_match (pure) and keeps only the display jump (jump_to_match — view concern).
 void App::jump_search(int dir) {
-    if (search_.total_matches() == 0)
-        return;
-    search_.set_current_match_idx(
-        (search_.current_match_idx() + dir + search_.total_matches()) % search_.total_matches());
-    jump_to_match(search_.current_match_idx());
+    if (search_.cycle_match(dir))
+        jump_to_match(search_.current_match_idx());
 }
 
 void App::jump_to_match(int idx) {

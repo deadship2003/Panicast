@@ -244,8 +244,9 @@ private:
                            std::vector<TreeNodePtr> result_nodes);
     void reset_search();
     void perform_search();
-    void search_recursive(const TreeNodePtr &node, const std::string &query,
-                          std::vector<TreeNodePtr> &results);
+    // D11-3b: search_recursive + the context-aware collection moved into SearchService
+    //   (search_::search_recursive / collect_context_matches / cycle_match); App keeps only the
+    //   display orchestration (perform_search entry, jump_to_match, reveal_node).
     void jump_search(int dir);
     void jump_to_match(int idx);
     void reveal_node(TreeNodePtr node);

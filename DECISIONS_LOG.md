@@ -1,4 +1,20 @@
 
+## D11-3b — 搜索算法收口进 SearchService（M1 第 17 人日，D11 增量3b / Round 2 / model-view 分离）
+
+**Context:** D11-3b 原任务"搜索 jump/reveal 搬入 SearchService"。但 jump_to_match/reveal_node 是**显示编排**（依赖 `mode`/`cur_items()`/`flatten_items()`/`LINES`，直接改写 display_list/selected_idx/view_start），D10-2 头注释明确要求**游标事件化后**才能整体搬——否则 SearchService 须引入 `LibraryService*` 反向依赖 + mode/flatten 回调（目前无服务持有跨服务 LibraryService 引用）。且 pty 冒烟测不出搜索正确性。用户经讨论选了"搜索只负责搜索，折叠/展开是另一回事"的原则。
+
+**Decision: model/view 分离——只搬显示解耦的纯算法，显示编排留 App。** 对应主流 TUI（ranger/cmus/less）：搜索=产出匹配列表+游标（model），reveal/拍平/滚动=视图（view）。SearchService 加 3 个方法（`search_recursive`/`collect_context_matches`/`cycle_match`），全部以参数传树/游标、不持 LibraryService*、不碰 display_list/LINES。perform_search/jump_search 改调它们；jump_to_match/reveal_node/**Shift-N(jump_to_playing) 原样保留**。
+
+**Why 不整体搬（拒绝字面搬迁）:** 整体搬 jump_to_match/reveal_node 须给 SearchService 加 `LibraryService*` + 当前 `mode` + flatten 回调 + LINES——引入新的跨服务反向依赖（破坏分层：服务不该往回依赖控制器/视图），且触及 pty 测不出的搜索正确性路径。在游标(selected_idx)仍由 App 直接改写、未事件化前，搬它得不偿失。
+
+**Why collect_context_matches 逐字搬 + 加防御 clear:** F20 上下文优先匹配的 4 段顺序（同级同类型→同级异类型→兄弟子树→全局）+ 去重是搜索核心语义，必须逐字不动。collect 开头加 `search_matches_.clear()` 是防御性的（reset_search() 已清过，再清是 no-op）——行为等价，但让方法自洽（不依赖调用方先 reset）。total_matches_ 由 collect 内部设（原 perform_search 在锁块外 `set_total_matches`，现并入方法、仍在调用方锁保护下）。
+
+**Gotcha — 游标(cursor)由 App 读、锁由 App 持:** cursor 来自 display_list[selected_idx]（视图态），必须 App 读（SearchService 不碰 display_list）；roots=cur_items()（mode 派发）也由 App 传。两者皆树态，collect_context_matches 在 App 的 tree_mutex 锁块内调用——SearchService 方法本身不加锁（调用方持锁），与原 perform_search 锁范围一致。
+
+**Gotcha — jump_to_playing(Shift+N) 不动:** 它是"任意界面跳回播放节目的模式+节点"，非搜索逻辑（不改 search_ 状态），与本轮 model/view 分离无关，原样保留。
+
+**Followups:** jump_to_match/reveal_node 搬迁待游标事件化（D12 IFrontend / cursor 事件）后做——届时 SearchService 经事件订阅视图态、无反向依赖。下一步 D11-3c（库 load_\*_root + 帐号 mode handler 搬迁）。
+
 ## D11-3a 实现 — 字幕/ASR 编排收口 + "本地字幕文件优先"（M1 第 16 人日，D11 增量3a / 敏感一刀 / Round 1）
 
 **Context:** D11-3a 规划（见下）定了 4 处缺口收口方案。D11-2（视图态迁入 LibraryService）已解锁，L 键编排可经访问器读节点、搬进 SubtitleService。本增量实现该收口——ASR 只在没有更廉价字幕源时才跑。

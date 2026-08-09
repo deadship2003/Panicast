@@ -4,6 +4,32 @@
 
 ---
 
+## 新架构 D11-3b — 2026-08-09 — 搜索算法收口进 SearchService（model/view 分离 · D11 增量3b · Round 2）
+
+> M1（UI 解耦）第 17 步、D11 第 3 增量 b。用户原则"搜索只负责搜索，折叠/展开是另一回事"——对应主流 TUI（ranger/cmus/less）的 model/view 分离：**SearchService 产出匹配列表+游标（model），reveal/拍平/滚动是视图（view）留 App**。把显示解耦的纯搜索算法搬进 SearchService；显示编排（jump_to_match/reveal_node）因依赖 mode/cur_items/flatten/LINES 且 D10-2 头注释要求游标事件化后才能整体搬，本轮**留 App**（避免 SearchService→LibraryService 反向依赖）。
+
+### SearchService（+3 算法方法，显示解耦）
+- `static search_recursive(node, query, results&)`：原 `App::search_recursive` 逐字搬（子树标题匹配，纯函数）。
+- `collect_context_matches(roots, cursor, ql)`：**F20 上下文优先收集 + 去重**，逐字从 `perform_search` 抽出（同级同类型→同级异类型→当前子树→全局→去重），填 `search_matches_` + 设 `total_matches_`。以参数传树/游标，不持 LibraryService*、不碰 display_list/LINES。
+- `cycle_match(dir) → bool`：`jump_search` 的游标数学 `(idx+dir+total)%total`，无匹配返回 false。
+
+### App（瘦成显示编排）
+- `perform_search()`：输入框 → 读游标（display_list）→ **锁 tree_mutex** → `search_.collect_context_matches(cur_items(), cursor, ql)` → 解锁 → total>0 则 `jump_to_match(0)`。匹配顺序+去重+锁范围全不变。
+- `jump_search(dir)`：瘦成 `if (search_.cycle_match(dir)) jump_to_match(search_.current_match_idx());`
+- 删 `App::search_recursive`（搬走）。
+- **`jump_to_match`/`reveal_node`/Shift+N(`jump_to_playing`) 原样保留**——显示编排与"跳回播放点"功能行为零变化。
+
+### 行为等价性
+- 算法体逐字搬；App 的游标读取位置、tree_mutex 锁范围、显示调用序、jump_to_match/reveal_node/jump_to_playing 一行不改。
+
+### 验收
+- ctest 39/39、构建 0-warning（18/18）、pty 冒烟 exit 0 + clean endwin + quit dialog。
+
+### 遗留
+- jump_to_match/reveal_node 搬迁待游标事件化（D12 IFrontend / cursor 事件）后做（届时无反向依赖）。
+
+---
+
 ## 新架构 D11-3a — 2026-08-09 — 字幕/ASR 编排收口 + "本地字幕文件优先"（D11 增量3a · Round 1）
 
 > M1（UI 解耦）第 16 步、D11 第 3 增量 a（敏感一刀）。用户提出 ASR 流程缺本地字幕文件优先逻辑——深挖 4 处不一致，本增量统一收口：ASR 只在**没有**更廉价字幕源时才跑。新增 `SubtitleManager::find_local_subtitle(node)`（下载目录 `<title>.srt` + 本地文件旁同名 sidecar 统一解析）+ `SubtitleService::resolve_subtitle_source(node)`（`ResolvedSubtitle{None,Embedded,LocalSrt,Online}` 优先链单一真相源）。L 键、remote `asr_start`、track-load 全经此；`:asr` 保留唯一强制绕过。**字幕编排逻辑从 UI 输入处理器搬进 SubtitleService**（D11-3 "方法体搬迁"第一刀，跨字幕域）。

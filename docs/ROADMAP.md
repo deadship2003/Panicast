@@ -105,7 +105,10 @@
       - **实现**：① 新增 `SubtitleManager::find_local_subtitle(node)`（下载目录 `<sanitize(title)>.srt` 或缓存本地文件 `<base>.srt` 优先，回退 `find_sidecar` 同名任意字幕扩展）——`probe_sidecar` + `load_async`（track-load 路径）改调它，修缺口②；② 新增 `ResolvedSubtitle{None,Embedded,LocalSrt,Online}` + `SubtitleService::resolve_subtitle_source(node)`（优先链单一真相源）；③ L 键（`app_input.cpp` VO-open + LYRIC 两路）删内联 `find_local_srt` lambda、改调 resolver 分支 src.kind；④ remote `asr_start`（`app_remote.cpp`）加 `resolve_subtitle_source` 检查——有 Embedded/local/online 源则 `begin_track` 加载而非 ASR，修缺口①；⑤ `:asr` 保留 force-bypass 语义、注释澄清为"bypass all local sources"（修缺口③）。
       - **行为**：`:asr` 仍是唯一强制绕过路径；L 键/remote 现统一尊重"本地优先"。offline/realtime worker 的 skip-existing-SRT 不重复。
       - **验收**：ctest 39/39、构建 0-warning（22/22）、pty 冒烟 exit 0 + clean endwin + quit dialog。
-    - [ ] **D11-3b — 搜索 jump/reveal 逻辑搬入 SearchService**。
+    - [x] **D11-3b — 搜索算法收口进 SearchService**（model/view 分离）✅ 2026-08-09。用户原则"搜索只负责搜索，折叠/展开是另一回事"——对应主流 TUI（ranger/cmus）model/view 分离：SearchService 产出匹配列表+游标（model），reveal/拍平/滚动是视图（view）留 App。jump_to_match/reveal_node 是**显示编排**（依赖 mode/cur_items/flatten/LINES），D10-2 头注释要求游标事件化后才能整体搬——否则 SearchService 须引入 `LibraryService*` 反向依赖。**故本轮只搬显示解耦的纯算法**：`search_recursive`（子树标题匹配）+ `collect_context_matches`（F20 上下文优先收集+去重，逐字从 perform_search 抽出）+ `cycle_match`（jump_search 游标数学）→ SearchService 方法（以参数传树/游标，不持 LibraryService*）。perform_search/jump_search 改调它们；jump_to_match/reveal_node/**Shift+N(jump_to_playing) 原样保留**。
+      - **行为零变化**：算法体逐字搬、匹配顺序+去重不变；App 的锁范围、游标读取位置、显示调用序全不变。
+      - **验收**：ctest 39/39、构建 0-warning（18/18）、pty 冒烟 exit 0 + clean endwin + quit dialog。
+      - **遗留**：jump_to_match/reveal_node 的搬迁待游标事件化（D12 IFrontend / cursor 事件）后做——届时无反向依赖。
     - [ ] **D11-3c — 库 load_\*_root + 帐号 mode handler 搬迁**。
   - [ ] **D11-4 — grep 验证 UI 层零 Core 直调**。
   - **验收（D11 总）**：UI 层零 Core 直调；全功能正常。

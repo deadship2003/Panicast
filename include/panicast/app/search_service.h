@@ -1,22 +1,26 @@
 // SearchService — the Application Service (功能抽象层) for the in-tree search.
-//   Owns the local search STATE (the query, the match list, the match cursor) that previously
-//   lived as bare App members. This is the D10-2 state-holder cut (mirrors D8b-1): the search
-//   METHODS stay in App for now (app_search.cpp) because they are UI/tree-coupled — they walk the
-//   tree under tree_mutex and, on a match jump, rewrite App's display_list / selected_idx /
-//   view_start. That UI-navigation coupling is what D11 (UI pure-interaction) removes; once the
-//   cursor is driven by events, the search logic (perform_search / search_recursive / jump_* /
-//   reveal_node) relocates into this service. Until then App reads/writes the state via the
-//   accessors below (mechanical redirect, behaviour-identical). reset() — the one pure piece of
-//   search logic (clears all four members) — moves in now.
+//   Owns the search STATE (query, match list, match cursor) AND the search ALGORITHM — both are
+//   display-decoupled (operate on tree nodes + a cursor passed in, never touch display_list /
+//   selected_idx / view_start / LINES). D10-2 moved the state out of App; D11-3b moves the
+//   algorithm: search_recursive (subtree title-match), collect_context_matches (the F20
+//   context-aware collection: peers-same-type → peers-diff-type → cursor subtree → global, +
+//   dedup), and cycle_match (the jump_search cursor math). Principle ("搜索只负责搜索的事"):
+//   search produces a match list + cursor (model); reveal/flatten/scroll is the VIEW's job and
+//   stays in App — jump_to_match / reveal_node remain there (they rewrite display_list / selected
+//   / view_start under tree_mutex and use ncurses LINES; moving them needs the cursor
+//   event-driven, deferred). perform_search stays the App entry: input_box → read cursor →
+//   lock → search_.collect_context_matches(...) → unlock → display reset → jump_to_match.
 //   The online search-record cache (perform_online_search*, build_search_result_node,
 //   add_search_record, …) is account-coupled and stays in App (AccountService territory).
-//   (D10-2 — UI-decoupling M1.)
+//   (D10-2 state-holder cut — UI-decoupling M1; D11-3b algorithm cut.)
 #pragma once
 
+#include <set>
 #include <string>
 #include <vector>
 
 #include "panicast/core/types.h" // TreeNodePtr
+#include "panicast/core/utils.h" // D11-3b: Utils::to_lower (search_recursive / collect_context_matches)
 
 namespace panicast
 {
@@ -53,6 +57,22 @@ public:
 
     // Clear all search state (new search / mode switch). The one pure piece of search logic.
     void reset();
+
+    // ── Search algorithm (D11-3b — display-decoupled; operates on tree nodes + a cursor) ──
+    // Recursive title-match: append every node in `node`'s subtree whose lowercased title
+    //   contains `query` to `results`. Pure (no state, no display).
+    static void search_recursive(const TreeNodePtr &node, const std::string &query,
+                                 std::vector<TreeNodePtr> &results);
+    // F20 context-aware match collection — the core of perform_search, verbatim. Given the
+    //   current mode's top-level items (`roots`) and the cursor node, fills search_matches_ in
+    //   priority order (peers same-type → peers diff-type → cursor subtree → global) and dedups,
+    //   then sets total_matches_. Does NOT touch current_match_idx_ (the caller sets it) and does
+    //   NOT lock (the caller holds tree_mutex — both `roots` and `cursor` are tree state).
+    void collect_context_matches(const std::vector<TreeNodePtr> &roots, TreeNodePtr cursor,
+                                 const std::string &ql);
+    // jump_search cursor math: advance the match index by `dir` (±1), wrapping. Returns false
+    //   when there are no matches (caller skips). Updates current_match_idx_.
+    bool cycle_match(int dir);
 
 private:
     std::string search_query_;
