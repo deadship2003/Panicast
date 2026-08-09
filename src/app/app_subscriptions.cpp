@@ -21,7 +21,7 @@ void App::import_feed(const std::string &url) {
 
     {
         std::lock_guard<std::recursive_mutex> lock(
-            tree_mutex); // mutual exclusion with background load thread
+            library_.tree_mutex()); // mutual exclusion with background load thread
         library_.podcast_root().insert(library_.podcast_root().begin(), node);
     }
     spawn_load_feed(node);
@@ -29,7 +29,7 @@ void App::import_feed(const std::string &url) {
     // Wait for background loading to finish before serializing to avoid torn reads/crashes with the load thread
     pool_.wait_idle();
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         Persistence::save_cache(library_.radio_root(), library_.podcast_root());
         Persistence::save_data(library_.podcast_root(), library_.fav_root());
     }
@@ -54,7 +54,7 @@ void App::import_opml(const std::string &filepath) {
         bool exists = false;
         {
             std::lock_guard<std::recursive_mutex> lock(
-                tree_mutex); // mutual exclusion with background load thread
+                library_.tree_mutex()); // mutual exclusion with background load thread
             for (const auto &existing : library_.podcast_root()) {
                 if (existing->url == feed->url) {
                     exists = true;
@@ -78,7 +78,7 @@ void App::import_opml(const std::string &filepath) {
     // Wait for all background loading to finish before serializing to avoid torn reads/crashes
     pool_.wait_idle();
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         Persistence::save_cache(library_.radio_root(), library_.podcast_root());
         Persistence::save_data(library_.podcast_root(), library_.fav_root());
     }
@@ -88,7 +88,7 @@ void App::import_opml(const std::string &filepath) {
 void App::export_podcasts(const std::string &filename) {
     pool_
         .wait_idle(); // wait for background loading to finish, avoiding concurrent mutation of children during export
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     Persistence::export_opml(filename, library_.podcast_root());
 }
 
@@ -113,7 +113,7 @@ void App::add_feed() {
     node->parse_failed = false;
 
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         node->parent.reset(); // set parent pointer
         library_.podcast_root().insert(library_.podcast_root().begin(), node);
     }
@@ -127,15 +127,15 @@ void App::add_feed() {
 
 // Subscribe to a podcast from Online search results
 void App::subscribe_online_podcast() {
-    if (selected_idx < 0 || selected_idx >= (int)display_list.size())
+    if (library_.selected_idx() < 0 || library_.selected_idx() >= (int)library_.display_list().size())
         return;
-    auto node = display_list[selected_idx].node;
+    auto node = library_.display_list()[library_.selected_idx()].node;
     if (!node || node->url.empty())
         return;
 
     // Check existence + add + persist (reading/writing library_.podcast_root() requires holding tree_mutex)
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         for (const auto &child : library_.podcast_root()) {
             if (child->url == node->url) {
                 EVENT_LOG("Already subscribed");
@@ -163,7 +163,7 @@ void App::subscribe_online_podcasts_batch(int marked_count) {
     (void)marked_count; // parameter reserved for future use
     std::vector<TreeNodePtr> to_subscribe;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         collect_marked(OnlineState::instance().online_root, to_subscribe);
     }
 
@@ -176,7 +176,7 @@ void App::subscribe_online_podcasts_batch(int marked_count) {
     std::vector<TreeNodePtr> feed_nodes;
     {
         std::lock_guard<std::recursive_mutex> lock(
-            tree_mutex); // reading children must be mutually exclusive
+            library_.tree_mutex()); // reading children must be mutually exclusive
         for (auto &n : to_subscribe) {
             if (n->type == NodeType::PODCAST_FEED && !n->url.empty()) {
                 // Check whether already subscribed
@@ -212,14 +212,14 @@ void App::subscribe_online_podcasts_batch(int marked_count) {
         new_node->channel_name = n->channel_name; //   and use the wrong loader
 
         std::lock_guard<std::recursive_mutex> lock(
-            tree_mutex); // mutual exclusion with background load thread
+            library_.tree_mutex()); // mutual exclusion with background load thread
         library_.podcast_root().insert(library_.podcast_root().begin(), new_node);
         count++;
     }
 
     // Clear marks
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         clear_marks(OnlineState::instance().online_root);
     }
 
@@ -235,7 +235,7 @@ void App::subscribe_favourites_batch(int marked_count) {
     (void)marked_count; // parameter reserved for future use
     std::vector<TreeNodePtr> to_subscribe;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         for (auto &it : library_.fav_root())
             collect_marked(it, to_subscribe);
     }
@@ -248,7 +248,7 @@ void App::subscribe_favourites_batch(int marked_count) {
     // Filter out subscribable nodes (reading library_.podcast_root() requires holding tree_mutex)
     std::vector<TreeNodePtr> feed_nodes;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         for (auto &n : to_subscribe) {
             // Support PODCAST_FEED and nodes with a URL
             if (!n->url.empty() && n->url != "online_root") {
@@ -275,7 +275,7 @@ void App::subscribe_favourites_batch(int marked_count) {
     // Batch subscribe (reading/writing library_.podcast_root() requires holding tree_mutex)
     int count = 0;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         for (auto &n : feed_nodes) {
             auto new_node = std::make_shared<TreeNode>();
             new_node->title = n->title;
@@ -310,7 +310,7 @@ void App::add_favourites_batch(int marked_count) {
             if (f->url == "online_root") {
                 EVENT_LOG("★ Online Search already in favourites");
                 // Clear marks
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 clear_marks_current();
                 return;
             }
@@ -328,7 +328,7 @@ void App::add_favourites_batch(int marked_count) {
         fn->link_target_url = "online_root";
 
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             library_.fav_root().insert(library_.fav_root().begin(), fn);
             clear_marks_current();
         }
@@ -344,7 +344,7 @@ void App::add_favourites_batch(int marked_count) {
     // Non-ONLINE mode keeps the original batch-favourite logic
     std::vector<TreeNodePtr> to_fav;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         collect_marked_current(to_fav);
     }
 
@@ -424,7 +424,7 @@ void App::add_favourites_batch(int marked_count) {
     // Batch favourite (writing library_.fav_root() requires holding tree_mutex)
     int count = 0;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         for (auto &n : fav_nodes) {
             // Create LINK node
             auto fn = std::make_shared<TreeNode>();
@@ -454,7 +454,7 @@ void App::add_favourites_batch(int marked_count) {
 
     // Clear marks
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         clear_marks_current();
     }
 
@@ -464,9 +464,9 @@ void App::add_favourites_batch(int marked_count) {
 // Extended favourite feature, supports all node types (including folders)
 // ONLINE mode distinguishes two favourite types, with bidirectional sync
 void App::add_favourite() {
-    if (selected_idx < 0 || selected_idx >= (int)display_list.size())
+    if (library_.selected_idx() < 0 || library_.selected_idx() >= (int)library_.display_list().size())
         return;
-    auto node = display_list[selected_idx].node;
+    auto node = library_.display_list()[library_.selected_idx()].node;
     if (!node)
         return; // null guard
 
@@ -478,7 +478,7 @@ void App::add_favourite() {
 
     // Check whether a favourite with the same URL already exists (reading library_.fav_root() requires holding tree_mutex)
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         for (auto &f : library_.fav_root()) {
             if (!node->url.empty() && f->url == node->url) {
                 EVENT_LOG(fmt::format("★ Already in favourites: {}", node->title));
@@ -544,7 +544,7 @@ void App::add_favourite() {
     }
 
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         fn->parent.reset();
         library_.fav_root().insert(library_.fav_root().begin(), fn);
     }
@@ -597,7 +597,7 @@ void App::add_local_files() {
     expand_local_folder(folder); // recursive scan: subfolders + file leaves + mark_downloaded
 
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         folder->parent.reset();
         library_.fav_root().insert(library_.fav_root().begin(), folder);
     }

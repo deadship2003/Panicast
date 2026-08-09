@@ -126,17 +126,18 @@ private:
     MPVController player;
     PlaybackService playback_{player}; // D8: first Application Service (owns playback Actions)
     // D10-4: the per-mode tree DATA MODEL (8 root item lists + 6 "loaded" flags) moved into
-    //   LibraryService. app_*.cpp read/write via library_. accessors (radio_root()/…, *_loaded()).
-    //   tree_mutex STAYS in App for now: it also guards the view state (display_list/selected_idx),
-    //   which is D11 territory, so the lock is not co-located with the data yet. The tree-building
-    //   methods (load_*_root) stay here too (parser/storage/UI-coupled → relocate after D11).
+    //   LibraryService. D11-2: the VIEW STATE (display_list/selected_idx/view_start) + pending_select_
+    //   + its guard tree_mutex ALSO moved into LibraryService (co-located with the data it protects).
+    //   app_*.cpp read/write via library_. accessors (radio_root()/…, *_loaded(), display_list(),
+    //   selected_idx(), view_start(), tree_mutex(), pending_select()). The tree-building methods
+    //   (load_*_root) still stay here (parser/storage/UI-coupled → relocate in D11-3c).
     LibraryService library_;
     std::string
         tiktok_region_; // Y24.11: current T-mode region code (US/JP/...), persisted in INI [tiktok] region
-    // Y11: async interaction selection. A pool task that builds a new node (e.g. YouTube search
-    //   results) sets pending_select_ under tree_mutex; the UI thread consumes it next frame
-    //   (sets selected_idx to that node) so interactions stay fluid (network/parse off the UI thread).
-    TreeNodePtr pending_select_;
+    // Y11: async interaction selection — pending_select_ now lives in library_ (D11-2). A pool task
+    //   that builds a new node (e.g. YouTube search results) sets library_.pending_select() under
+    //   library_.tree_mutex(); the UI thread consumes it next frame (sets selected_idx to that node)
+    //   so interactions stay fluid (network/parse off the UI thread).
     // D4: END_FILE reason queued by the mpv event thread; drained on the UI thread each frame
     //   (see run()). Keeps on_playback_ended OFF the mpv thread so it can't contend with the UI's
     //   playlist_mutex_ draw lock — the root cause of "TUI freezes a while after pausing".
@@ -148,13 +149,14 @@ private:
     //   direct Core calls. Built by build_keymap() (legacy defaults).
     Keymap keymap_;
     void build_keymap();
-    std::vector<DisplayItem> display_list;
-    int selected_idx = 0, view_start = 0;
+    // D11-2: display_list / selected_idx / view_start moved into library_ (view state + its guard
+    //   tree_mutex co-located with the tree data). cur_sort_reversed stays here (sort toggle, not
+    //   lock-guarded view state).
     bool cur_sort_reversed =
         false; // E: reverse state for top-level (cur_items) sort — was on the root node
     bool running = true;
     AppMode mode = AppMode::RADIO;
-    std::recursive_mutex tree_mutex;
+    // D11-2: tree_mutex moved into library_ (guards tree data + view state together).
     // Thread pool replaces detached threads; App destructor safely joins.
     // Sized to MAX_CONCURRENT_DOWNLOADS so up to 10 downloads can truly run at once.
     ThreadPool pool_{MAX_CONCURRENT_DOWNLOADS};
@@ -176,7 +178,8 @@ private:
     std::deque<TreeNodePtr> pending_downloads_;
     // D10-2: in-tree search state (search_query/matches/idx/total) moved into SearchService.
     //   app_search.cpp reads/writes via search_. accessors; the search METHODS stay here for now
-    //   (they reach into tree_mutex/display_list/selected_idx — UI-coupled; relocate after D11).
+    //   (they reach library_.tree_mutex()/display_list()/selected_idx() via accessors — D11-2 made
+    //   those accessors; the method BODIES relocate in D11-3b).
     SearchService search_;
     bool visual_mode_ = false;
     int visual_start_ = -1;
@@ -261,27 +264,27 @@ private:
 
     // ── app_navigation.cpp ─────────────────────────────────────────────────────
     void nav_up() {
-        if (selected_idx > 0)
-            selected_idx--;
+        if (library_.selected_idx() > 0)
+            library_.selected_idx()--;
     }
     void nav_down() {
-        if (selected_idx < (int)display_list.size() - 1)
-            selected_idx++;
+        if (library_.selected_idx() < (int)library_.display_list().size() - 1)
+            library_.selected_idx()++;
     }
     void nav_top() {
-        selected_idx = 0;
-        view_start = 0;
+        library_.selected_idx() = 0;
+        library_.view_start() = 0;
     }
     // When the list is empty, size()-1 underflows to SIZE_MAX, casts to -1 as int, then out-of-bounds access
     void nav_bottom() {
-        selected_idx = display_list.empty() ? 0 : (int)display_list.size() - 1;
+        library_.selected_idx() = library_.display_list().empty() ? 0 : (int)library_.display_list().size() - 1;
     }
     // Y24.54: jump to the currently playing node — switch to its mode, expand ancestors, select + scroll.
     void jump_to_playing();
     void nav_page_up() {
-        selected_idx -= PAGE_SCROLL_LINES;
-        if (selected_idx < 0)
-            selected_idx = 0;
+        library_.selected_idx() -= PAGE_SCROLL_LINES;
+        if (library_.selected_idx() < 0)
+            library_.selected_idx() = 0;
     }
     void nav_page_down();
     void go_back();
@@ -458,7 +461,7 @@ private:
 
     // ── Inline helpers (short, used across multiple translation units) ─────────
     int count_marked_safe(const TreeNodePtr &node) {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         return count_marked(node);
     }
 

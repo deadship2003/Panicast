@@ -38,7 +38,7 @@ void App::switch_mode(AppMode new_mode) {
         break;
     }
     reset_search();
-    selected_idx = 0;
+    library_.selected_idx() = 0;
 }
 
 // Mouse event handling: left-click = select and expand/play node; wheel = page scroll
@@ -78,10 +78,10 @@ void App::handle_mouse_event() {
         return;
     last_click = now;
 
-    int row = view_start + (ev.y - 1);
-    if (row < 0 || row >= (int)display_list.size())
+    int row = library_.view_start() + (ev.y - 1);
+    if (row < 0 || row >= (int)library_.display_list().size())
         return;
-    selected_idx = row;
+    library_.selected_idx() = row;
     enter_node(0); // select and activate: expand folder / play episode
 }
 
@@ -355,8 +355,8 @@ void App::handle_input(int ch, int marked_count) {
     //   only logs (never pops up). Useful to inspect why an episode shows 📜 but loads no lyric.
     if (ch == 25) { // ASCII 25 = Ctrl+Y
         std::string url;
-        TreeNodePtr cn = (selected_idx >= 0 && selected_idx < (int)display_list.size())
-                             ? display_list[selected_idx].node
+        TreeNodePtr cn = (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size())
+                             ? library_.display_list()[library_.selected_idx()].node
                              : nullptr;
         if (cn && !cn->url.empty())
             url = cn->url; // cursor object (preferred)
@@ -483,8 +483,8 @@ void App::handle_input(int ch, int marked_count) {
     case 'r': {
         // Y23.1: r on a 🔍 search record re-runs it; r on a search container (Search History /
         //   O-mode online_root) is a no-op (use l to expand).
-        TreeNodePtr rn = (selected_idx >= 0 && selected_idx < (int)display_list.size())
-                             ? display_list[selected_idx].node
+        TreeNodePtr rn = (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size())
+                             ? library_.display_list()[library_.selected_idx()].node
                              : nullptr;
         if (rn && (rn->is_search_parent)) {
             EVENT_LOG("Use l/Enter to expand search records");
@@ -526,9 +526,9 @@ void App::handle_input(int ch, int marked_count) {
         // enter_node handles: marked→play first marked; folder/feed→expand;
         //   playable leaf→play_episode (snapshot peers, play)
         // Y15: B-mode node activation
-        if (mode == AppMode::BILIBILI && selected_idx >= 0 &&
-            selected_idx < (int)display_list.size()) {
-            auto bn = display_list[selected_idx].node;
+        if (mode == AppMode::BILIBILI && library_.selected_idx() >= 0 &&
+            library_.selected_idx() < (int)library_.display_list().size()) {
+            auto bn = library_.display_list()[library_.selected_idx()].node;
             if (bn && bn->is_account) {
                 expand_bilibili_account(bn);
                 break;
@@ -586,8 +586,8 @@ void App::handle_input(int ch, int marked_count) {
         if (mode == AppMode::ACCOUNT) {
             // Y02: on a [C] YouTube search-result channel, 'a' subscribes it to the active
             //   account; everywhere else in Y mode, 'a' logs in.
-            if (selected_idx >= 0 && selected_idx < (int)display_list.size()) {
-                auto n = display_list[selected_idx].node;
+            if (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size()) {
+                auto n = library_.display_list()[library_.selected_idx()].node;
                 if (n && n->is_yt_search_result && n->is_yt_channel && !n->channel_id.empty()) {
                     subscribe_youtube_channel(n);
                     break;
@@ -598,8 +598,8 @@ void App::handle_input(int ch, int marked_count) {
         }
         // Y15/Y23: B-mode — 'a' on a 👤 UP search result subscribes it; else QR login.
         if (mode == AppMode::BILIBILI) {
-            if (selected_idx >= 0 && selected_idx < (int)display_list.size()) {
-                auto n = display_list[selected_idx].node;
+            if (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size()) {
+                auto n = library_.display_list()[library_.selected_idx()].node;
                 if (n && n->is_yt_search_result && n->is_yt_channel && !n->is_youtube &&
                     !n->channel_id.empty()) {
                     subscribe_bilibili_up(n);
@@ -660,8 +660,8 @@ void App::handle_input(int ch, int marked_count) {
     }
     case 'd': {
         // Y23.1: d on a 🔍 search record deletes it; d on a search container is a no-op.
-        TreeNodePtr dn = (selected_idx >= 0 && selected_idx < (int)display_list.size())
-                             ? display_list[selected_idx].node
+        TreeNodePtr dn = (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size())
+                             ? library_.display_list()[library_.selected_idx()].node
                              : nullptr;
         if (dn && (dn->is_search_parent)) {
             EVENT_LOG("Cannot delete the search-records container");
@@ -701,7 +701,7 @@ void App::handle_input(int ch, int marked_count) {
         break;
     case 'v':
         visual_mode_ = true;
-        visual_start_ = selected_idx;
+        visual_start_ = library_.selected_idx();
         break;
     case 'V':
         clear_all_marks();
@@ -831,8 +831,8 @@ void App::handle_input(int ch, int marked_count) {
             std::vector<TreeNodePtr> targets;
             if (marked_count > 0) {
                 collect_playable_marked_current(targets);
-            } else if (selected_idx >= 0 && selected_idx < (int)display_list.size()) {
-                auto n = display_list[selected_idx].node;
+            } else if (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size()) {
+                auto n = library_.display_list()[library_.selected_idx()].node;
                 bool is_local =
                     !n->local_file.empty() ||
                     (!n->url.empty() && (n->url[0] == '/' || n->url.rfind("file://", 0) == 0));
@@ -876,8 +876,8 @@ void App::handle_input(int ch, int marked_count) {
         } else if (mode == AppMode::FAVOURITE) {
             // In FAVOURITE mode, detect whether under an online_root LINK node
             bool under_online_link = false;
-            if (selected_idx < (int)display_list.size()) {
-                auto node = display_list[selected_idx].node;
+            if (library_.selected_idx() < (int)library_.display_list().size()) {
+                auto node = library_.display_list()[library_.selected_idx()].node;
                 // Check whether the current node or its parent is an online_root LINK
                 for (auto &f : library_.fav_root()) {
                     if (f->is_link && f->url == "online_root") {

@@ -194,7 +194,7 @@ TreeNodePtr App::parse_tiktok_user_videos(const std::string &url, const std::str
 
 // ── Build library_.tiktok_root() from DB ──
 void App::load_tiktok_root() {
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     library_.tiktok_root().clear();
     // Y24.16: root title is static — the region is shown only in the status-bar border
     //   (🎵 TIKTOK [US] / 🎵 Douyin [CN]), so 'b' switching region can't desync the root label.
@@ -329,7 +329,7 @@ void App::tag_browse(const std::string &tag) {
                           tag_url));
     pool_.submit([this, tag_url, region, cookies, label]() {
         auto result = parse_tiktok_user_videos(tag_url, region, cookies, label);
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         for (auto it = library_.tiktok_root().begin(); it != library_.tiktok_root().end();) {
             if ((*it)->is_yt_search)
                 it = library_.tiktok_root().erase(it);

@@ -77,7 +77,7 @@ void App::sync_link_node_status(TreeNodePtr target) {
         return;
 
     // Traverse favourite_root and library_.podcast_root() to find all LINK nodes referencing this target
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
 
     std::function<void(TreeNodePtr)> sync_children = [&](TreeNodePtr parent) {
         for (auto &child : parent->children) {
@@ -181,7 +181,7 @@ bool App::expand_link_node(TreeNodePtr node) {
         if (target->children_loaded && !target->children.empty()) {
             // Real node already loaded; sync children directly to the LINK
             {
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 node->children.clear();
                 for (auto &child : target->children) {
                     node->children.push_back(
@@ -218,14 +218,14 @@ bool App::expand_link_node(TreeNodePtr node) {
             auto episodes = DatabaseManager::instance().load_episodes_from_cache(target_url);
             if (!episodes.empty()) {
                 {
-                    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                     build_episode_children_from_cache(target, episodes); // Y24.29: was inline
                 }
                 target->children_loaded = true;
                 target->is_db_cached = true;
                 // Sync to the LINK node
                 {
-                    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                     node->children.clear();
                     for (auto &child : target->children) {
                         node->children.push_back(
@@ -259,7 +259,7 @@ bool App::expand_link_node(TreeNodePtr node) {
             OnlineState::instance().load_search_history();
         }
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             node->children.clear();
             for (auto &child : OnlineState::instance().online_root->children) {
                 node->children.push_back(
@@ -287,7 +287,7 @@ bool App::expand_link_node(TreeNodePtr node) {
     std::vector<TreeNodePtr> *target_root = get_root_by_mode_string(node->source_mode);
     if (target_root) {
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             new_target->parent.reset(); // E: top-level (no root node)
             target_root->insert(target_root->begin(), new_target);
         }
@@ -478,7 +478,7 @@ void App::expand_local_folder(TreeNodePtr node) {
     std::sort(files.begin(), files.end(),
               [](const TreeNodePtr &a, const TreeNodePtr &b) { return a->title < b->title; });
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         node->children.clear();
         for (auto &c : subdirs)
             node->children.push_back(c);

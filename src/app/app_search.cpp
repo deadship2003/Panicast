@@ -35,8 +35,8 @@ void App::perform_online_search() {
     OnlineState::instance().add_or_update_search_node(query, OnlineState::instance().current_region,
                                                       results);
 
-    selected_idx = 0;
-    view_start = 0;
+    library_.selected_idx() = 0;
+    library_.view_start() = 0;
 
     EVENT_LOG(fmt::format("Found {} podcasts", results.size()));
 }
@@ -67,7 +67,7 @@ void App::perform_online_search_from_favourite() {
     // They will re-sync from online_root on next expand
     // P1-5: mutate library_.fav_root() under tree_mutex (was unlocked — raced with pool loaders).
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         for (auto &f : library_.fav_root()) {
             if (f->is_link && f->url == "online_root") {
                 f->children_loaded = false;
@@ -77,11 +77,11 @@ void App::perform_online_search_from_favourite() {
     }
 
     // Expand and refresh the current LINK node
-    if (selected_idx < (int)display_list.size()) {
-        auto node = display_list[selected_idx].node;
+    if (library_.selected_idx() < (int)library_.display_list().size()) {
+        auto node = library_.display_list()[library_.selected_idx()].node;
         // P1-5: traverse + mutate library_.fav_root() under tree_mutex (recursive; the inner
         //   block re-acquires safely). Was unlocked — raced with pool loaders mutating library_.fav_root().
-        std::lock_guard<std::recursive_mutex> outer_lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> outer_lock(library_.tree_mutex());
         // Find the LINK containing the current node
         for (auto &f : library_.fav_root()) {
             if (f->is_link && f->url == "online_root") {
@@ -115,13 +115,13 @@ void App::perform_online_search_from_favourite() {
 
     // Rebuild display_list
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        display_list.clear();
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
+        library_.display_list().clear();
         flatten_items(cur_items());
     }
 
-    selected_idx = 0;
-    view_start = 0;
+    library_.selected_idx() = 0;
+    library_.view_start() = 0;
 
     EVENT_LOG(fmt::format("Found {} podcasts (synced to ONLINE)", results.size()));
 }
@@ -194,13 +194,13 @@ void App::perform_search() {
     search_.search_query() = q;
     std::string ql = Utils::to_lower(q);
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
 
         // F20: context-aware search — prioritize matches at the cursor's peer level (same parent),
         //   then the subtree, then the rest of the tree. This avoids "global search" when the user
         //   is browsing a specific feed/folder and expects results nearby first.
-        TreeNodePtr cur_node = (selected_idx >= 0 && selected_idx < (int)display_list.size())
-                                   ? display_list[selected_idx].node
+        TreeNodePtr cur_node = (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size())
+                                   ? library_.display_list()[library_.selected_idx()].node
                                    : nullptr;
 
         if (cur_node) {
@@ -277,14 +277,14 @@ void App::jump_to_match(int idx) {
     auto node = search_.search_matches()[idx];
     reveal_node(node);
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-        display_list.clear();
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
+        library_.display_list().clear();
         flatten_items(cur_items());
     }
-    for (int i = 0; i < (int)display_list.size(); ++i) {
-        if (display_list[i].node == node) {
-            selected_idx = i;
-            view_start = std::max(0, selected_idx - (LINES - 5) / 2);
+    for (int i = 0; i < (int)library_.display_list().size(); ++i) {
+        if (library_.display_list()[i].node == node) {
+            library_.selected_idx() = i;
+            library_.view_start() = std::max(0, library_.selected_idx() - (LINES - 5) / 2);
             return;
         }
     }
@@ -303,7 +303,7 @@ void App::reveal_node(TreeNodePtr node) {
         return false;
     };
     std::lock_guard<std::recursive_mutex> lock(
-        tree_mutex); // traversal + changing expanded must be mutually exclusive
+        library_.tree_mutex()); // traversal + changing expanded must be mutually exclusive
     for (auto &it : cur_items())
         reveal(it); // E: was reveal(current_root)
 }
@@ -421,7 +421,7 @@ void App::load_search_record_children(TreeNodePtr node, const std::string &sourc
         json j = json::parse(cached);
         if (!j.contains("results") || !j["results"].is_array())
             return;
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         node->children.clear();
         for (const auto &r : j["results"]) {
             auto c = build_search_result_node(source, r);
@@ -448,7 +448,7 @@ void App::expand_search_history(TreeNodePtr node) {
     if (source.empty())
         return;
     auto items = DatabaseManager::instance().load_search_history_src(source, node->account_id);
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     node->children.clear();
     for (const auto &it : items) {
         auto rec = std::make_shared<TreeNode>();
@@ -472,7 +472,7 @@ void App::add_search_record(const std::string &source, int account_id, TreeNodeP
                             const std::string &query, const std::string &results_json,
                             std::vector<TreeNodePtr> result_nodes) {
     DatabaseManager::instance().save_search_cache_src(source, account_id, query, results_json);
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     TreeNodePtr sp;
     for (auto &c : account_node->children)
         if (c->is_search_parent) {
@@ -512,7 +512,7 @@ void App::add_search_record(const std::string &source, int account_id, TreeNodeP
     sp->expanded = true;
     sp->children_loaded = true;
     account_node->expanded = true;
-    pending_select_ = rec;
+    library_.pending_select() = rec;
 }
 
 // Y23.1: r on a 🔍 record — re-run the search (re-fetch + update cache).
@@ -542,7 +542,7 @@ void App::delete_search_record(TreeNodePtr node) {
     DatabaseManager::instance().delete_search_history_src(source, node->account_id, query);
     TreeNodePtr p = node->parent.lock();
     if (p) {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         p->children.erase(
             std::remove_if(p->children.begin(), p->children.end(),
                            [&](const TreeNodePtr &n) { return n.get() == node.get(); }),

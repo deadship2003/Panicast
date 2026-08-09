@@ -94,7 +94,12 @@
     - PlaybackService **彻底删除 `subtitle_svc_` 指针** + `attach()` 的 SubtitleService 参数（→ `attach(ThreadPool&)`）+ SubtitleService 前向声明 + `#include "panicast/app/subtitle_service.h"`。**PlaybackService 现零 SubtitleService 引用**（播放域完全不认识字幕）。app_run `attach(pool_, subtitle_)` → `attach(pool_)`。
     - = D10-3 字幕事件化收尾：播放↔字幕**所有**直接耦合切断，全走总线（PlaybackTrackChanged 加载 + PlaybackTrackEnded 停 ASR）。stop_realtime 幂等（已验证），advance 路径 Ended+begin_track 双触发无害。
     - **验收**：ctest 39/39、构建 0-warning（21/21）、pty 冒烟 exit 0 + clean endwin + quit dialog。
-  - [ ] **D11-2 — 视图态 + tree_mutex 迁入 LibraryService**（干净一刀）：display_list/selected_idx/view_start + tree_mutex + pending_select_ 迁入 LibraryService（锁与数据/视图同处）；机械重定向到访问器（复刻 D8b-1/D10-4 模式）。为 D11-3 逻辑搬迁解锁。
+  - [x] **D11-2 — 视图态 + tree_mutex 迁入 LibraryService**（干净一刀）✅ 2026-08-09：display_list/selected_idx/view_start + tree_mutex + pending_select_ 迁入 LibraryService（锁与数据/视图同处——锁随它保护的东西一起搬）；机械重定向到访问器（复刻 D8b-1/D10-4 模式）。为 D11-3 逻辑搬迁解锁。
+    - LibraryService 加 5 成员（`tree_mutex_`/`display_list_`/`selected_idx_`/`view_start_`/`pending_select_`）+ 访问器（数据成员非/常引用双载，tree_mutex 仅非常引用，int 双载）；include `<mutex>` + `panicast/ui/ui.h`（DisplayItem）。
+    - App 删 5 裸成员；inline nav_up/down/top/bottom/page_up + count_marked_safe 的 lock 改 `library_.X()`；app.h 注释更新。
+    - src/app/*.cpp（11 文件）机械重定向：tree_mutex 用**定点** `s/(tree_mutex)/(library_.tree_mutex())/g`（注释安全——散文是 "under tree_mutex" 永非 "(tree_mutex)"）+ 补 `s/tree_mutex);/.../g` 收 5 处**跨行 lock** 调用；display_list/selected_idx/view_start/pending_select_ 用 `\b` 词界 blanket。1 处 struct-access 误伤手修（`app_remote.cpp:150` `s.selected_idx`）；7 处注释散文手修还原。scope 限 src/app/（ui.*/remote_protocol.h 同名异义不触）。
+    - **行为零变化**：同一 mutex 对象（搬非拷）、锁序不变、构造/析构序不变（library_@133 析构晚于 pool_@160→锁存活过线程）。D4 不变量（on_playback_ended 仅 UI 线程，涉 playlist_mutex_）不受影响。
+    - **验收**：ctest 39/39、构建 0-warning（21/21）、pty 冒烟 exit 0 + clean endwin + quit dialog。
   - [ ] **D11-3 — 各 Service 方法体/逻辑搬迁**（敏感一刀，待 D11-2 视图态迁入解锁）。按域拆：
     - [ ] **D11-3a — 字幕/ASR 编排收口进 SubtitleController + 本地字幕文件优先**（用户 2026-08-09 提出）。把 L 键字幕编排（`app_input.cpp:756-822` 的 embedded>本地SRT>online>ASR 优先链）从 UI 输入处理器搬进 SubtitleService 的单一 `resolve_subtitle_source(node)` 解析器；**统一 `find_local_srt`（查下载目录 `<title>.srt` + 本地文件旁）与 `find_sidecar`（仅本地文件旁）为一个解析器**——修 track-load 自动加载漏掉下载目录 ASR SRT 的不一致；三个 ASR 入口（L 键 / `:asr` / remote `asr_start`）+ track-load 全部经此解析器，**"本地字幕文件优先"统一生效：有本地字幕源（内嵌 / 本地 ASR SRT / online 📜）就不跑 ASR**。`offset`（`:z`/`:Z` sub-delay）随迁。
       - **现状缺口（待修）**：① remote `asr_start`（`app_remote.cpp:509`）无本地字幕检查，有本地源也跑 ASR；② track-load `find_sidecar` 不查下载目录，漏掉 L 键能找到的 ASR SRT；③ `:asr` 注释说"skip online"实则连本地 SRT 也跳（应明确为"force bypass all"）；④ L 键优先链内联在 UI、未收口。offline/realtime worker 的 skip-existing-SRT（`transcription_engine.cpp:299/449`）已具备，不重复。

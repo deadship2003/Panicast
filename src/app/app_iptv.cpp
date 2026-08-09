@@ -166,7 +166,7 @@ static std::vector<TreeNodePtr> build_catalog(const std::string &body, const std
 }
 
 void App::load_iptv_root() {
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     if (!library_.iptv_root().empty())
         return; // catalog already built
 
@@ -287,7 +287,7 @@ void App::expand_iptv_node(TreeNodePtr node) {
                 kids = build_channel_tree(parse_m3u(iptv_fetch(cu)));
         }
 
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         node->children = kids;
         for (auto &c : node->children)
             c->parent = node;

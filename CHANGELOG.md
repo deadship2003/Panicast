@@ -10,6 +10,29 @@
 
 ---
 
+## 新架构 D11-2 — 2026-08-09 — 视图态 + tree_mutex 迁入 LibraryService（App 最后一块视图态外迁 · D11 增量2）
+
+> M1（UI 解耦）第 15 步、D11 第 2 增量（干净一刀）。把 App 最后持有的**视图态**（`display_list`/`selected_idx`/`view_start`）+ 异步选择 handoff（`pending_select_`）+ 其守卫锁（`tree_mutex`）搬进 LibraryService——锁与它保护的数据/视图同处。机械重定向到访问器（复刻 D8b-1/D10-4 模式），行为零变化。为 D11-3 各 Service 方法体搬迁解锁（方法体改经访问器读视图态、不再直探 App 成员）。
+
+### LibraryService（+5 成员 + 访问器）
+- 加 `std::recursive_mutex tree_mutex_`（仅非常引用访问器）、`std::vector<DisplayItem> display_list_`（非/常双载）、`int selected_idx_/view_start_`（非/常双载）、`TreeNodePtr pending_select_`（非/常双载）。
+- include `<mutex>` + `panicast/ui/ui.h`（DisplayItem；ui.h 不含 app/library 头→无环）。
+
+### App（删 5 裸成员）
+- 删 `display_list`/`selected_idx`/`view_start`/`tree_mutex`/`pending_select_` 声明；inline nav_up/down/top/bottom/page_up + count_marked_safe 的 lock 改 `library_.X()`；相关注释更新（D10-4 的 "tree_mutex STAYS in App" 注释翻转）。
+
+### src/app/*.cpp（11 文件机械重定向）
+- **tree_mutex 定点替换**（注释安全）：`s/(tree_mutex)/(library_.tree_mutex())/g` + `s/tree_mutex);/library_.tree_mutex());/g`（后者收 5 处**跨行 lock_guard** 调用——`(` 在上行尾、`tree_mutex);` 独占下行）。散文注释是 "under tree_mutex"/"holding tree_mutex"（永非 `(tree_mutex)` 或 `tree_mutex);`），故定点替换零误伤。
+- **display_list/selected_idx/view_start/pending_select_**：`\b` 词界 blanket。1 处 struct-access 误伤手修（`app_remote.cpp:150` `s.selected_idx = …` 的 LHS 还原）；7 处注释散文（"flattened display_list" 等）手修还原。scope 限 src/app/——`src/ui/` 的 `view_start` 是 draw 形参、`remote_protocol.h` 的 `selected_idx` 是 RemoteStateSnapshot 成员，同名异义不触。
+
+### 行为等价性
+- 同一 mutex 对象（**搬非拷**）；锁序不变；构造/析构序不变（`library_`@133 析构晚于 `pool_`@160 → tree_mutex 存活过工作线程 join）。D4 不变量（on_playback_ended 仅 UI 线程，涉 playlist_mutex_）不受影响。
+
+### 验收
+- ctest 39/39、构建 0-warning（21/21）、pty 冒烟 exit 0 + clean endwin + quit dialog。
+
+---
+
 ## 新架构 D11-1 — 2026-08-09 — PlaybackTrackEnded：切掉字幕最后残留直调（播放↔字幕全解耦 · D11 增量1）
 
 > M1（UI 解耦）第 14 步、D11 第 1 增量。D10-3 Step 2 后 PlaybackService 仅剩 2 处 `subtitle_svc_->stop_realtime()` 直接调用（on_playback_ended/play_current 入口，杀 ASR）。本增量新增 `PlaybackTrackEnded{}` 事件，两处改 publish；SubtitleService 订阅 → `stop_realtime()`。**PlaybackService 彻底删除 `subtitle_svc_` 指针、attach 的 SubtitleService 参数、前向声明、include**——播放域零 SubtitleService 引用，播放↔字幕所有直接耦合切断、全走总线。

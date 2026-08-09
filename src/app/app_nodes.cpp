@@ -7,9 +7,9 @@ namespace panicast
 // ONLINE mode delete enhanced: thoroughly cleans database records
 // ONLINE/HISTORY mode supports multi-select delete
 void App::delete_node(int marked_count) {
-    if (selected_idx < 0 || selected_idx >= (int)display_list.size())
+    if (library_.selected_idx() < 0 || library_.selected_idx() >= (int)library_.display_list().size())
         return;
-    auto node = display_list[selected_idx].node;
+    auto node = library_.display_list()[library_.selected_idx()].node;
 
     // ONLINE mode - supports multi-select delete
     if (mode == AppMode::ONLINE) {
@@ -22,7 +22,7 @@ void App::delete_node(int marked_count) {
 
             std::vector<TreeNodePtr> to_delete;
             {
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 collect_marked(OnlineState::instance().online_root, to_delete);
             }
 
@@ -54,7 +54,7 @@ void App::delete_node(int marked_count) {
 
                 // Delete from the tree
                 {
-                    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                     remove_node(OnlineState::instance().online_root, n);
                 }
                 deleted_count++;
@@ -62,13 +62,13 @@ void App::delete_node(int marked_count) {
 
             // Clear all marks
             {
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 clear_marks(OnlineState::instance().online_root);
             }
 
             EVENT_LOG(fmt::format("Deleted {} items from ONLINE", deleted_count));
-            if (selected_idx > 0)
-                selected_idx--;
+            if (library_.selected_idx() > 0)
+                library_.selected_idx()--;
             return;
         }
 
@@ -96,12 +96,12 @@ void App::delete_node(int marked_count) {
 
                 // Delete the node from the tree
                 {
-                    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                     remove_node(OnlineState::instance().online_root, node);
                 }
                 EVENT_LOG(fmt::format("Deleted search record and caches: {}", node->title));
-                if (selected_idx > 0)
-                    selected_idx--;
+                if (library_.selected_idx() > 0)
+                    library_.selected_idx()--;
             }
         } else if (node->type == NodeType::PODCAST_FEED) {
             // Podcast feed node - delete podcast cache and episode cache
@@ -114,24 +114,24 @@ void App::delete_node(int marked_count) {
                 }
                 // Delete the node from the tree
                 {
-                    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                     remove_node(OnlineState::instance().online_root, node);
                 }
                 EVENT_LOG(fmt::format("Deleted podcast cache: {}", node->title));
-                if (selected_idx > 0)
-                    selected_idx--;
+                if (library_.selected_idx() > 0)
+                    library_.selected_idx()--;
             }
         } else {
             // Other nodes - delete from the tree only
             std::string response = ui.dialog("Delete this item? (Y/N)");
             if (response == "Y" || response == "y") {
                 {
-                    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                     remove_node(OnlineState::instance().online_root, node);
                 }
                 EVENT_LOG(fmt::format("Deleted: {}", node->title));
-                if (selected_idx > 0)
-                    selected_idx--;
+                if (library_.selected_idx() > 0)
+                    library_.selected_idx()--;
             }
         }
         return;
@@ -148,7 +148,7 @@ void App::delete_node(int marked_count) {
 
             std::vector<TreeNodePtr> to_delete;
             {
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 collect_marked_current(to_delete);
             }
 
@@ -160,7 +160,7 @@ void App::delete_node(int marked_count) {
                 }
                 // Delete from tree
                 {
-                    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                     remove_from_current(n);
                 }
                 deleted_count++;
@@ -168,13 +168,13 @@ void App::delete_node(int marked_count) {
 
             // Clear all marks
             {
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 clear_marks_current();
             }
 
             EVENT_LOG(fmt::format("Deleted {} history records", deleted_count));
-            if (selected_idx > 0)
-                selected_idx--;
+            if (library_.selected_idx() > 0)
+                library_.selected_idx()--;
             return;
         }
 
@@ -188,12 +188,12 @@ void App::delete_node(int marked_count) {
             }
             // Delete the node from the tree
             {
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 remove_from_current(node);
             }
             EVENT_LOG(fmt::format("Deleted history: {}", node->title));
-            if (selected_idx > 0)
-                selected_idx--;
+            if (library_.selected_idx() > 0)
+                library_.selected_idx()--;
         }
         return;
     }
@@ -214,15 +214,15 @@ void App::delete_node(int marked_count) {
                     std::string response = ui.dialog("Remove this LINK from favourites? (Y/N)");
                     if (response == "Y" || response == "y") {
                         {
-                            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                             auto it = std::remove_if(library_.fav_root().begin(), library_.fav_root().end(),
                                                      [&](auto &n) { return n == node; });
                             library_.fav_root().erase(it, library_.fav_root().end());
                         }
                         DatabaseManager::instance().delete_favourite(node->url);
                         EVENT_LOG(fmt::format("Removed LINK: {}", node->title));
-                        if (selected_idx > 0)
-                            selected_idx--;
+                        if (library_.selected_idx() > 0)
+                            library_.selected_idx()--;
                     }
                     return;
                 }
@@ -247,7 +247,7 @@ void App::delete_node(int marked_count) {
 
             // Delete from ONLINE's online_root
             {
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 remove_node(OnlineState::instance().online_root, node);
             }
 
@@ -267,8 +267,8 @@ void App::delete_node(int marked_count) {
             parent_link->children.clear();
 
             EVENT_LOG(fmt::format("Deleted from both: {}", node->title));
-            if (selected_idx > 0)
-                selected_idx--;
+            if (library_.selected_idx() > 0)
+                library_.selected_idx()--;
             return;
         }
     }
@@ -277,7 +277,7 @@ void App::delete_node(int marked_count) {
     if (marked_count > 0) {
         std::vector<TreeNodePtr> to_delete;
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             collect_marked_current(to_delete);
         }
 
@@ -291,7 +291,7 @@ void App::delete_node(int marked_count) {
 
         int deleted_count = 0;
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             for (auto &n : to_delete) {
                 // If PODCAST_FEED, delete subscription and cache
                 if (n->type == NodeType::PODCAST_FEED && !n->url.empty()) {
@@ -309,15 +309,15 @@ void App::delete_node(int marked_count) {
         EVENT_LOG(fmt::format("Deleted {} subscriptions", deleted_count));
         save_persistent_data();
         Persistence::save_cache(library_.radio_root(), library_.podcast_root());
-        if (selected_idx > 0)
-            selected_idx--;
+        if (library_.selected_idx() > 0)
+            library_.selected_idx()--;
         return;
     }
 
     if (node->type == NodeType::PODCAST_FEED) {
         std::string response = ui.dialog("Delete: (S)ubscription / (C)ache / (N)o?");
         if (response == "S" || response == "s") {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             if (!node->url.empty())
                 DatabaseManager::instance().add_removed_default(node->url);
             remove_from_current(node);
@@ -337,7 +337,7 @@ void App::delete_node(int marked_count) {
     } else {
         std::vector<TreeNodePtr> to_delete;
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             if (marked_count > 0)
                 collect_marked_current(to_delete);
             else
@@ -352,7 +352,7 @@ void App::delete_node(int marked_count) {
                 return; // accept Y/y, consistent with the rest
         }
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             for (auto &n : to_delete)
                 remove_from_current(n);
             clear_marks_current();
@@ -362,8 +362,8 @@ void App::delete_node(int marked_count) {
 
     save_persistent_data();
     Persistence::save_cache(library_.radio_root(), library_.podcast_root());
-    if (selected_idx > 0)
-        selected_idx--;
+    if (library_.selected_idx() > 0)
+        library_.selected_idx()--;
 }
 
 void App::clear_feed_cache(TreeNodePtr feed) {
@@ -417,7 +417,7 @@ void App::clear_marks(const TreeNodePtr &node) {
 }
 
 void App::clear_all_marks() {
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     clear_marks_current();
     EVENT_LOG("All marks cleared");
     Persistence::save_cache(library_.radio_root(), library_.podcast_root());
@@ -425,20 +425,20 @@ void App::clear_all_marks() {
 
 // Enhanced Visual multi-select - supports all node types in all modes
 void App::confirm_visual_selection() {
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
-    int start = std::min(visual_start_, selected_idx);
-    int end = std::max(visual_start_, selected_idx);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
+    int start = std::min(visual_start_, library_.selected_idx());
+    int end = std::max(visual_start_, library_.selected_idx());
     if (start < 0)
         start = 0; // guard against negative-index overflow (visual_start_/selected_idx may be -1)
-    if (display_list.empty()) {
+    if (library_.display_list().empty()) {
         visual_mode_ = false;
         visual_start_ = -1;
         return;
     }
     int count = 0;
 
-    for (int i = start; i <= end && i < (int)display_list.size(); ++i) {
-        auto node = display_list[i].node;
+    for (int i = start; i <= end && i < (int)library_.display_list().size(); ++i) {
+        auto node = library_.display_list()[i].node;
         if (!node)
             continue; // null guard
         // Support multi-select for all node types
@@ -506,9 +506,9 @@ bool App::remove_from_current(TreeNodePtr target) {
 
 // Edit node title and URL
 void App::edit_node() {
-    if (selected_idx < 0 || selected_idx >= (int)display_list.size())
+    if (library_.selected_idx() < 0 || library_.selected_idx() >= (int)library_.display_list().size())
         return;
-    auto node = display_list[selected_idx].node;
+    auto node = library_.display_list()[library_.selected_idx()].node;
 
     // Only allow editing podcast feed sources and custom nodes
     if (node->type != NodeType::PODCAST_FEED && node->type != NodeType::RADIO_STREAM) {
@@ -528,7 +528,7 @@ void App::edit_node() {
 
     // Update the node
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         node->title = new_title;
         node->url = new_url;
     }
@@ -581,9 +581,9 @@ void App::build_episode_children_from_cache(
 }
 
 void App::refresh_node() {
-    if (selected_idx < 0 || selected_idx >= (int)display_list.size())
+    if (library_.selected_idx() < 0 || library_.selected_idx() >= (int)library_.display_list().size())
         return;
-    auto node = display_list[selected_idx].node;
+    auto node = library_.display_list()[library_.selected_idx()].node;
 
     if (node->type == NodeType::FOLDER && mode == AppMode::RADIO) {
         node->children.clear();

@@ -270,15 +270,15 @@ void App::run() {
         bool is_loading = false;
         {
             const auto _tw0 = std::chrono::steady_clock::now();
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             const long _tree_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                            std::chrono::steady_clock::now() - _tw0)
                                            .count();
             if (_tree_wait_ms > 80)
                 LOG(fmt::format("[WATCHDOG] waited {}ms for tree_mutex", _tree_wait_ms));
-            display_list.clear();
+            library_.display_list().clear();
             flatten_items(cur_items());
-            for (const auto &item : display_list) {
+            for (const auto &item : library_.display_list()) {
                 if (item.node->loading) {
                     is_loading = true;
                     break;
@@ -286,14 +286,14 @@ void App::run() {
             }
             // Y11: consume a pending async selection (set by a pool task that built a new node,
             //   e.g. YouTube search results) — move the cursor to it once, then clear.
-            if (pending_select_) {
-                for (size_t i = 0; i < display_list.size(); ++i) {
-                    if (display_list[i].node == pending_select_) {
-                        selected_idx = (int)i;
+            if (library_.pending_select()) {
+                for (size_t i = 0; i < library_.display_list().size(); ++i) {
+                    if (library_.display_list()[i].node == library_.pending_select()) {
+                        library_.selected_idx() = (int)i;
                         break;
                     }
                 }
-                pending_select_.reset();
+                library_.pending_select().reset();
             }
             // Y24.7: SubtitleManager poll — handoff pending transcript to UI + offset + logs.
             subtitle_.poll(ui, ui.is_lyric_bar_requested());
@@ -327,8 +327,8 @@ void App::run() {
             app_state = AppState::LOADING;
 
         int marked = count_marked_current();
-        TreeNodePtr sel_node = (selected_idx >= 0 && selected_idx < (int)display_list.size())
-                                   ? display_list[selected_idx].node
+        TreeNodePtr sel_node = (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size())
+                                   ? library_.display_list()[library_.selected_idx()].node
                                    : nullptr;
         auto downloads = ProgressManager::instance().get_all();
         // Free slots (completed entries just cleared by get_all) → promote pending downloads,
@@ -348,12 +348,12 @@ void App::run() {
         int vh = LINES - 5;
         if (vh < 1)
             vh = 1;
-        if (selected_idx < view_start)
-            view_start = selected_idx;
-        else if (selected_idx >= view_start + vh)
-            view_start = selected_idx - vh + 1;
-        if (view_start < 0)
-            view_start = 0;
+        if (library_.selected_idx() < library_.view_start())
+            library_.view_start() = library_.selected_idx();
+        else if (library_.selected_idx() >= library_.view_start() + vh)
+            library_.view_start() = library_.selected_idx() - vh + 1;
+        if (library_.view_start() < 0)
+            library_.view_start() = 0;
 
         // Snapshot the playing pointer + the INFO play-context (history 3 + next 3)
         //   under the lock. P1.2 (Y23.5): hold the lock during draw ONLY (not during input —
@@ -417,7 +417,7 @@ void App::run() {
             // INFO area renders the 7-line play context from playlist/current_index/
             //   play_mode + hist_titles + next_snap.
             // Y24.7: L-mode poll already ran above (handoff + activation); no separate call needed.
-            ui.draw(mode, display_list, selected_idx, state, view_start, app_state,
+            ui.draw(mode, library_.display_list(), library_.selected_idx(), state, library_.view_start(), app_state,
                     playback_.playback_node(),
                     marked, search_.search_query(), search_.current_match_idx(),
                     search_.total_matches(), sel_node, downloads,
@@ -510,7 +510,7 @@ void App::load_data() {
 // Load history from SQLite into library_.history_root()
 void App::load_history_to_root() {
     auto history = DatabaseManager::instance().get_history(100); // get the most recent 100 entries
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     library_.history_root().clear();
 
     for (const auto &[url, title, timestamp, mt] : history) {
@@ -540,7 +540,7 @@ void App::load_history_to_root() {
 void App::load_persistent_data() {
     std::vector<TreeNodePtr> podcasts, favs;
     Persistence::load_data(podcasts, favs);
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     if (!library_.podcast_loaded()) {
         for (auto &n : podcasts) {
             n->parent.reset(); // set parent pointer
@@ -555,7 +555,7 @@ void App::load_persistent_data() {
 }
 
 void App::save_persistent_data() {
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     Persistence::save_data(library_.podcast_root(), library_.fav_root());
 }
 
@@ -616,7 +616,7 @@ void App::load_radio_root() {
     if (!data.empty()) {
         auto parsed = OPMLParser::parse(data);
         if (parsed) {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             library_.radio_root() = parsed->children;
             library_.radio_loaded() = true;
             EVENT_LOG(fmt::format("Radio: {} stations loaded", library_.radio_root().size()));
@@ -627,7 +627,7 @@ void App::load_radio_root() {
 
 void App::spawn_load_radio(TreeNodePtr node, bool force) {
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         if (node->loading)
             return;
         node->loading = true;
@@ -637,7 +637,7 @@ void App::spawn_load_radio(TreeNodePtr node, bool force) {
     EVENT_LOG(fmt::format("Loading: [RADIO] {}", node->url));
 
     if (node->children_loaded && !force) {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         node->loading = false;
         node->expanded = true;
         return;
@@ -653,7 +653,7 @@ void App::spawn_load_radio(TreeNodePtr node, bool force) {
         if (!data.empty()) {
             auto parsed = OPMLParser::parse(data);
             if (parsed) {
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 node->children = parsed->children;
                 node->children_loaded = true;
                 node->expanded = true;
@@ -664,7 +664,7 @@ void App::spawn_load_radio(TreeNodePtr node, bool force) {
             }
         }
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             node->loading = false;
         }
 
@@ -675,7 +675,7 @@ void App::spawn_load_radio(TreeNodePtr node, bool force) {
 
 void App::spawn_load_feed(TreeNodePtr node) {
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         if (node->loading)
             return;
         node->loading = true;
@@ -725,7 +725,7 @@ TreeNodePtr App::parse_feed_by_type(TreeNodePtr node, const std::string &url, UR
             EVENT_LOG(fmt::format("Apple -> {}", cur_url));
         } else {
             // lookup_apple_feed() already emitted a detailed EVENT_LOG with the reason + retry count.
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             node->loading = false;
             node->parse_failed = true;
             node->error_msg = "Apple lookup failed (see LOG)";
@@ -914,7 +914,7 @@ void App::commit_feed_result(TreeNodePtr node, TreeNodePtr result, const std::st
     // Hold the lock only for tree-structure changes + lightweight subscription persistence (subscription list is small, fast),
     //   ensuring the loading state and draw()'s is_loading detection stay in sync.
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         if (result) {
             if (has_children) {
                 node->children = result->children;
@@ -978,7 +978,7 @@ void App::commit_feed_result(TreeNodePtr node, TreeNodePtr result, const std::st
 void App::load_default_podcasts() {
     // DB query runs outside the lock to avoid blocking other lock-waiting threads while holding tree_mutex
     auto removed = DatabaseManager::instance().load_removed_defaults();
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     struct BuiltinPodcast {
         const char *name;
         const char *url;
@@ -1367,8 +1367,8 @@ void App::load_default_podcasts() {
 void App::flatten(const TreeNodePtr &node, int depth, bool is_last, int parent_idx) {
     // E: pure subtree recursion — always pushes the node. The caller passes only displayable
     //   items (the per-mode root is never passed), so the old `title=="Root"` magic is gone.
-    int current_idx = display_list.size();
-    display_list.push_back({node, depth, is_last, parent_idx});
+    int current_idx = library_.display_list().size();
+    library_.display_list().push_back({node, depth, is_last, parent_idx});
     if ((node->type == NodeType::FOLDER || node->type == NodeType::PODCAST_FEED) &&
         node->expanded) {
         int count = node->children.size();

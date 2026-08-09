@@ -40,7 +40,7 @@ void App::jump_to_playing() {
         break;
     }
     reset_search();
-    selected_idx = 0;
+    library_.selected_idx() = 0;
     // Expand all ancestors so the node appears in the flattened display_list.
     {
         auto p = pn->parent.lock();
@@ -51,24 +51,24 @@ void App::jump_to_playing() {
     }
     // pending_select_ is consumed by the run loop (app_run.cpp): it searches display_list for
     //   this node, sets selected_idx, and the existing view_start scroll makes it visible.
-    pending_select_ = pn;
+    library_.pending_select() = pn;
     EVENT_LOG(fmt::format("Jumped to playing: '{}'", pn->title));
 }
 
 void App::nav_page_down() {
-    selected_idx += PAGE_SCROLL_LINES;
-    if (display_list.empty()) {
-        selected_idx = 0;
+    library_.selected_idx() += PAGE_SCROLL_LINES;
+    if (library_.display_list().empty()) {
+        library_.selected_idx() = 0;
         return;
     }
-    if (selected_idx >= (int)display_list.size())
-        selected_idx = (int)display_list.size() - 1;
+    if (library_.selected_idx() >= (int)library_.display_list().size())
+        library_.selected_idx() = (int)library_.display_list().size() - 1;
 }
 
 void App::go_back() {
-    if (selected_idx < 0 || selected_idx >= (int)display_list.size())
+    if (library_.selected_idx() < 0 || library_.selected_idx() >= (int)library_.display_list().size())
         return;
-    auto node = display_list[selected_idx].node;
+    auto node = library_.display_list()[library_.selected_idx()].node;
 
     // Improved 'h' key behavior
     // If the current node is expandable and expanded, collapse first
@@ -79,9 +79,9 @@ void App::go_back() {
     }
 
     // If the node is not expanded, try jumping to the parent node
-    int parent = display_list[selected_idx].parent_idx;
+    int parent = library_.display_list()[library_.selected_idx()].parent_idx;
     if (parent != -1) {
-        selected_idx = parent;
+        library_.selected_idx() = parent;
     } else {
         // At the top-level node, check whether there are collapsible top-level nodes
         // Try to collapse all top-level children
@@ -106,9 +106,9 @@ void App::enter_node(int marked_count) {
         return;
     }
 
-    if (selected_idx < 0 || selected_idx >= (int)display_list.size())
+    if (library_.selected_idx() < 0 || library_.selected_idx() >= (int)library_.display_list().size())
         return;
-    auto node = display_list[selected_idx].node;
+    auto node = library_.display_list()[library_.selected_idx()].node;
     if (!node)
         return;
 
@@ -116,7 +116,7 @@ void App::enter_node(int marked_count) {
     //   node->children/expanded/children_loaded (incl. cache-build blocks) which races with
     //   background spawn_load_feed callbacks + per-frame flatten. Recursive mutex → safe with
     //   spawn_load_feed/load_search_history_children which re-enter.
-    std::lock_guard<std::recursive_mutex> enter_lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> enter_lock(library_.tree_mutex());
 
     // Y01: Y-mode node activation (account / history / subscriptions / channel).
     if (mode == AppMode::ACCOUNT) {
@@ -136,7 +136,7 @@ void App::enter_marked(int marked_count) {
     (void)marked_count; // precondition: caller ensures marked_count > 0
     std::vector<TreeNodePtr> items;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         collect_playable_marked_current(items);
     }
     if (!items.empty()) {
@@ -144,7 +144,7 @@ void App::enter_marked(int marked_count) {
         EVENT_LOG(fmt::format("Play marked: '{}'", items[0]->title));
     }
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         clear_marks_current();
     }
     Persistence::save_cache(library_.radio_root(), library_.podcast_root());
@@ -307,9 +307,9 @@ void App::enter_leaf(TreeNodePtr node) {
 }
 
 void App::toggle_mark() {
-    if (selected_idx < 0 || selected_idx >= (int)display_list.size())
+    if (library_.selected_idx() < 0 || library_.selected_idx() >= (int)library_.display_list().size())
         return;
-    auto node = display_list[selected_idx].node;
+    auto node = library_.display_list()[library_.selected_idx()].node;
     if (!node)
         return; // null guard
     node->marked = !node->marked;
@@ -325,9 +325,9 @@ void App::toggle_mark() {
 
 // Node tree sort
 void App::toggle_sort_order() {
-    if (selected_idx < 0 || selected_idx >= (int)display_list.size())
+    if (library_.selected_idx() < 0 || library_.selected_idx() >= (int)library_.display_list().size())
         return;
-    auto node = display_list[selected_idx].node;
+    auto node = library_.display_list()[library_.selected_idx()].node;
     if (!node)
         return;
 
@@ -340,7 +340,7 @@ void App::toggle_sort_order() {
     int n = 0;
     std::string scope_desc;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         std::vector<TreeNodePtr> *targets = sort_top ? &cur_items() : &parent->children;
         n = (int)targets->size();
         if (n == 0) {
@@ -365,7 +365,7 @@ void App::toggle_sort_order() {
                           return title_compare_asc(a->title, b->title);
                       });
         }
-        display_list.clear();
+        library_.display_list().clear();
         flatten_items(cur_items());
         scope_desc = sort_top ? (mode == AppMode::RADIO     ? "Radio List"
                                  : mode == AppMode::PODCAST ? "Podcast List"

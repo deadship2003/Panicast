@@ -1,8 +1,10 @@
 #pragma once
 
+#include <mutex>
 #include <vector>
 
 #include "panicast/core/types.h" // TreeNodePtr
+#include "panicast/ui/ui.h"      // DisplayItem (view model for display_list_)
 
 namespace panicast
 {
@@ -10,8 +12,12 @@ namespace panicast
 //   6 "loaded" flags). Extracted from App's god-object (ownership cut, mirrors D8b-1/D10-1/D10-2).
 //
 //   The members behind accessors are the same std::vector<TreeNodePtr> / bool App held; callers
-//   read/write via the returned reference under tree_mutex (still in App for now — it also guards
-//   view state display_list/selected_idx which is D11 territory, so it is not co-located here yet).
+//   read/write via the returned reference under tree_mutex() (D11-2: now co-located here — it
+//   guards both the tree data above and the view state below, so the lock lives with what it
+//   protects). display_list_/selected_idx_/view_start_ + pending_select_ also moved in (D11-2):
+//   they were App view-state members the lock already guarded, so co-locating them removes App's
+//   last view-state ownership and unblocks D11-3 (method-body relocation can reach them via
+//   accessors instead of direct member access).
 //
 //   The tree-building METHODS (load_radio_root / load_podcast_root / …) stay in App for now: they
 //   reach into tree_mutex + parser/storage + the UI, so their full relocation waits for D11
@@ -52,11 +58,33 @@ public:
     bool &iptv_loaded() { return iptv_loaded_; }
     bool iptv_loaded() const { return iptv_loaded_; }
 
+    // ── View state + its guard (D11-2 relocated from App) ──
+    //   tree_mutex guards BOTH the tree data (roots above) and this view state; it is the SAME
+    //   recursive_mutex App held (moved, not copied) — every former `lock_guard<recursive_mutex>
+    //   lock(tree_mutex)` site now writes `lock(library_.tree_mutex())`, lock order unchanged.
+    //   display_list/selected_idx/view_start are the rendered list + cursor + scroll; pending_select_
+    //   is the Y11 async-selection handoff (a pool task sets it under tree_mutex, the UI thread
+    //   consumes it next frame). All read/written under tree_mutex() by the caller, as before.
+    std::recursive_mutex &tree_mutex() { return tree_mutex_; }
+    std::vector<DisplayItem> &display_list() { return display_list_; }
+    const std::vector<DisplayItem> &display_list() const { return display_list_; }
+    int &selected_idx() { return selected_idx_; }
+    int selected_idx() const { return selected_idx_; }
+    int &view_start() { return view_start_; }
+    int view_start() const { return view_start_; }
+    TreeNodePtr &pending_select() { return pending_select_; }
+    const TreeNodePtr &pending_select() const { return pending_select_; }
+
 private:
     std::vector<TreeNodePtr> radio_root_, podcast_root_, fav_root_, history_root_, account_root_,
         bilibili_root_, tiktok_root_, iptv_root_;
     bool radio_loaded_ = false, podcast_loaded_ = false, account_loaded_ = false,
          bilibili_loaded_ = false, tiktok_loaded_ = false, iptv_loaded_ = false;
+    // D11-2: view state + guard (moved from App — same objects, same invariants).
+    std::recursive_mutex tree_mutex_;
+    std::vector<DisplayItem> display_list_;
+    int selected_idx_ = 0, view_start_ = 0;
+    TreeNodePtr pending_select_;
 };
 
 } // namespace panicast

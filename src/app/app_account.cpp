@@ -27,7 +27,7 @@ void App::load_accounts_root() {
     }
     auto accounts = AccountsManager::instance().list_accounts();
     int active = AccountsManager::instance().active_account_id();
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     library_.account_root().clear();
 
     if (accounts.empty()) {
@@ -286,7 +286,7 @@ void App::enter_account_node(TreeNodePtr node) {
         AccountsManager::instance().set_active_account(node->account_id);
         EVENT_LOG(fmt::format("Y: active account -> #{} ({})", node->account_id, node->title));
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             for (auto &a : library_.account_root())
                 a->is_cached = (a->account_id == node->account_id);
         }
@@ -364,7 +364,7 @@ void App::enter_account_node(TreeNodePtr node) {
                         EVENT_LOG(fmt::format("Y: channel -> {} videos (yt-dlp)", cnt));
                 }
 
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 if (cnt > 0) {
                     // OAuth path returns a vector (build nodes here); yt-dlp path already built into n->children.
                     if (n->children.empty() && !vids.empty()) {
@@ -423,7 +423,7 @@ void App::enter_account_node(TreeNodePtr node) {
 void App::expand_account_child(TreeNodePtr node) {
     if (!node)
         return;
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     node->children.clear();
     int aid = node->account_id;
 
@@ -512,7 +512,7 @@ void App::refresh_account_subs(TreeNodePtr node) {
         sync_account_subscriptions(aid); // refresh DB rows from Google (network)
         expand_account_child(n); // clears + rebuilds this subtree from DB (under tree_mutex)
         {
-            std::lock_guard<std::recursive_mutex> lk(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lk(library_.tree_mutex());
             n->expanded = true;
         }
         EVENT_LOG("Y: subscriptions re-synced");
@@ -530,7 +530,7 @@ void App::refresh_account_history(TreeNodePtr node) {
         sync_account_history(aid);
         expand_account_child(n);
         {
-            std::lock_guard<std::recursive_mutex> lk(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lk(library_.tree_mutex());
             n->expanded = true;
         }
         EVENT_LOG("Y: watch history re-synced");
@@ -598,7 +598,7 @@ void App::perform_youtube_search(const std::string &preset) {
 
         TreeNodePtr acct;
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             for (auto &c : library_.account_root())
                 if (c->is_account && c->account_id == aid) {
                     acct = c;

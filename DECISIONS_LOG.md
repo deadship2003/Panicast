@@ -1,4 +1,22 @@
 
+## D11-2 — 视图态 + tree_mutex 迁入 LibraryService（M1 第 15 人日，D11 增量2 / 干净一刀）
+
+**Context:** D10-4 把树数据模型（8 root + 6 loaded）搬进 LibraryService 时，`tree_mutex` 故意留 App——它同时守视图态 `display_list`/`selected_idx`（D11 领地），锁不与数据同处。D11-2 是 D11 的"干净一刀"：把视图态 + handoff + 锁一并搬进 LibraryService，为 D11-3 各 Service 方法体搬迁解锁（方法体改经访问器读视图态、不再直探 App 成员）。
+
+**Decision: 搬 5 个成员进 LibraryService（display_list/selected_idx/view_start/tree_mutex/pending_select_）+ 访问器机械重定向，行为零变化。** 锁随它保护的数据/视图一起搬（同处）。访问器复刻 D8b-1/D10-4：数据成员非/常引用双载，tree_mutex 仅非常引用（mutex 不在 const 上下文锁定），int 双载（非/常）。
+
+**Why tree_mutex 定点替换 `(tree_mutex)` 而非 `\b` blanket:** tree_mutex 在 src/app/ 有 119 处，其中大量是**注释散文**（"under tree_mutex"/"requires holding tree_mutex"）。blanket `\b` 会把注释也改成 "under library_.tree_mutex()"——读着错。实测**所有代码** lock 站点都是 `(tree_mutex)`（lock_guard 单行）或 `tree_mutex);`（跨行 lock_guard，`(` 在上行尾）两种形式，注释散文永非这两种字面。故定点两条 sed 注释零误伤。
+
+**Why 跨行 lock 调用需第二条 sed (`s/tree_mutex);/.../g`):** 第一条 `s/(tree_mutex)/.../g` 只匹配 `(tree_mutex)` 同行；`std::lock_guard<...> lock(\n  tree_mutex);` 的 `(` 在上行尾、`tree_mutex);` 独占下行，不匹配。第一次构建即报 5 处 "tree_mutex not declared"（app_subscriptions×4 + app_search×1）暴露此——补第二条 sed 收齐。这是 sed 按行处理的固有限制。
+
+**Why scope 限 src/app/（不触 src/ui/、remote_protocol.h）:** `view_start` 在 `ui.cpp`/`ui.h` 是 draw 函数**形参**、`selected_idx` 在 `remote_protocol.h` 是 `RemoteStateSnapshot` **成员**——同名异义。blanket `\b` 跨文件会误伤。sed 只作用于 src/app/*.cpp（同名异义文件不在内）；app_remote.cpp:150 `s.selected_idx = selected_idx` 的 LHS（struct 成员）误伤手修还原。
+
+**Gotcha — 构造/析构序验证:** tree_mutex 现在是 library_ 的子成员（library_@133），析构序 reverse-declaration：pool_@160 先析构（join 工作线程）、library_@133 后析构（含 tree_mutex_）→ 锁存活过所有线程 join，与搬前等价（搬前 tree_mutex@157 也在 pool_@160 之后析构）。搬动不改锁存活期。
+
+**Gotcha — library_service.h 现含 ui.h:** DisplayItem 定义在 `panicast/ui/ui.h`，library_service.h 为 `vector<DisplayItem>` 须 include 之。ui.h 不含 app/library 头（验证无环），但传递引入 ncurses 等——LibraryService（app 层）现传递依赖 UI 头，层度略瑕。DisplayItem 本质是 dumb 数据结构，未来可挪到 core/types.h 清理（非本增量 scope）。
+
+**Followups:** D11-3a/b/c（各 Service 方法体搬迁——现可经访问器读视图态）→ D11-4（grep 验证 UI 零 Core 直调）。注意 D11-3a（字幕/ASR 编排收口）现已解锁。
+
 ## D11-3a 规划 — ASR "本地字幕文件优先" 缺口分析 + 收口计划（M1 第 14 人日续，规划/延后）
 
 **Context:** 用户提出 "ASR 流程缺失了本地字幕文件优先的逻辑，需要补回迭代计划，并在合适时机实现。" ASR（whisper.cpp，离线 F-mode 产 .srt sidecar + 实时 L 键渐进）昂贵；**原则**：有本地字幕源就不该跑 ASR。优先级应为 内嵌 > 本地 ASR SRT > online 📜 transcript > ASR。深挖全部 ASR 入口 + track-load + worker 后定位四处不一致。

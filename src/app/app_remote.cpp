@@ -147,7 +147,7 @@ void App::update_remote_state_cache() {
 
     s.mode = mode_str(mode);
     s.play_mode = play_mode_str(play_mode);
-    s.selected_idx = selected_idx;
+    s.selected_idx = library_.selected_idx();
     s.current_index = playback_.current_index();
 
     {
@@ -405,9 +405,9 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
     if (a == "nav_select") {
         if (!args.empty()) {
             int idx = std::atoi(args[0].c_str());
-            int n = static_cast<int>(display_list.size());
+            int n = static_cast<int>(library_.display_list().size());
             if (n > 0) {
-                selected_idx = std::clamp(idx, 0, n - 1);
+                library_.selected_idx() = std::clamp(idx, 0, n - 1);
             }
         }
         return;
@@ -465,7 +465,7 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
     }
     if (a == "visual_on") {
         visual_mode_ = true;
-        visual_start_ = selected_idx;
+        visual_start_ = library_.selected_idx();
         return;
     }
     if (a == "visual_off") {

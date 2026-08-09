@@ -6,11 +6,11 @@ namespace panicast
 void App::download_node(int marked_count) {
     std::vector<TreeNodePtr> items;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         if (marked_count > 0)
             collect_playable_marked_current(items);
-        else if (selected_idx < (int)display_list.size()) {
-            auto n = display_list[selected_idx].node;
+        else if (library_.selected_idx() < (int)library_.display_list().size()) {
+            auto n = library_.display_list()[library_.selected_idx()].node;
             if (n->type == NodeType::RADIO_STREAM || n->type == NodeType::PODCAST_EPISODE)
                 items.push_back(n);
         }
@@ -30,7 +30,7 @@ void App::download_node(int marked_count) {
     pump_download_queue(ProgressManager::instance().get_all().size());
 
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         clear_marks_current();
     }
     Persistence::save_cache(library_.radio_root(), library_.podcast_root());
@@ -170,7 +170,7 @@ void App::ytdlp_download(const std::string &url, const std::vector<std::string> 
     ProgressManager::instance().complete(dl_id, success);
     {
         // Writing node fields and serializing the tree both require holding tree_mutex
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         if (success) {
             CacheManager::instance().mark_downloaded(url, local_file);
             n->is_downloaded = true;
@@ -433,7 +433,7 @@ bool App::start_one_download(TreeNodePtr n) {
             ProgressManager::instance().complete(dl_id, success);
             {
                 // Writing node fields and serializing the tree both require holding tree_mutex, mutually exclusive with UI/other workers
-                std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
                 if (success) {
                     CacheManager::instance().mark_downloaded(url, filepath);
                     n->is_downloaded = true;

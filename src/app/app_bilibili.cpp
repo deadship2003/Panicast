@@ -100,7 +100,7 @@ static void write_bilibili_cookies(const BilibiliAccount &a) {
 
 // ── Build library_.bilibili_root() from DB ──
 void App::load_bilibili_root() {
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     library_.bilibili_root().clear();
     auto accounts = load_bilibili_accounts();
     if (accounts.empty()) {
@@ -274,7 +274,7 @@ void App::expand_bilibili_account(TreeNodePtr node) {
         return;
     // Y22: mirror Y-mode — create two lazy children: Subscriptions (followings) + History (history).
     //   Each fetches on first expand (expand_bili_followings / expand_bili_history).
-    std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
     node->children.clear();
     auto subs = std::make_shared<TreeNode>();
     subs->title = "Subscriptions";
@@ -315,7 +315,7 @@ void App::expand_bili_followings(TreeNodePtr node) {
         return;
     }
     {
-        std::lock_guard<std::recursive_mutex> lk(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lk(library_.tree_mutex());
         node->loading = true;
     }
     EVENT_LOG(fmt::format("B: fetching followings for {}...", acc.uname));
@@ -324,7 +324,7 @@ void App::expand_bili_followings(TreeNodePtr node) {
     pool_.submit([this, sessdata, uid, aid, node]() {
         auto followings = BilibiliParser::parse_followings(sessdata, uid, aid);
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             node->children.clear();
             for (auto &c : followings) {
                 c->parent = node;
@@ -355,7 +355,7 @@ void App::expand_bili_history(TreeNodePtr node) {
         return;
     }
     {
-        std::lock_guard<std::recursive_mutex> lk(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lk(library_.tree_mutex());
         node->loading = true;
     }
     EVENT_LOG(fmt::format("B: fetching history for {}...", acc.uname));
@@ -363,7 +363,7 @@ void App::expand_bili_history(TreeNodePtr node) {
     pool_.submit([this, sessdata, node]() {
         auto hist = BilibiliParser::parse_history(sessdata, node->account_id);
         {
-            std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             node->children.clear();
             for (auto &c : hist) {
                 c->parent = node;
@@ -412,7 +412,7 @@ void App::subscribe_bilibili_up(TreeNodePtr node) {
     std::string mid = node->channel_id;
     std::string uname = node->channel_name.empty() ? node->title : node->channel_name;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         for (const auto &child : library_.podcast_root()) {
             if (child->url == node->url) {
                 EVENT_LOG(fmt::format("Already subscribed: {}", uname));
@@ -460,7 +460,7 @@ void App::perform_bilibili_search(const std::string &preset) {
     //   search has no parent to attach results to → require a logged-in account (like Y mode).
     TreeNodePtr acct;
     {
-        std::lock_guard<std::recursive_mutex> lock(tree_mutex);
+        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
         if (!library_.bilibili_root().empty() && library_.bilibili_root()[0]->is_account)
             acct = library_.bilibili_root()[0];
     }
