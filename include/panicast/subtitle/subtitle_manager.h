@@ -14,7 +14,7 @@
 namespace panicast
 {
 
-class UI;
+class IFrontend;
 class ThreadPool;
 
 class SubtitleManager {
@@ -53,7 +53,7 @@ public:
 
     // UI-thread handoff: if a pending transcript is ready, push segments to the UI (set_transcript)
     //   and update L-mode active state (requested && READY) + offset. Returns true if handed off.
-    bool poll(UI &ui, bool lyric_bar_requested);
+    bool poll(IFrontend &ui, bool lyric_bar_requested);
 
     // Download the transcript sidecar alongside an episode (format-preserving extension, async).
     //   Saved as <local_file>.<ext> where ext is inferred from subtitle_type / subtitle_url.

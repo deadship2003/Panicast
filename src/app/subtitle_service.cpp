@@ -10,7 +10,7 @@
 #include "panicast/core/logger.h"
 #include "panicast/core/thread_pool.h"
 #include "panicast/playback/mpv_controller.h"
-#include "panicast/ui/ui.h"
+#include "panicast/ui/frontend.h" // D12-3b: poll(IFrontend&) — forwards to SubtitleManager::poll
 
 namespace panicast
 {
@@ -72,7 +72,7 @@ void SubtitleService::shutdown() {
     transcription_engine_.shutdown(); // Y24.19: stop transcription dispatcher
 }
 
-void SubtitleService::poll(UI &ui, bool lyric_bar_requested) {
+void SubtitleService::poll(IFrontend &ui, bool lyric_bar_requested) {
     // Y24.7: SubtitleManager poll — handoff pending transcript to UI + offset + logs.
     subtitle_mgr_.poll(ui, lyric_bar_requested);
 }

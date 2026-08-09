@@ -43,6 +43,8 @@ UI（`src/ui/`）是纯呈现层，依赖规则：
 >
 > **ncurses 边界（D12-3a · M1 验收）**：ncurses 收敛在 `ui/`（渲染）+ `theme/`（呈现层）——二者本就是 ncurses 的归属层。`core/` 与 `config/` **零 ncurses 依赖**（`core/win_raii.h` 已归位 `ui/`；`config/ini_config.h` 颜色映射改原生 int）。core 基础设施对终端的操作走原生 termios/ANSI 转义直写 `/dev/tty`、绕过 ncurses（utils/process_utils/terminal 仅注释提及 ncurses）。
 
+> **前端契约（D12-3b · IFrontend）**：`include/panicast/ui/frontend.h` 定义 `class IFrontend`——ncurses-free 抽象契约（26 纯虚：渲染入口 `draw`、输入/弹窗、每帧状态推入 `set_transcript`/`set_lyric_bar_active`/`update_lyric_history`、lyric/scroll/tree 开关与查询、几何），ncurses UI `class UI : public IFrontend` 实现之。契约拥有它所说的 ncurses-free 视图模型类型（`DisplayItem`/`DisplayContext`/`LyricManual`），依赖方向为 `frontend.h`（无 ncurses）← `ui.h`（ncurses）。字幕 Application Service 的 `poll(IFrontend&)` 与 `library_service.h`（App 层 DisplayItem）已改经契约、不再 `#include ui.h` → **modules/ 与 App 层不为前端契约拖 ncurses**。UI 私有渲染辅助（`draw_line`/`draw_status`/`draw_lyric_*`，带 `WINDOW*`）与静态 `is_input_cancelled`（ncurses 输入标记契约）留 UI 具体、不进 `IFrontend`。D12-3c 将让 App 经 `unique_ptr<IFrontend>` 持有 UI（UI 可换、Qt 可后接同一契约）→ M1。
+
 ## 3. 已有核心抽象（重构须复用，勿另起炉灶）
 
 - **Provider 模式（自注册）**：

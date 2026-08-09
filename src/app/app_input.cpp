@@ -769,10 +769,10 @@ void App::handle_input(int ch, int marked_count) {
             //   per-track manual override (Y24.48). Active→Closed (suppress auto until track
             //   change); inactive→Open (show immediately, e.g. during ASR startup).
             if (ui.is_lyric_bar_active()) {
-                ui.set_lyric_manual(UI::LyricManual::Closed);
+                ui.set_lyric_manual(LyricManual::Closed);
                 break;
             }
-            ui.set_lyric_manual(UI::LyricManual::Open);
+            ui.set_lyric_manual(LyricManual::Open);
             // If ASR already running, just reveal the panel — don't restart.
             if (subtitle_.transcription_engine().realtime_running()) {
                 break;

@@ -1,4 +1,24 @@
 
+## D12-3b — IFrontend 抽象契约 + UI 实现 + 字幕层解耦（M1 第 22 人日，D12 增量3b · 前端可换契约就位）
+
+**Context:** M1（UI 解耦）的终点是"UI 可换"——系统经一个 ncurses-free 抽象与前端说话，ncurses UI 是其实现，Qt/其它前端可后接同一契约。ncurses 已收敛（3a）之后，需要的就是这个契约。审计 App + 字幕 Application Service 对 UI 的**实际调用面**：src/app/ 的 `ui.` 25 个方法（input_box/dialog/confirm_box 输入设备 + draw + 一堆 lyric/theme/scroll/tree 开关与查询 + get_top_h/get_left_w 几何）+ 字幕 `set_transcript`（SubtitleManager::poll 经 `UI&` 调，TranscriptionEngine::poll 拿 `UI&` 但未用）= **26**。UI 是 App 直接成员 `UI ui;`(app.h:125)。
+
+**Decision: 新增 `IFrontend`（ncurses-free，26 纯虚），`UI : public IFrontend` 实现之；字幕 `poll(UI&)`→`poll(IFrontend&)`。** ① `include/panicast/ui/frontend.h` 定义 `class IFrontend`（26 纯虚 = 实际调用面），并把契约所说的 ncurses-free 视图模型类型**迁入**：`DisplayItem`/`DisplayContext`（原 ui.h）+ `LyricManual`（原 UI 嵌套枚举）。契约的 include 全在 `ui/`+`theme/` 之外（types/mpv_controller/progress/subtitle_parser）→ ncurses-free；依赖方向 `frontend.h`（无 ncurses）← `ui.h`（ncurses）。② UI 26 方法加 `override`；私有渲染辅助（`draw_line`/`draw_status`/`draw_lyric_*`，带 `WINDOW*`）+ 静态 `is_input_cancelled` 留 UI 具体、不进契约。③ 字幕经契约说话：3 处 `poll(UI&)`→`poll(IFrontend&)`（头前向 + 实现签名），`.cpp` 的 `#include ui.h`→`frontend.h` → **modules/ 不再名具体 UI / 不再依赖 ncurses**。④ `library_service.h`（App 层 DisplayItem）include 由 `ui.h` 改 `frontend.h` → App 层不为视图模型拖 ncurses。
+
+**Why 方法集 = 实际调用面（26），非 UI 全部 public:** 接口最小主义——只放跨层调用者真用的。`toggle_tree_lines`/`set_lyric_bar_requested`/`show_url_popup`/`current_theme_name`/`apply_theme` 等非跨层调用者（App 不经实例调、或纯 UI 内部）留 UI 具体。一个 Qt 前端要实现的只是这 26 个，契约越窄越易后接。
+
+**Why 拆 3b（本增量）/ 3c（App unique_ptr）:** 3b 先证明"契约 + 继承 + 26 override + 字幕改经契约"编译 0-warning（最大不确定项），把 App 所有权切换（`UI ui;`→`unique_ptr<IFrontend>` + `ui.`→`frontend_->` 机械 sed + 1 处手动解引用）留给 3c 这步纯机械活。strangler 铁律：每增量绿；拆开各自更低风险。3b 已交付真实价值：契约存在 + modules/ 与 App 层不再为前端拖 ncurses。
+
+**Why 把 DisplayItem/DisplayContext/LyricManual 迁入 frontend.h（而非前向声明）:** 契约以这些类型说话（`draw(const vector<DisplayItem>&)` 等）。它们本就 ncurses-free，放进 frontend.h 使契约自洽、不需 include ui.h（否则契约又拖 ncurses）。前向声明 + `vector<不完整类型>&` 在声明里属灰区/有风险；三个结构体极小，整体迁移最干净。`UI::LyricManual::X` 调用点（App 4 处）随之改 `LyricManual::X`。
+
+**Why 默认参数基类+派生都留:** `draw`/`input_box`/`confirm_box`/`init` 有默认参数；具体 UI 调用点（如 App 的 `ui.draw(...)`）依赖这些默认。基类（IFrontend）与派生（UI override）保留**一致**默认值——经具体 UI 用 UI 默认、经契约用契约默认，合法（不同作用域非重定义）、0-warning。
+
+**Why is_input_cancelled 不进 IFrontend:** 它检查 ncurses input_box 的 CANCELLED 标记（`\x01CANCELLED\x01`）——是 ncurses 输入契约的实现细节，Qt 前端自有其取消语义、不会用此标记。留 UI 静态。
+
+**Acceptance:** ctest 39/39、0-warning（29/29）、pty 冒烟 exit 0 + clean endwin；IFrontend 全部 include 在 ui/+theme/ 之外（ncurses-free 契约）；§4 层间门绿。App 仍持具体 `UI ui;`（3c 切换）——故 M1"UI 可换性就位"待 3c。
+
+**Followups:** D12-3c（App `unique_ptr<IFrontend>` 持有 UI，`ui.`→`frontend_->`，UI 可换性就位）→ **M1 达成**。D12-2（jump_to_match/reveal_node 搬 SearchService）defer。
+
 ## D12-3a — 收 ncurses：Core/config 零 ncurses 依赖（M1 第 21 人日，D12 增量3a · IFrontend 前置）
 
 **Context:** D12-3（IFrontend）的 M1 验收明写"Core 不依赖 ncurses"。审计发现**此前并不成立**：`core/win_raii.h`（ncurses `WINDOW*` RAII：newwin/keypad/delwin）+ `config/ini_config.h`（`resolve_color` 颜色名→码映射用 `COLOR_BLACK`…`COLOR_WHITE` 宏）都 `#include <ncurses.h>`。core/ 另 4 处（utils.h / text_utils.cpp / process_utils.cpp / terminal.cpp）提及 ncurses 仅**注释**——它们用原生 termios/ANSI 转义直写 `/dev/tty` 绕过 ncurses（core 基础设施正确做法），零 ncurses API。故真依赖仅 win_raii + ini_config 两处。

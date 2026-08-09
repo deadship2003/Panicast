@@ -25,7 +25,7 @@ namespace panicast
 
 class ThreadPool;
 class MPVController;
-class UI;
+class IFrontend;
 
 // D11-3a: the result of resolving the best AVAILABLE (non-ASR) subtitle source for a track.
 //   resolve_subtitle_source returns the first that applies, in priority order, so every ASR entry
@@ -48,7 +48,7 @@ public:
 
     // Per-frame UI-thread handoff: push any pending transcript to the UI + offset + logs.
     //   Forwards SubtitleManager::poll (called once per frame from App's run loop).
-    void poll(UI &ui, bool lyric_bar_requested);
+    void poll(IFrontend &ui, bool lyric_bar_requested);
 
     // ── Track-change orchestration (D10-3 relocated from PlaybackService → D11-1 fully event-driven) ──
     //   begin_track is triggered by the PlaybackTrackChanged subscription (manual play + auto-advance);

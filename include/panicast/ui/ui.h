@@ -48,6 +48,8 @@
 #include "panicast/playback/sleep_timer.h"
 #include "panicast/app/progress.h"
 #include "panicast/app/online_state.h"
+#include "panicast/ui/frontend.h" // D12-3b: IFrontend contract + the ncurses-free view-model types
+                                   //   (DisplayItem/DisplayContext/LyricManual) UI renders from.
 
 namespace panicast
 {
@@ -75,91 +77,71 @@ extern std::atomic<bool> g_exit_requested;
 //   terminal to interact with), so in-flight YouTube parses finish writing their cache before exit.
 extern volatile sig_atomic_t g_crash_sig;
 
-struct DisplayItem {
-    TreeNodePtr node;
-    int depth;
-    bool is_last;
-    int parent_idx;
-};
-
-// D12-1: ambient runtime display state pushed IN by App each frame. The UI must NOT query these
-//   singletons itself — they hold runtime/business state (sleep timer, selected regions), which is
-//   exactly the "UI queries runtime state instead of receiving a view-model" coupling D11-4 flagged
-//   as the D12 frontier (see docs/ARCHITECTURE.md §2.1). App reads them once per frame and resolves
-//   region codes to display names, so the UI only ever renders plain values. Pure functions
-//   (Utils::*, URLClassifier::classify) remain direct calls — they are stateless cross-cutting infra.
-struct DisplayContext {
-    bool sleep_active = false;
-    int sleep_remaining = 0;        // seconds (valid only when sleep_active)
-    std::string online_region_name; // resolved name for the ONLINE title
-    std::string tiktok_region;      // current TikTok region code (e.g. "CN")
-};
+// D12-3b: DisplayItem + DisplayContext (the ncurses-free view-model types) moved to frontend.h;
+//   UI inherits IFrontend and renders from them.
 
 // UILayout struct removed: duplicated LayoutMetrics and was never instantiated (dead code).
 // Actual layout computation goes through LayoutGuard::compute + LayoutMetrics uniformly.
 // =========================================================
 // UI rendering - V2.39: fix scrolling display and right alignment
 // =========================================================
-class UI {
+class UI : public IFrontend {
 public:
-    void init(float ratio = 0.4f);
+    void init(float ratio = 0.4f) override;
 
-    void cleanup();
+    void cleanup() override;
 
     // Proactively handle resize: reset cached size to force recomputation on next frame
-    void handle_resize();
+    void handle_resize() override;
 
     void toggle_tree_lines();
 
     // Y23.4 (method B): set the parsed transcript for the current track. Empty segs clears it
     //   (falls back to mpv sub-text for video subtitles).
-    void set_transcript(const std::vector<TranscriptSegment> &segs, const std::string &url);
+    void set_transcript(const std::vector<TranscriptSegment> &segs, const std::string &url) override;
 
-    void toggle_scroll_mode();
+    void toggle_scroll_mode() override;
 
-    void set_scroll_mode(bool mode) {
+    void set_scroll_mode(bool mode) override {
         scroll_mode_ = mode;
     }
-    void set_show_tree_lines(bool show) {
+    void set_show_tree_lines(bool show) override {
         show_tree_lines_ = show;
     }
-    bool is_show_tree_lines() const {
+    bool is_show_tree_lines() const override {
         return show_tree_lines_;
     }
 
-    bool is_scroll_mode() const {
+    bool is_scroll_mode() const override {
         return scroll_mode_;
     }
 
     // Y24: L-mode (LYRIC bar) controls. `lyric_bar_requested_` is the INI master switch (is the
     //   LYRIC feature enabled at all); `lyric_bar_active_` is derived per-frame by App before draw().
-    bool is_lyric_bar_requested() const {
+    bool is_lyric_bar_requested() const override {
         return lyric_bar_requested_;
     }
-    bool is_lyric_bar_active() const {
+    bool is_lyric_bar_active() const override {
         return lyric_bar_active_;
     }
-    void set_lyric_bar_active(bool active) {
+    void set_lyric_bar_active(bool active) override {
         lyric_bar_active_ = active;
     }
     // Y24.43: set the user's LYRIC-bar request state (persisted). Distinct from set_lyric_bar_active
     //   (per-frame derived). Used by the L key to open/close without the flip ambiguity of toggle.
     void set_lyric_bar_requested(bool requested);
-    void toggle_lyric_bar();
+    void toggle_lyric_bar() override;
 
-    // Y24.48: per-track manual LYRIC override (L key). Auto = follow auto-detection (open only
-    //   when a displayable subtitle source exists); Open = user opened (show even before content,
-    //   e.g. ASR startup); Closed = user closed (suppress auto-open until track change).
-    enum class LyricManual { Auto, Open, Closed };
-    LyricManual lyric_manual() const {
+    // Y24.48: LyricManual (Auto/Open/Closed) is defined on IFrontend (frontend.h); UI inherits it.
+    LyricManual lyric_manual() const override {
         return lyric_manual_;
     }
-    void set_lyric_manual(LyricManual m) {
+    void set_lyric_manual(LyricManual m) override {
         lyric_manual_ = m;
     }
     // Y24.48: true once an embedded mp4 sub cue (sub_text) has been seen for the current track.
     //   Sticky per-track (avoids flicker between cues); reset on track change.
-    bool embedded_sub_confirmed() const {
+    bool embedded_sub_confirmed() const override {
         return embedded_sub_confirmed_;
     }
 
@@ -167,7 +149,7 @@ public:
     //   the bottom LYRIC bar (L on). Computes the current lyric line from the parsed transcript
     //   (method B, by time_pos) or mpv sub-text, and pushes it to lyric_history_ (deduped, capped).
     //   Called unconditionally so the history stays fresh regardless of which panel renders it.
-    void update_lyric_history(const MPVController::State &state);
+    void update_lyric_history(const MPVController::State &state) override;
 
     // Y24.2: the LYRIC bar border title — "🎵 LYRIC" plus the live sync offset when non-zero.
     std::string lyric_bar_title() const;
@@ -199,7 +181,7 @@ public:
               const std::vector<int> &next_indices = {},
               // D12-1: ambient runtime display state (sleep timer + regions). Defaulted so the
               //   single existing caller can adopt it incrementally; never left empty in practice.
-              const DisplayContext &dctx = {});
+              const DisplayContext &dctx = {}) override;
 
     //Input cancel marker (uses string concatenation to avoid hex-escape issues)
     static constexpr const char *INPUT_CANCELLED =
@@ -211,27 +193,27 @@ public:
     // Reference V0.05B9n3d version: complete Chinese/CJK IME support
     //Improvement: window width adapts to URL length, long URLs auto-truncated
     std::string input_box(const std::string &prompt, const std::string &default_val = "",
-                          bool prefill = false);
+                          bool prefill = false) override;
 
     //Check whether the result is the cancel marker
     static bool is_input_cancelled(const std::string &result);
 
-    std::string dialog(const std::string &msg);
+    std::string dialog(const std::string &msg) override;
 
     // Show full stream URL popup: wrap by display width to ensure the full URL is visible and selectable with the terminal mouse
     //   (the program does not enable mousemask, so the terminal's native text selection works). copied=true means it has been written to the clipboard.
     void show_url_popup(const std::string &url, bool copied);
     // N04: centered pairing-PIN popup (dynamic + universal). Larger, centered text for
     //   readability when pairing a phone/browser.
-    void show_pin_popup(const std::string &dynamic_pin, const std::string &universal_pin);
+    void show_pin_popup(const std::string &dynamic_pin, const std::string &universal_pin) override;
 
     //Y/N confirmation dialog
     //YES/NO placed on both sides of the lower part
     //Title shown in the middle of the border's top line, not repeated inside the box
-    bool confirm_box(const std::string &prompt = "Quit?");
+    bool confirm_box(const std::string &prompt = "Quit?") override;
 
     // V2.39-FF: public method, show help popup
-    void show_help(const MPVController::State &state);
+    void show_help(const MPVController::State &state) override;
 
     // ─── Theme system: 15 color schemes (cycle with Ctrl+L) ─────────────────────────
     // Index 0 = classic Dark (keeps the original pure-ANSI black background, author's favorite, do not change)
@@ -248,7 +230,7 @@ public:
     //   so switching themes makes "downloaded=green" automatically use that theme's green, keeping things coherent.
 
     //Cycle theme (Ctrl+L)
-    void toggle_theme() {
+    void toggle_theme() override {
         ThemeManager::instance().toggle();
         EVENT_LOG(fmt::format("Theme: {}", ThemeManager::instance().current_name()));
     }
@@ -259,10 +241,10 @@ public:
     }
 
     // Left panel geometry (for mouse-click hit testing): origin (0,0), height top_h, width left_w
-    int get_left_w() const {
+    int get_left_w() const override {
         return left_w;
     }
-    int get_top_h() const {
+    int get_top_h() const override {
         return top_h;
     }
 

@@ -698,7 +698,7 @@ void TranscriptionEngine::save_srt(const std::vector<TranscriptSegment> &segs, T
 }
 
 void TranscriptionEngine::poll(
-    UI & /*ui*/) { /* progress via EVENT_LOG; reserved for a progress bar */ }
+    IFrontend & /*ui*/) { /* progress via EVENT_LOG; reserved for a progress bar */ }
 
 void TranscriptionEngine::shutdown() {
     stop_ = true;

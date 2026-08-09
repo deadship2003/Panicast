@@ -14,7 +14,7 @@
 #include "panicast/net/network.h"
 #include "panicast/parsers/transcript_parser.h" // TranscriptParser::load (facade → registry)
 #include "panicast/storage/cache.h"             // D11-3a: CacheManager::get_local_file (find_local_subtitle)
-#include "panicast/ui/ui.h"
+#include "panicast/ui/frontend.h" // D12-3b: poll(IFrontend&) — set_transcript/set_lyric_bar_active are on the contract
 
 namespace panicast
 {
@@ -296,7 +296,7 @@ void SubtitleManager::set_pending(const std::vector<TranscriptSegment> &segs,
 }
 
 // ── UI-thread handoff + L-mode activation ──
-bool SubtitleManager::poll(UI &ui, bool lyric_bar_requested) {
+bool SubtitleManager::poll(IFrontend &ui, bool lyric_bar_requested) {
     bool handed = false;
     TranscriptStatus st;
     {

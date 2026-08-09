@@ -122,7 +122,9 @@
   - [ ] **D12-2 — 游标事件化 → jump_to_match/reveal_node 搬入 SearchService**。游标(selected_idx)经访问器/事件让 SearchService 无反向依赖读视图态（D10-2/D11-3b 头注释要求的前置条件）。
   - [x] **D12-3a — 收 ncurses：Core/config 零 ncurses 依赖** ✅ 2026-08-10。`core/win_raii.h`（ncurses WINDOW RAII，错放 core/）→ `ui/`（纯 UI 关注点归位）。`config/ini_config.h` 的 `resolve_color` 颜色名→码映射把 `COLOR_*` 宏换成原生 int 字面量 0-7（值与 ncurses 完全一致）+ 删 `#include <ncurses.h>`。**ncurses 收敛进 ui/ + theme/（呈现层）；core/ 与 config/ 零 ncurses** → **M1 验收"Core 不依赖 ncurses"达成**。theme/colors.h 留（呈现层，非 Core）。
     - **验收**：ctest 39/39、构建 0-warning（48/48）、pty 冒烟 exit 0；ncurses.h 仅 ui/+theme/ 引用，core/ 零 ncurses API。
-  - [ ] **D12-3b — 抽 IFrontend 接口**。定义 `IFrontend`（订阅事件渲染 + 输入→Action，~25 方法），ncurses UI 实现之，App 持 `IFrontend&`；UI 可换（Qt 可后接）。→ **M1 达成（UI 解耦）**。
+  - [x] **D12-3b — IFrontend 接口 + UI 实现 + 字幕层解耦** ✅ 2026-08-10。新增 `include/panicast/ui/frontend.h`：`class IFrontend`（ncurses-free 抽象契约，26 纯虚 = App + 字幕 Application Service 实际调用的渲染/输入/弹窗/状态推入/lyric·scroll·tree 开关查询/几何），并把 ncurses-free 视图模型类型 `DisplayItem`/`DisplayContext` + `LyricManual` 枚举迁入其中（依赖方向：`frontend.h` 无 ncurses ← `ui.h`）。`class UI : public IFrontend`（26 方法加 `override`；私有 `draw_line/draw_status/draw_lyric_*`（带 `WINDOW*`）+ 静态 `is_input_cancelled`（ncurses 输入契约标记）留 UI 具体、**不**入契约）。字幕 Application Service `poll(UI&)`→`poll(IFrontend&)`（subtitle_service / subtitle_manager / transcription_engine 头 + 实现 + `#include ui.h`→`frontend.h`）→ **modules/ 不再名具体 UI、不再依赖 ncurses**；`library_service.h`（App 层）的 DisplayItem include 由 `ui.h` 改 `frontend.h`（App 层不为视图模型拖 ncurses）。
+    - **验收**：ctest 39/39、构建 0-warning（29/29）、pty 冒烟 exit 0 + clean endwin；`IFrontend` 的全部 include 均在 `ui/`+`theme/` 之外（ncurses-free 契约）。
+  - [ ] **D12-3c — App 经 IFrontend 持有 UI（UI 可换性就位）→ M1 达成**。App `UI ui;` → `std::unique_ptr<IFrontend>`（`make_unique<UI>()`），`ui.`→`frontend_->` 机械重定向（src/app/，含 1 处 `subtitle_.poll(ui,..)`→`poll(*frontend_,..)` 手动解引用）；App 不再名具体 UI（仅构造点）→ **UI 可换（Qt 可后接同一契约）**。
   - **验收（D12 总）**：src/ui 零运行时状态查询（D12-1）+ 游标事件化（D12-2）+ ncurses 经 IFrontend、UI 可换性就位（D12-3）。→ **M1 达成（UI 解耦）**
 
 ## 里程碑 M2 — Provider 化 + Media 收敛（每 parser 一小步）

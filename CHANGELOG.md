@@ -4,6 +4,29 @@
 
 ---
 
+## 新架构 D12-3b — 2026-08-10 — IFrontend 抽象契约 + UI 实现 + 字幕层解耦（D12 增量3b · 前端可换契约就位）
+
+> M1（UI 解耦）第 22 步、D12 第 3 增量 b。在 ncurses 收敛（3a）之上，抽出 ncurses-free 的前端契约 `IFrontend`：ncurses UI 实现之，字幕 Application Service 与 App 层经契约说话、不再 `#include ui.h`。本增量建立契约 + 解耦字幕/App 层；D12-3c 再让 App 经 `unique_ptr<IFrontend>` 持有 UI（UI 可换性就位 → M1）。
+
+### 改动
+- 新增 `include/panicast/ui/frontend.h`：`class IFrontend`（26 纯虚）+ 把 ncurses-free 视图模型类型迁入——`struct DisplayItem`、`struct DisplayContext`（原在 ui.h）、`enum class LyricManual`（原 UI 嵌套）。契约的 include 全在 `ui/`+`theme/` 之外（types/mpv_controller/progress/subtitle_parser）→ **ncurses-free**。依赖方向：`frontend.h`（无 ncurses）← `ui.h`（ncurses）。
+- `class UI : public IFrontend`：26 个被 App/字幕调用的公共方法加 `override`（渲染 `draw`、输入/弹窗、每帧状态推入、lyric·scroll·tree 开关与查询、几何）。UI 私有渲染辅助（`draw_line`/`draw_status`/`draw_lyric_*`，带 `WINDOW*`）+ 静态 `is_input_cancelled`（ncurses 输入标记契约）留 UI 具体、**不**进 `IFrontend`。
+- 字幕 Application Service `poll(UI&)`→`poll(IFrontend&)`：`subtitle_service.h/.cpp`、`subtitle/subtitle_manager.h/.cpp`、`subtitle/transcription_engine.h/.cpp`（头里 `class UI;` 前向→`class IFrontend;`；`.cpp` 的 `#include ui.h`→`frontend.h`）。→ **modules/ 不再名具体 UI、不再依赖 ncurses**（字幕经契约 `set_transcript`/`set_lyric_bar_active`）。
+- `include/panicast/app/library_service.h`：`#include ui.h`→`frontend.h`（App 层的 DisplayItem 视图模型不再拖 ncurses）。App 调用点 `UI::LyricManual::X`→`LyricManual::X`（app_input/app_run 共 4 处，枚举已迁命名空间）。
+
+### 设计
+- 契约方法集 = App + 字幕 Application Service **实际调用面**（审计 src/app/ 的 `ui.` 25 个 + 字幕 `set_transcript` = 26），非 UI 全部 public（`toggle_tree_lines`/`set_lyric_bar_requested`/`show_url_popup`/`current_theme_name`/`apply_theme` 等非跨层调用者留 UI 具体）。虚函数默认参数：基类（IFrontend）与派生（UI override）保留一致默认值——调用经具体 UI 仍用 UI 默认、经契约用契约默认，合法且 0-warning。
+- 每帧 `draw` 改虚：App 经具体 `ui.draw()` 编译期去虚化、零开销；字幕经 `IFrontend&` 虚派发到同一 UI 实现，行为零变化。
+
+### 验收
+- ctest 39/39、构建 0-warning（29/29）、pty 冒烟 exit 0 + clean endwin。
+- `IFrontend` 全部 include 在 ui/+theme/ 之外（ncurses-free 契约）；§4 层间门绿。
+
+### 后续
+- D12-3c（App 经 `unique_ptr<IFrontend>` 持有 UI，`ui.`→`frontend_->`，UI 可换性就位）→ **M1 达成**。D12-2（jump_to_match 搬迁）defer。
+
+---
+
 ## 新架构 D12-3a — 2026-08-10 — 收 ncurses：Core/config 零 ncurses 依赖（D12 增量3a · M1 验收"Core 不依赖 ncurses"达成）
 
 > M1（UI 解耦）第 21 步、D12 第 3 增量 a（IFrontend 前置）。审计发现 M1 验收"Core 不依赖 ncurses"**此前并不成立**：`core/win_raii.h`（ncurses WINDOW RAII）+ `config/ini_config.h`（颜色名→码映射用 `COLOR_*` 宏）都 `#include <ncurses.h>`。本增量把 ncurses 收敛进 ui/ + theme/（呈现层）。

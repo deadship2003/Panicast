@@ -5,7 +5,7 @@
 
 #include "panicast/core/types.h"             // TreeNodePtr
 #include "panicast/storage/database.h"       // D11-3c: BilibiliAccount (load_bilibili_accounts return)
-#include "panicast/ui/ui.h"                  // DisplayItem (view model for display_list_)
+#include "panicast/ui/frontend.h"             // D12-3b: DisplayItem (ncurses-free view model for display_list_)
 
 namespace panicast
 {

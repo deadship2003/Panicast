@@ -307,10 +307,10 @@ void App::run() {
             bool lyric_active = false;
             if (!player.is_video_window_open() && ui.is_lyric_bar_requested()) {
                 switch (ui.lyric_manual()) {
-                case UI::LyricManual::Open:
+                case LyricManual::Open:
                     lyric_active = true;
                     break;
-                case UI::LyricManual::Closed:
+                case LyricManual::Closed:
                     lyric_active = false;
                     break;
                 default: // Auto

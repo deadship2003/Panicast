@@ -20,7 +20,7 @@ namespace panicast
 
 class SubtitleManager;
 class ThreadPool;
-class UI;
+class IFrontend;
 class MPVController; // Y24.28: for video ASR
 
 class TranscriptionEngine {
@@ -51,7 +51,7 @@ public:
     int active_count() const {
         return active_.load();
     }
-    void poll(UI &ui);
+    void poll(IFrontend &ui);
     void shutdown();
 
 private:
