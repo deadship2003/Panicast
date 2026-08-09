@@ -501,7 +501,7 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
     }
     // ── Subtitle / ASR ──
     if (a == "subtitle_toggle") {
-        ui.toggle_lyric_bar();
+        frontend_->toggle_lyric_bar();
         EVENT_LOG("Remote: subtitle toggle");
         return;
     }

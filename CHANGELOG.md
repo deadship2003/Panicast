@@ -4,6 +4,30 @@
 
 ---
 
+## 新架构 D12-3c — 2026-08-10 — App 经 IFrontend 持有 UI（UI 可换性就位 · M1 达成）
+
+> M1（UI 解耦）收官步、D12 第 3 增量 c。3b 建好契约、UI 实现它、字幕/App 层经契约说话；本增量让 **App 自己**经 `unique_ptr<IFrontend>` 持有 UI——App 不再以具体类型 `UI ui;` 作成员，渲染/输入/弹窗/状态推入全经契约。→ **UI 可换（Qt 可后接同一契约）· M1 达成**。
+
+### 改动
+- `app.h`：`UI ui;`(125) → `std::unique_ptr<IFrontend> frontend_ = std::make_unique<UI>()`。UI 仍是当前实现（构造点 = 组合根，正确地具名具体类型）；`<memory>` 与 `ui.h`/`frontend.h` 已在 include 内。
+- src/app/*.cpp：`ui.`→`frontend_->` 机械重定向（`\bui\.` 词界 sed，58 处）。`subtitle_.poll(ui, ..)` 的 bare-ui（按引用传、无 `.`，sed 不触）手动改 `poll(*frontend_, ..)`（src/app/ 中唯一的 bare-ui-按引用传 = App 成员）。
+- `UI::is_input_cancelled`（12 处静态调用）**保留**——它是 ncurses input_box 的取消标记检查（输入契约），非渲染/状态关注点；Qt 后接时其 input_box 须返回同标记（或改契约）。这是 App 名具体 UI 的仅剩两处之一（另一处是构造点）。
+
+### 设计
+- **组合根具名具体类型**：`make_unique<UI>()` 是 App 唯一构造前端处——这是依赖注入的正确形态（构造时具名、使用时经接口）。除此之外 App 只经 `IFrontend` 说话。
+- **bare-ui 审计**：src/app/ 中 `ui` 仅作 (a) 成员访问 `ui.`（58 处，sed）(b) `subtitle_.poll(ui,..)` 一处按引用传成员（手动 `*frontend_`）。字幕服务的 `poll` 形参 `IFrontend &ui` 是局部参数（subtitle_service.cpp:75，非成员），sed 不触、保持转发。
+- **析构序不变**：`frontend_`（line 125）声明早于 player/playback_ 等，析构晚于它们——与原 `UI ui;` 成员同位同序，App::~App 先停 player/pool/subtitle 再析构成员的顺序不受影响。
+
+### 验收
+- ctest 39/39、构建 0-warning（23/23）、pty 冒烟 exit 0 + clean endwin。
+- App 具体 UI 引用 = 1 构造（`make_unique<UI>`）+ 12 静态 `UI::is_input_cancelled`（grep 验证，余皆 `frontend_->`）；§4 层间门绿。
+- **M1 达成**：UI 经 `IFrontend` 可换、ncurses 收敛 ui/+theme/、src/ui 零运行时状态查询。残留（不阻 UI 可换）：`UI::is_input_cancelled` 输入契约 + D12-2 游标事件化（defer）。
+
+### 后续
+- M2（Provider 化 + Media 收敛）。可选清理：`is_input_cancelled`/`INPUT_CANCELLED` 迁 frontend.h（消除 12 处静态残留，输入契约上契约）；D12-2 游标事件化。
+
+---
+
 ## 新架构 D12-3b — 2026-08-10 — IFrontend 抽象契约 + UI 实现 + 字幕层解耦（D12 增量3b · 前端可换契约就位）
 
 > M1（UI 解耦）第 22 步、D12 第 3 增量 b。在 ncurses 收敛（3a）之上，抽出 ncurses-free 的前端契约 `IFrontend`：ncurses UI 实现之，字幕 Application Service 与 App 层经契约说话、不再 `#include ui.h`。本增量建立契约 + 解耦字幕/App 层；D12-3c 再让 App 经 `unique_ptr<IFrontend>` 持有 UI（UI 可换性就位 → M1）。

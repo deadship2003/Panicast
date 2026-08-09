@@ -61,8 +61,8 @@ void App::handle_mouse_event() {
     // Left click: only respond to clicks in the left-panel content area
     if (!(ev.bstate & (BUTTON1_CLICKED | BUTTON1_PRESSED)))
         return;
-    int lw = ui.get_left_w();
-    int th = ui.get_top_h();
+    int lw = frontend_->get_left_w();
+    int th = frontend_->get_top_h();
     if (lw <= 0 || th <= 0)
         return;
     // Content row range: y in [1, top_h-2] (0 = border title, top_h-1 = bottom border)
@@ -92,7 +92,7 @@ void App::handle_mouse_event() {
 void App::configure_proxy() {
     std::string cur =
         IniConfig::instance().get_proxy(); // normalized currently-effective proxy (empty = none)
-    std::string input = ui.input_box("Proxy (empty = direct connection)", cur, /*prefill=*/true);
+    std::string input = frontend_->input_box("Proxy (empty = direct connection)", cur, /*prefill=*/true);
     if (UI::is_input_cancelled(input)) {
         EVENT_LOG("Proxy config cancelled");
         return;
@@ -145,7 +145,7 @@ void App::configure_cookies() {
         def_name = "youtube_cookie.txt";
         cur = IniConfig::instance().get_youtube_cookies_file();
     }
-    std::string input = ui.input_box(label + " cookies.txt path (bare/empty = <data_dir>/" +
+    std::string input = frontend_->input_box(label + " cookies.txt path (bare/empty = <data_dir>/" +
                                          def_name + "; or absolute)",
                                      cur, /*prefill=*/true);
     if (UI::is_input_cancelled(input)) {
@@ -164,7 +164,7 @@ void App::configure_cookies() {
 //     The TUI owns input and forwards via the mpv API — the clean TUI+libmpv design.
 void App::open_command_window() {
     std::string input =
-        ui.input_box("Command (r/s/c; mpv hotkey — see ? for full list)", "", /*prefill=*/false);
+        frontend_->input_box("Command (r/s/c; mpv hotkey — see ? for full list)", "", /*prefill=*/false);
     if (UI::is_input_cancelled(input)) {
         EVENT_LOG(": command cancelled");
         return;
@@ -260,7 +260,7 @@ void App::open_command_window() {
     //   mid-session adds no security (6696 stays valid) while invalidating an APK's stored PIN.
     if (s == "pin") {
         if (remote_server_.is_running()) {
-            ui.show_pin_popup(remote_server_.dynamic_pin(), remote_server_.universal_pin());
+            frontend_->show_pin_popup(remote_server_.dynamic_pin(), remote_server_.universal_pin());
         } else {
             EVENT_LOG("Remote control is disabled ([remote] enable=false)");
         }
@@ -276,7 +276,7 @@ void App::open_command_window() {
     //   already logged in this session).
     if (s == "secret") {
         std::string input =
-            ui.input_box("Google client_secret.json path (~/... or absolute; copies into data dir)",
+            frontend_->input_box("Google client_secret.json path (~/... or absolute; copies into data dir)",
                          "", /*prefill=*/false);
         if (UI::is_input_cancelled(input)) {
             EVENT_LOG("client_secret import cancelled");
@@ -418,12 +418,12 @@ void App::handle_input(int ch, int marked_count) {
     case 'q': // exit requires confirmation
     case 'Q':
     case 27: // ESC key
-        if (ui.confirm_box("Quit PANICAST?")) {
+        if (frontend_->confirm_box("Quit PANICAST?")) {
             running = false;
         }
         break;
     case '?':
-        ui.show_help(player.get_state());
+        frontend_->show_help(player.get_state());
         break; // show help popup directly
     case 'R':
         switch_mode(AppMode::RADIO);
@@ -582,7 +582,7 @@ void App::handle_input(int ch, int marked_count) {
         // Handle resize actively, rather than relying on the next frame
         // Old code: break no-op; resize had no effect at all while a popup was open
         resizeterm(0, 0); // 0,0 = re-read actual size from SIGWINCH
-        ui.handle_resize(); // notify UI to reset cached size, forcing wresize + redraw on the next frame
+        frontend_->handle_resize(); // notify UI to reset cached size, forcing wresize + redraw on the next frame
         break;
     case 'a': {
         // Y01: in Y mode, 'a' = log in one Google account (SmartTube-style QR).
@@ -719,7 +719,7 @@ void App::handle_input(int ch, int marked_count) {
         break;
     }
     case 'S':
-        ui.toggle_scroll_mode();
+        frontend_->toggle_scroll_mode();
         break;
     // N04-fix: z/Z direct subtitle-offset keys removed. Subtitle delay is now adjusted
     //   only via the `:` command window (:z / :Z → mpv sub-delay, video-window subtitles).
@@ -768,11 +768,11 @@ void App::handle_input(int ch, int marked_count) {
             // !vo_open (audio, or video without VO): TOGGLE the bottom LYRIC panel via the
             //   per-track manual override (Y24.48). Active→Closed (suppress auto until track
             //   change); inactive→Open (show immediately, e.g. during ASR startup).
-            if (ui.is_lyric_bar_active()) {
-                ui.set_lyric_manual(LyricManual::Closed);
+            if (frontend_->is_lyric_bar_active()) {
+                frontend_->set_lyric_manual(LyricManual::Closed);
                 break;
             }
-            ui.set_lyric_manual(LyricManual::Open);
+            frontend_->set_lyric_manual(LyricManual::Open);
             // If ASR already running, just reveal the panel — don't restart.
             if (subtitle_.transcription_engine().realtime_running()) {
                 break;
@@ -830,7 +830,7 @@ void App::handle_input(int ch, int marked_count) {
             }
         }
         // Fallback (not playing, not F-batch): toggle the LYRIC panel.
-        ui.toggle_lyric_bar();
+        frontend_->toggle_lyric_bar();
         break;
     }
     case 'U': { // toggle icon style (ASCII/Emoji)
@@ -843,7 +843,7 @@ void App::handle_input(int ch, int marked_count) {
         break;
     }
     case 12: // Ctrl+L - cycle through 22 color themes
-        ui.toggle_theme();
+        frontend_->toggle_theme();
         break;
     case 'o':
         toggle_sort_order();

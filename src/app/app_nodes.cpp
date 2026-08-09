@@ -16,7 +16,7 @@ void App::delete_node(int marked_count) {
         // Multi-select delete
         if (marked_count > 0) {
             std::string response =
-                ui.dialog(fmt::format("Delete {} marked items? (Y/N)", marked_count));
+                frontend_->dialog(fmt::format("Delete {} marked items? (Y/N)", marked_count));
             if (response != "Y" && response != "y")
                 return;
 
@@ -75,7 +75,7 @@ void App::delete_node(int marked_count) {
         // Single-select delete - decide by node type
         if (node->url.find("search:") == 0) {
             // Search-record node - delete the whole search record and its children's caches
-            std::string response = ui.dialog("Delete this search record and all caches? (Y/N)");
+            std::string response = frontend_->dialog("Delete this search record and all caches? (Y/N)");
             if (response == "Y" || response == "y") {
                 // Fix URL format parsing - search:region:query
                 std::string search_id = node->url.substr(7); // strip "search:"
@@ -105,7 +105,7 @@ void App::delete_node(int marked_count) {
             }
         } else if (node->type == NodeType::PODCAST_FEED) {
             // Podcast feed node - delete podcast cache and episode cache
-            std::string response = ui.dialog("Delete this podcast cache? (Y/N)");
+            std::string response = frontend_->dialog("Delete this podcast cache? (Y/N)");
             if (response == "Y" || response == "y") {
                 // Delete database records
                 if (!node->url.empty()) {
@@ -123,7 +123,7 @@ void App::delete_node(int marked_count) {
             }
         } else {
             // Other nodes - delete from the tree only
-            std::string response = ui.dialog("Delete this item? (Y/N)");
+            std::string response = frontend_->dialog("Delete this item? (Y/N)");
             if (response == "Y" || response == "y") {
                 {
                     std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
@@ -142,7 +142,7 @@ void App::delete_node(int marked_count) {
         // Multi-select delete
         if (marked_count > 0) {
             std::string response =
-                ui.dialog(fmt::format("Delete {} marked history records? (Y/N)", marked_count));
+                frontend_->dialog(fmt::format("Delete {} marked history records? (Y/N)", marked_count));
             if (response != "Y" && response != "y")
                 return;
 
@@ -179,7 +179,7 @@ void App::delete_node(int marked_count) {
         }
 
         // Single-select delete
-        std::string response = ui.dialog("Delete this history record? (Y/N)");
+        std::string response = frontend_->dialog("Delete this history record? (Y/N)");
         if (response == "Y" || response == "y") {
             // Delete from database
             if (!node->url
@@ -211,7 +211,7 @@ void App::delete_node(int marked_count) {
                 // Check whether node is a child of f or f itself
                 if (f.get() == node.get()) {
                     // Deleting the LINK node itself - remove the favourite directly
-                    std::string response = ui.dialog("Remove this LINK from favourites? (Y/N)");
+                    std::string response = frontend_->dialog("Remove this LINK from favourites? (Y/N)");
                     if (response == "Y" || response == "y") {
                         {
                             std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
@@ -241,7 +241,7 @@ void App::delete_node(int marked_count) {
         // If deleting a child node under a LINK node, sync to ONLINE
         if (parent_link && parent_link->url == "online_root") {
             // This is online_root's LINK; deletion needs to sync
-            std::string response = ui.dialog("Delete from both FAVOURITE and ONLINE? (Y/N)");
+            std::string response = frontend_->dialog("Delete from both FAVOURITE and ONLINE? (Y/N)");
             if (response != "Y" && response != "y")
                 return;
 
@@ -285,7 +285,7 @@ void App::delete_node(int marked_count) {
             return;
 
         std::string response =
-            ui.dialog(fmt::format("Delete {} subscriptions? (Y/N)", to_delete.size()));
+            frontend_->dialog(fmt::format("Delete {} subscriptions? (Y/N)", to_delete.size()));
         if (response != "Y" && response != "y")
             return;
 
@@ -315,7 +315,7 @@ void App::delete_node(int marked_count) {
     }
 
     if (node->type == NodeType::PODCAST_FEED) {
-        std::string response = ui.dialog("Delete: (S)ubscription / (C)ache / (N)o?");
+        std::string response = frontend_->dialog("Delete: (S)ubscription / (C)ache / (N)o?");
         if (response == "S" || response == "s") {
             std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             if (!node->url.empty())
@@ -327,7 +327,7 @@ void App::delete_node(int marked_count) {
             EVENT_LOG(fmt::format("Cleared cache for: {}", node->title));
         }
     } else if (node->type == NodeType::PODCAST_EPISODE) {
-        std::string response = ui.dialog("Clear cache? (Y/N)");
+        std::string response = frontend_->dialog("Clear cache? (Y/N)");
         if (response == "Y" || response == "y") {
             CacheManager::instance().clear_download(node->url);
             node->is_downloaded = false;
@@ -347,7 +347,7 @@ void App::delete_node(int marked_count) {
             return;
         {
             std::string response =
-                ui.dialog(fmt::format("Delete {} items? (Y/N)", to_delete.size()));
+                frontend_->dialog(fmt::format("Delete {} items? (Y/N)", to_delete.size()));
             if (response != "Y" && response != "y")
                 return; // accept Y/y, consistent with the rest
         }
@@ -517,12 +517,12 @@ void App::edit_node() {
     }
 
     // Get the new title (show the current value as default)
-    std::string new_title = ui.input_box("Title:", node->title);
+    std::string new_title = frontend_->input_box("Title:", node->title);
     if (new_title.empty())
         new_title = node->title; // keep original value
 
     // Get the new URL (show the current value as default)
-    std::string new_url = ui.input_box("URL:", node->url);
+    std::string new_url = frontend_->input_box("URL:", node->url);
     if (new_url.empty())
         new_url = node->url; // keep original value
 

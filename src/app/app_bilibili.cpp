@@ -69,7 +69,7 @@ void App::delete_bilibili_account_node(TreeNodePtr node) {
         EVENT_LOG("B: select an account node to delete");
         return;
     }
-    if (!ui.confirm_box("Delete this Bilibili account?"))
+    if (!frontend_->confirm_box("Delete this Bilibili account?"))
         return;
     int id = node->account_id;
     if (delete_bilibili_account(id)) {
@@ -383,7 +383,7 @@ void App::perform_bilibili_search(const std::string &preset) {
     if (!preset.empty()) {
         q = preset;
     } else {
-        q = ui.input_box("Search Bilibili");
+        q = frontend_->input_box("Search Bilibili");
         if (UI::is_input_cancelled(q)) {
             EVENT_LOG("B: search cancelled");
             return;

@@ -15,7 +15,7 @@ using json = nlohmann::json;
 // Search history node management
 // Supports ESC to cancel search
 void App::perform_online_search() {
-    std::string query = ui.input_box("Search iTunes Podcasts");
+    std::string query = frontend_->input_box("Search iTunes Podcasts");
     // Check whether the user cancelled
     if (UI::is_input_cancelled(query)) {
         EVENT_LOG("Search cancelled");
@@ -44,7 +44,7 @@ void App::perform_online_search() {
 // Perform an online search from the FAVOURITE-mode online_root LINK node
 // New searches sync to ONLINE's online_root
 void App::perform_online_search_from_favourite() {
-    std::string query = ui.input_box("Search iTunes Podcasts (sync to ONLINE)");
+    std::string query = frontend_->input_box("Search iTunes Podcasts (sync to ONLINE)");
     if (UI::is_input_cancelled(query)) {
         EVENT_LOG("Search cancelled");
         return;
@@ -182,7 +182,7 @@ void App::reset_search() {
 
 // Supports ESC to cancel search
 void App::perform_search() {
-    std::string q = ui.input_box("Search:");
+    std::string q = frontend_->input_box("Search:");
     // Check whether the user cancelled
     if (UI::is_input_cancelled(q)) {
         EVENT_LOG("Search cancelled");

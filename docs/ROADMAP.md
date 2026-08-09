@@ -22,7 +22,7 @@
   - 端到端 = app 本身（EventLog→EventBus、所有网络→IProxyManager/Connectivity、Media 适配器，D1–D4 已串通）。本日加 **UI 帧时间 watchdog**（测 tree_mutex/playlist_mutex_ 等待 + 整帧耗时，超阈值写 panicast.log）用于精确定位"暂停后输入无响应"剩余卡点。
   - **M0 达成**：最小可演进系统就位（EventBus + Connectivity + Media + 工程基线）。后续 M1+ 增量扩展。
 
-## 里程碑 M1 — UI 解耦（消息总线 + 抽象层 + UI 纯交互）【主线】
+## 里程碑 M1 — UI 解耦（消息总线 + 抽象层 + UI 纯交互）【主线】 ✅ 达成（2026-08-10，D6–D12-3c）
 > 目标（见 `docs/DESIGN.md` 目标架构）：UI 变纯交互层——只发 Action + 订阅事件，不再直接调 Core；消息总线（EventBus/ActionBus）成 UI↔核心唯一通道；抽 Application Services 作功能抽象层。每步 strangler、可编译可运行、有真实消费者（不空跑）。
 
 - [x] **D6 — Action 类型 + 暂停端到端走总线（输入侧种子）** ✅ 2026-08-05
@@ -124,8 +124,9 @@
     - **验收**：ctest 39/39、构建 0-warning（48/48）、pty 冒烟 exit 0；ncurses.h 仅 ui/+theme/ 引用，core/ 零 ncurses API。
   - [x] **D12-3b — IFrontend 接口 + UI 实现 + 字幕层解耦** ✅ 2026-08-10。新增 `include/panicast/ui/frontend.h`：`class IFrontend`（ncurses-free 抽象契约，26 纯虚 = App + 字幕 Application Service 实际调用的渲染/输入/弹窗/状态推入/lyric·scroll·tree 开关查询/几何），并把 ncurses-free 视图模型类型 `DisplayItem`/`DisplayContext` + `LyricManual` 枚举迁入其中（依赖方向：`frontend.h` 无 ncurses ← `ui.h`）。`class UI : public IFrontend`（26 方法加 `override`；私有 `draw_line/draw_status/draw_lyric_*`（带 `WINDOW*`）+ 静态 `is_input_cancelled`（ncurses 输入契约标记）留 UI 具体、**不**入契约）。字幕 Application Service `poll(UI&)`→`poll(IFrontend&)`（subtitle_service / subtitle_manager / transcription_engine 头 + 实现 + `#include ui.h`→`frontend.h`）→ **modules/ 不再名具体 UI、不再依赖 ncurses**；`library_service.h`（App 层）的 DisplayItem include 由 `ui.h` 改 `frontend.h`（App 层不为视图模型拖 ncurses）。
     - **验收**：ctest 39/39、构建 0-warning（29/29）、pty 冒烟 exit 0 + clean endwin；`IFrontend` 的全部 include 均在 `ui/`+`theme/` 之外（ncurses-free 契约）。
-  - [ ] **D12-3c — App 经 IFrontend 持有 UI（UI 可换性就位）→ M1 达成**。App `UI ui;` → `std::unique_ptr<IFrontend>`（`make_unique<UI>()`），`ui.`→`frontend_->` 机械重定向（src/app/，含 1 处 `subtitle_.poll(ui,..)`→`poll(*frontend_,..)` 手动解引用）；App 不再名具体 UI（仅构造点）→ **UI 可换（Qt 可后接同一契约）**。
-  - **验收（D12 总）**：src/ui 零运行时状态查询（D12-1）+ 游标事件化（D12-2）+ ncurses 经 IFrontend、UI 可换性就位（D12-3）。→ **M1 达成（UI 解耦）**
+  - [x] **D12-3c — App 经 IFrontend 持有 UI（UI 可换性就位）→ M1 达成** ✅ 2026-08-10。App `UI ui;`(app.h:125) → `std::unique_ptr<IFrontend> frontend_ = std::make_unique<UI>()`；src/app/ 的 `ui.`→`frontend_->` 机械重定向（58 处，`\bui\.` 词界 sed）+ 1 处手动解引用 `subtitle_.poll(ui,..)`→`poll(*frontend_,..)`（bare-ui 按引用传，sed 不触）。App 名具体 UI 仅剩：构造点 `make_unique<UI>()`（组合根）+ 12 处静态 `UI::is_input_cancelled`（ncurses 输入标记检查——输入契约残留，Qt 后接时其 input_box 须返回同标记或改契约）。渲染/输入/弹窗/状态推入/开关查询/几何全经 IFrontend → **UI 可换（Qt 可后接同一契约）**。
+    - **验收**：ctest 39/39、构建 0-warning（23/23）、pty 冒烟 exit 0 + clean endwin；App 具体 UI 引用 = 1 构造 + 12 静态 `is_input_cancelled`（grep 验证）；§4 层间门绿。**→ M1 达成（UI 解耦核心目标）。**
+  - **验收（D12 总）**：src/ui 零运行时状态查询（D12-1 ✅）+ 游标事件化（D12-2 — defer，属显示编排/控制器职责、非 UI 可换必需）+ ncurses 经 IFrontend、UI 可换性就位（D12-3 ✅）。→ **M1 达成（UI 解耦核心目标）**：UI 经 `IFrontend` 契约可换（App 持 `unique_ptr<IFrontend>`）、ncurses 收敛 ui/+theme/、src/ui 零运行时状态查询。残留：`UI::is_input_cancelled` 输入标记（12 处静态，输入契约）+ D12-2 游标事件化——均不阻 UI 可换。
 
 ## 里程碑 M2 — Provider 化 + Media 收敛（每 parser 一小步）
 - [ ] **Dn** — 各 parser 确认 Provider 化（youtube/bilibili/itunes/rss/m3u/opml/tiktok）；Media 域从 TreeNode 逐步收敛。每个一进步、保持可运行。

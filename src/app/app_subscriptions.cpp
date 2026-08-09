@@ -93,7 +93,7 @@ void App::export_podcasts(const std::string &filename) {
 }
 
 void App::add_feed() {
-    std::string url = ui.input_box("Enter URL (RSS/YouTube @Channel):");
+    std::string url = frontend_->input_box("Enter URL (RSS/YouTube @Channel):");
     if (url.empty())
         return;
 
@@ -561,7 +561,7 @@ void App::add_favourite() {
 // F mode: 'a' key — scan a local folder for audio/video files and add as a playable subtree.
 //   F42: uses expand_local_folder for recursive subfolder structure (consistent with restart).
 void App::add_local_files() {
-    std::string path = ui.input_box("Folder path:");
+    std::string path = frontend_->input_box("Folder path:");
     if (UI::is_input_cancelled(path)) {
         EVENT_LOG("Add local files cancelled");
         return;

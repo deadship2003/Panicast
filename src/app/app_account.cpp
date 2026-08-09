@@ -405,7 +405,7 @@ void App::delete_account_node(TreeNodePtr node) {
             return;
         node = p;
     }
-    if (!ui.confirm_box("Delete Google account '" + node->title + "'? (all its YouTube data)"))
+    if (!frontend_->confirm_box("Delete Google account '" + node->title + "'? (all its YouTube data)"))
         return;
     AccountsManager::instance().delete_account(node->account_id);
     EVENT_LOG(fmt::format("Y: account #{} deleted", node->account_id));
@@ -476,7 +476,7 @@ void App::perform_youtube_search(const std::string &preset) {
     if (!preset.empty()) {
         q = preset;
     } else {
-        q = ui.input_box("Search YouTube  [c/v/p/m prefix to filter]");
+        q = frontend_->input_box("Search YouTube  [c/v/p/m prefix to filter]");
         if (UI::is_input_cancelled(q)) {
             EVENT_LOG("Search cancelled");
             return;

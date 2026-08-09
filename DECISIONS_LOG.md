@@ -1,4 +1,22 @@
 
+## D12-3c — App 经 IFrontend 持有 UI（UI 可换性就位 · M1 达成）（M1 第 23 人日，D12 增量3c）
+
+**Context:** 3b 建好 `IFrontend` 契约、UI 实现它、字幕/App 层经契约说话，但 App 仍以具体类型 `UI ui;`(app.h:125) 作**值成员**——App 直接具名 UI 类型，UI 并不真正"可换"（换 Qt 要改 App 成员类型 + 所有 `ui.`）。M1 的终点是 App 经接口持有前端：构造时具名具体实现、使用时全经 `IFrontend`。
+
+**Decision: App `UI ui;` → `std::unique_ptr<IFrontend> frontend_ = std::make_unique<UI>()`；src/app/ 的 `ui.`→`frontend_->` 机械重定向。** ① 成员改 `unique_ptr<IFrontend>`，构造点 `make_unique<UI>()` 是 App 唯一具名具体 UI 处（组合根 / 依赖注入的正确形态）。② `\bui\.` 词界 sed 58 处（`gui.`/`_ui.`/`UI.` 都不触——词界安全；src/app/ 中 `ui` 仅作成员访问）。③ `subtitle_.poll(ui, ..)` 的 bare-ui（按引用传、无 `.`）手动改 `poll(*frontend_, ..)`——src/app/ 中唯一的 bare-ui-按引用传成员（字幕服务 `poll` 形参 `IFrontend &ui` 是局部参数，非成员，sed 不触、保持转发）。
+
+**Why 保留 UI::is_input_cancelled（12 处静态）:** 它检查 ncurses input_box 的 `INPUT_CANCELLED` 标记（`\x01CANCELLED\x01`）——是**输入契约**（input_box 如何表态取消），非渲染/状态关注点。Qt 后接时其 input_box 须返回同标记（或改契约为 std::optional）。把它搬上契约是独立关注点（输入契约清理），不属"App 经接口持有 UI"这一所有权切换；留作后续可选清理。故 App 名具体 UI 仅剩：构造点 + 这 12 处静态检查——二者皆非渲染/状态耦合，不阻 UI 可换。
+
+**Why 不带 is_input_cancelled 一起搬（避免增量过大）:** 本增量的语义是"所有权切换"（App 经接口持 UI）。is_input_cancelled 搬迁改的是"输入取消契约"（input_box 返回值约定）——两个独立关注点，捆一起会把一个机械增量变成语义变更、放大风险。strangler 铁律：每增量一个关注点、绿。is_input_cancelled 上契约留作可选后续。
+
+**Why bare-ui 只有 1 处需手动:** 预先审计 src/app/ 的 `\bui\b`（非 `ui.`）：除字幕服务局部形参外，唯一 bare-ui-按引用传成员 = `app_run.cpp:299 subtitle_.poll(ui, ..)`。该行同时含 `ui.is_lyric_bar_requested()`（会被 sed 改 `frontend_->`），故 bare-ui 部分需手动 `*frontend_`。无遗漏（grep `\bui[),]|[ ,]ui[),]` 仅此 + 字幕形参）。
+
+**Gotcha — 析构序不变:** `frontend_`（line 125）声明早于 player_/playback_ 等，成员析构逆序 → frontend_ 晚于它们析构，与原 `UI ui;` 同位同序。App::~App 先 `player.stop()`/`pool_.shutdown()`/`subtitle_.shutdown()` 再析构成员的顺序不受影响（unique_ptr 析构调 `IFrontend` 虚析构 → UI 析构，等价原 UI 成员析构）。
+
+**Acceptance:** ctest 39/39、0-warning（23/23）、pty 冒烟 exit 0 + clean endwin。App 具体 UI 引用 = 1 构造 + 12 静态 `is_input_cancelled`（grep 验证）；§4 层间门绿。**M1 达成（UI 解耦核心目标）**：UI 经 `IFrontend` 可换、ncurses 收敛 ui/+theme/、src/ui 零运行时状态查询。
+
+**Followups:** M2（Provider 化 + Media 收敛）。可选：`is_input_cancelled`/`INPUT_CANCELLED` 迁 frontend.h（输入契约上契约，消除 12 处静态残留）；D12-2 游标事件化（defer，非 UI 可换必需）。
+
 ## D12-3b — IFrontend 抽象契约 + UI 实现 + 字幕层解耦（M1 第 22 人日，D12 增量3b · 前端可换契约就位）
 
 **Context:** M1（UI 解耦）的终点是"UI 可换"——系统经一个 ncurses-free 抽象与前端说话，ncurses UI 是其实现，Qt/其它前端可后接同一契约。ncurses 已收敛（3a）之后，需要的就是这个契约。审计 App + 字幕 Application Service 对 UI 的**实际调用面**：src/app/ 的 `ui.` 25 个方法（input_box/dialog/confirm_box 输入设备 + draw + 一堆 lyric/theme/scroll/tree 开关与查询 + get_top_h/get_left_w 几何）+ 字幕 `set_transcript`（SubtitleManager::poll 经 `UI&` 调，TranscriptionEngine::poll 拿 `UI&` 但未用）= **26**。UI 是 App 直接成员 `UI ui;`(app.h:125)。

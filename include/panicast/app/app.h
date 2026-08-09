@@ -122,7 +122,7 @@ public:
     RemoteStateSnapshot snapshot_state() override;
 
 private:
-    UI ui;
+    std::unique_ptr<IFrontend> frontend_ = std::make_unique<UI>(); // D12-3c: App owns the ncurses UI through the IFrontend contract (UI swappable — Qt could implement the same interface). Concrete UI is named only at this construction point + the static UI::is_input_cancelled input-marker check.
     MPVController player;
     PlaybackService playback_{player}; // D8: first Application Service (owns playback Actions)
     // D10-4: the per-mode tree DATA MODEL (8 root item lists + 6 "loaded" flags) moved into

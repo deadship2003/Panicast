@@ -234,7 +234,7 @@ void App::tiktok_subscribe(const std::string &input) {
 
 // 'a' in T mode: prompt for @user/video URL, then subscribe.
 void App::add_tiktok_user() {
-    std::string input = ui.input_box("Add TikTok/Douyin (@user or video URL)");
+    std::string input = frontend_->input_box("Add TikTok/Douyin (@user or video URL)");
     if (UI::is_input_cancelled(input)) {
         EVENT_LOG("T: add cancelled");
         return;
@@ -257,7 +257,7 @@ void App::delete_tiktok_user_node(TreeNodePtr node) {
         EVENT_LOG("T: select a creator node to delete");
         return;
     }
-    if (!ui.confirm_box("Delete this creator?"))
+    if (!frontend_->confirm_box("Delete this creator?"))
         return;
     int id = node->account_id;
     if (delete_tiktok_account(id)) {
@@ -316,7 +316,7 @@ void App::tag_browse(const std::string &tag) {
 }
 
 void App::tiktok_direct_input() {
-    std::string input = ui.input_box("Open (@user / #tag / URL)");
+    std::string input = frontend_->input_box("Open (@user / #tag / URL)");
     if (UI::is_input_cancelled(input)) {
         EVENT_LOG("T: open cancelled");
         return;

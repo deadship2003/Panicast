@@ -63,7 +63,7 @@ App::~App() {
 }
 
 void App::run() {
-    ui.init();
+    frontend_->init();
     // Confirm XML error handler is set (already set in main; this is a secondary confirmation)
     // Redirect errors to LOG/EVENT_LOG to avoid terminal output causing screen corruption
     xmlSetGenericErrorFunc(NULL, xml_error_handler);
@@ -196,7 +196,7 @@ void App::run() {
                 running = false;
                 break;
             }
-            if (ui.confirm_box("Quit PANICAST? (CTRL+C)")) {
+            if (frontend_->confirm_box("Quit PANICAST? (CTRL+C)")) {
                 running = false;
                 break;
             }
@@ -296,17 +296,17 @@ void App::run() {
                 library_.pending_select().reset();
             }
             // Y24.7: SubtitleManager poll — handoff pending transcript to UI + offset + logs.
-            subtitle_.poll(ui, ui.is_lyric_bar_requested());
+            subtitle_.poll(*frontend_, frontend_->is_lyric_bar_requested());
             // Y24.48: refresh lyric history EVERY frame (even when the bar is inactive) so an
             //   embedded sub cue (sub_text) is detected and can auto-open the bar.
-            ui.update_lyric_history(player.get_state());
+            frontend_->update_lyric_history(player.get_state());
             // Y24.48: LYRIC bar activation — default CLOSED. Auto-open only when a displayable
             //   subtitle source exists (transcript READY / ASR running / embedded cue seen this
             //   track), OR the user manually opened (L). Manual=Closed suppresses auto until track
             //   change. VO open (video window) → always closed (subs render in mpv's window).
             bool lyric_active = false;
-            if (!player.is_video_window_open() && ui.is_lyric_bar_requested()) {
-                switch (ui.lyric_manual()) {
+            if (!player.is_video_window_open() && frontend_->is_lyric_bar_requested()) {
+                switch (frontend_->lyric_manual()) {
                 case LyricManual::Open:
                     lyric_active = true;
                     break;
@@ -316,11 +316,11 @@ void App::run() {
                 default: // Auto
                     lyric_active = subtitle_.subtitle_mgr().status() == TranscriptStatus::READY ||
                                    subtitle_.transcription_engine().realtime_running() ||
-                                   ui.embedded_sub_confirmed();
+                                   frontend_->embedded_sub_confirmed();
                     break;
                 }
             }
-            ui.set_lyric_bar_active(lyric_active);
+            frontend_->set_lyric_bar_active(lyric_active);
         }
         // Node-loading state has higher priority than browsing but lower than playback states
         if (is_loading && app_state == AppState::BROWSING)
@@ -428,7 +428,7 @@ void App::run() {
                 ITunesSearch::get_region_name(OnlineState::instance().current_region);
             dctx.tiktok_region = TikTokRegion::current();
 
-            ui.draw(mode, library_.display_list(), library_.selected_idx(), state, library_.view_start(), app_state,
+            frontend_->draw(mode, library_.display_list(), library_.selected_idx(), state, library_.view_start(), app_state,
                     playback_.playback_node(),
                     marked, search_.search_query(), search_.current_match_idx(),
                     search_.total_matches(), sel_node, downloads,
@@ -475,8 +475,8 @@ void App::run() {
     int mode_int = static_cast<int>(mode);
     DatabaseManager::instance().save_player_state(
         player_state.volume, player_state.speed, player_state.paused, player_state.current_url,
-        player_state.time_pos, ui.is_scroll_mode(),
-        ui.is_show_tree_lines(), // persist user T-key preference (no longer hardcoded true)
+        player_state.time_pos, frontend_->is_scroll_mode(),
+        frontend_->is_show_tree_lines(), // persist user T-key preference (no longer hardcoded true)
         current_title, mode_int);
     // Also save to the progress table (dedicated to resume playback)
     if (!player_state.current_url.empty() && player_state.time_pos > 5.0) {
@@ -494,7 +494,7 @@ void App::run() {
     //   (destroyed before player) during App destruction
     player.stop();
 
-    ui.cleanup();
+    frontend_->cleanup();
     // Kill EVERY tracked child subtree before exiting. _exit(0) below skips ~App (where
     //   kill_all_child_processes normally runs), so without this only DIRECT children die —
     //   via the kernel's PR_SET_PDEATHSIG — while GRANDCHILDREN (e.g. yt-dlp's ffmpeg merge
@@ -505,7 +505,7 @@ void App::run() {
     Utils::kill_all_child_processes();
     // Exit IMMEDIATELY — skip ~App destructors (the pool workers are detached and could
     //   access App members during destruction → use-after-free). The terminal is already
-    //   restored by ui.cleanup; the OS reclaims all resources (threads, mpv, DB handles).
+    //   restored by frontend_->cleanup; the OS reclaims all resources (threads, mpv, DB handles).
     _exit(0);
 }
 
@@ -572,8 +572,8 @@ void App::restore_player_state() {
     }
 
     // Restore UI state
-    ui.set_scroll_mode(saved_state.scroll_mode);
-    ui.set_show_tree_lines(saved_state.show_tree_lines);
+    frontend_->set_scroll_mode(saved_state.scroll_mode);
+    frontend_->set_show_tree_lines(saved_state.show_tree_lines);
     EVENT_LOG(fmt::format("Restored UI: scroll_mode={}, tree_lines={}",
                           saved_state.scroll_mode ? "ON" : "OFF",
                           saved_state.show_tree_lines ? "ON" : "OFF"));
