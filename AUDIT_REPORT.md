@@ -4,7 +4,7 @@
 - **版本**：V0.5.0-B9n3f3
 - **方法**：全量逐行精读（1–2550 行主审 + 5 路并行子代理覆盖 2550–13912，关键发现回源核验）
 - **日期**：2026-07-14
-- **状态**：首轮报告，待指示迭代
+- **状态**：首轮报告，待指示迭代。⚠ **2026-08-10 重新核实**：本报告针对的是模块化**之前**的单文件 `src/panicast.cpp`（13912 行）；M0–M2 模块化重构（含 F/Y24 系列修复）后，**全部 P1/P2 已修复或废弃**（见下 §0.5 核对表，0 存活）。P3/§5/§6 未逐条重核，其中 §5.2「测试镜像漂移」确认仍存活。
 
 ---
 
@@ -18,6 +18,32 @@
 | 误报 | 经核验不成立（已剔除） | 1 |
 
 > 标 **[已核实]** 表示我已回源码确认；标 **[待确认]** 表示需结合范围外代码或运行时进一步验证。
+
+---
+
+## 0.5 P1/P2 修复状态核对（2026-08-10，模块化后重新核实）
+
+> 重新核对结论：**15 个 P1/P2 全部已修复或废弃，0 存活**。M0–M2 模块化重构系统性修复了本报告全部高优先项（非纯架构重构——含 F/Y24 系列正确性修复）。下表给出每条的当前证据（文件:行）。
+
+| # | 状态 | 当前证据（模块化后） |
+|---|---|---|
+| P1-1 | ✅ 已修复 | `src/storage/feed_cache_repo.cpp:476` — parse 失败 `rollback_txn()`（注释明述 "otherwise DELETE commits while INSERT is empty -> cache cleared"） |
+| P1-2 | ✅ 已修复 | `src/app/app_tree_expand.cpp:186-189,230-233` — `push_back(child)` 不重设 parent（注释 "do not reset parent: child is shared with target; resetting would break parent-pointer invariant"） |
+| P2-1 | ✅ 已修复 | `src/storage/youtube_cache.cpp:2` — "All DB access goes through DatabaseManager's single shared connection"；经 `youtube_cache_load/save` |
+| P2-2 | ✅ 已修复 | `src/parsers/itunes_search.cpp:148` — `if (!contains("feedUrl") \|\| !is_string()) return;`（注释 "to avoid discarding the whole batch"） |
+| P2-3 | ⚰ 废弃 | `migrate_from_json` 已移除（DB 为单一真相源，JSON 迁移路径不再存在） |
+| P2-4 | ✅ 已修复 | `src/app/app_subscriptions.cpp` — import_feed/import_opml/export_podcasts 均 `pool_.wait_idle()` + `lock(tree_mutex)` 后再序列化；CLI 路径 `pool_.shutdown()`（app_run.cpp:466） |
+| P2-5 | ✅ 已修复 | 播放队列状态（current_playlist/shuffle_map_/index）已私有化进 PlaybackService（D8b-1/D8b-2/D9），mutex 归服务统管 |
+| P2-6 | ✅ 已修复 | `src/app/app_subscriptions.cpp` — 所有 `*_root().insert()` 均在 `lock_guard(tree_mutex())` 内（协议统一） |
+| P2-7 | ✅ 已修复 | `src/ui/popups.cpp:486` — `if (w<20 \|\| h<5) return false;` + side_dashes/ix/iy 钳制 |
+| P2-8 | ✅ 已修复 | `src/app/app_nodes.cpp:432` — `start=0; // guard against negative-index overflow` |
+| P2-9 | ✅ 已修复 | `src/storage/tree_repo.cpp:40-61` — `save_tree` try{...commit}catch(...){rollback}（替代旧 save_radio_cache；递归在 try 内） |
+| P2-10 | ✅ 已修复 | `src/playback/mpv_controller.cpp` — play_list/play_list_from/toggle_pause/set_volume/adjust_speed/set_speed/set_loop_file 均开头 `if (!ctx_) return;` |
+| P2-11 | ✅ 已修复 | enter_node 同一性比较已重构，无存活裸 `current_url == node->url` 漏 file:// 形式 |
+| P2-12 | ✅ 已处理 | `src/net/network.cpp:140` — `CURLOPT_MAXFILESIZE 64MB`（fetch_once 路径封顶） |
+| P2-13 | ✅/⚰ 已修复/废弃 | `toggle_mark`(`app_navigation.cpp:309-314`) 有 bounds + null guard；`build_playlist_from_saved` 已移除 |
+
+> **仍存活（P3/§5 域，未逐条重核）**：§5.2「测试镜像漂移」**确认存活**——`tests/test_units.cpp` 仍镜像 `classify`/`escape_sql`/`parse_time_string` 且与真实实现分歧（D13 仅 link 了 feed_parser，未动这三镜像）。其余 P3（24 项）/§5 架构建议/§6 待确认项大概率亦在模块化中处理，待按需重核。
 
 ---
 
