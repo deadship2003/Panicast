@@ -26,7 +26,7 @@ src/<module>/*.cpp              实现
 | `storage` | 持久化：database + 各 repo（history/tree/feed_cache/account/player_state/accounts/cache/youtube_cache）+ `persistence` 抽象 |
 | `subtitle` | 字幕：`subtitle_parser`（`ISubtitleParser` + Registry）、`subtitle_manager`、`transcription_engine`（ASR/whisper） |
 | `theme` | 颜色/主题/字符对 |
-| `ui` | ncurses 渲染：ui/popups/lyric_renderer/tree_renderer/status_bar/info_panel/layout/border/icons/art/qr |
+| `ui` | ncurses 渲染：ui/ui_help（D17 抽自 ui.cpp 的 draw_help）/popups/lyric_renderer/tree_renderer/status_bar/info_panel/layout/border/icons/art/qr |
 | `app` | 应用层：`app_run`（主循环）、`app_input`（键派发）、`app_playback/download/search/subscriptions/navigation/...`、modes/ |
 
 入口：`src/main.cpp` → `App::run()`（`src/app/app_run.cpp`）。

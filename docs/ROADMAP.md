@@ -150,6 +150,8 @@
 
 ## 里程碑 M3 — 字幕/ASR
 - [ ] **Dn** — `SubtitleController` 中介者（修 READY/L-key 冲突）；ASR 作 SubtitleProducer。
+- [ ] **god-object 拆分**（ROADMAP 既定：split `app_run.cpp`/`ui.cpp`/`mpv_controller.cpp`/`ini_config.h`；每拆一进步、保持可运行、纯机械 verbatim 因 ctest 不覆盖 hub 运行时）。
+  - [x] **D17 — 首刀：`UI::draw_help` → `src/ui/ui_help.cpp`** ✅ 2026-08-13（dev/m2 批次）。ui.cpp 最大单块（668-945，~278 行，帮助/热键覆盖窗渲染器）逐字节 verbatim 迁入新 sibling .cpp，精确同构既有 12 个 `ui_*.cpp` 渲染器抽取模式（渲染器落 sibling、方法留成员、声明在 header）；三形参全 `(void)` 弃用，仅依赖 `h/w` 私有成员 + constants.h/utils.h/fmt/ncurses(via ui.h)，**零跨方法耦合、无需动 header**。ui.cpp 947→668。验收：0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。**后续链**：续抽 ui.cpp 剩余（生命周期组 init/cleanup/handle_resize、setter 组 toggle_*/set_*、draw 大编排留核心）→ mpv_controller wrapper 组（依赖 `enqueue_cmd_`/常量/成员已核查全 header 可见，可建 `mpv_*.cpp` 模式）→ ini_config.h。
 
 ## Connectivity 跟进（低优先，按需插入）
 - Downloader 全面经 Connectivity（补 D3 未覆盖路径）+ 首批代理规则（youtube→代理、`*.googlevideo.com`→代理、bilibili→直连）。

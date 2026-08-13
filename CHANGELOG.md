@@ -7,8 +7,29 @@
 > **📦 待测试批次（pre-test）—— 2026-08-13 起**
 > 工作流切换为**分支化批量迭代**：`dev/m2` 分支承接 M2 迭代；`main` 冻结在 `d94ea88`（标签 `pretest/m2-batch-start`）作安全回退点。
 > 用户将在**全部 M2 迭代完成后统一测试** `dev/m2` 尖端，通过后 fast-forward 回 `main`；有问题在 `dev/m2` 上 revert/修，`main` 不动。
-> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道。
+> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）。
 > 每步仍守铁律（0-warning + ctest 绿 + commit），仅不再逐步打断等测。
+
+---
+
+## 新架构 D17 — 2026-08-13 — god-object 拆分首刀：draw_help → ui_help.cpp（M3 · 拆 god-object 启动）
+
+> 用户指示"做里程碑级的拆！"。M3 的"拆 god-object"任务（ROADMAP：split app_run/ui/mpv_controller/ini_config）启动。首刀选 `UI::draw_help`——帮助/热键覆盖窗渲染器（ui.cpp 668-945，~278 行，全文件最大单块）。它与既有 12 个 `ui_*.cpp` 渲染器抽取模式**精确同构**（info_panel/popups/status_bar/tree_renderer/lyric_renderer… 都是渲染器落 sibling .cpp、方法仍 UI 成员、声明留 ui.h）；三个形参全 `(void)` 弃用，仅依赖 `h/w` 私有成员 + `APP_NAME/VERSION`(constants.h) + `Utils::*`(utils.h) + fmt + ncurses(via ui.h)，**零跨方法耦合**——纯机械 verbatim 搬迁。ui.cpp 947→668 行。
+
+### 改动
+- 新文件 `src/ui/ui_help.cpp`：`UI::draw_help` 实现逐字节迁入（脚本抽取，非手敲）；头注释标 D17 + 出处；include 块 = ui.h + `<algorithm>/<string>/<vector>` + `<fmt/format.h>` + constants.h + utils.h（ncurses 经 ui.h）。
+- `src/ui/ui.cpp`：删 draw_help 定义（668-945）；接缝 = 前一方法 `}` → 单空行 → `} // namespace panicast`。
+- `CMakeLists.txt`：`src/ui/ui_help.cpp` 入 panicast 源（info_panel.cpp 后，line 300）。
+- `include/panicast/ui/ui.h`：**不动**（`draw_help` 声明仍在 line 352）。
+
+### 设计
+- **首刀选 draw_help 的理由**：god-object 拆分是 M3 最难地带（剩余 hub app_run/ui/mpv_controller 是缠绕的 run-loop/draw/mpv 生命周期核心）。第一刀要**最大置信 + 最贴合既有 idiom**——draw_help 既是单块最大可抽取体、又是自包含渲染器、又精确镜像既有 12 次抽取：零新 idiom、零依赖搬运（常量/成员全 header 可见，本刀无需动 header）。
+- **纯机械 verbatim**：ctest（41）不覆盖 ui/app/mpv 运行时，hub 拆分无自动测试护驾；故搬迁逐字节不变，行为零变化，依赖人工 pty 冒烟 + 末尾统一实测。
+- **后续链**：本刀建立"ui.cpp 再拆"轨道 → 续抽 ui.cpp 剩余（生命周期组 init/cleanup/handle_resize、setter 组 toggle_*/set_*、draw 大编排留核心）→ 开 mpv_controller.cpp 的 wrapper 组（已核查依赖 `enqueue_cmd_`/常量/成员全 header 可见，可建 `mpv_*.cpp` 模式）→ ini_config.h。
+
+### 验收
+- 0-warning（`-Wall -Wextra -Wpedantic`；本刀仅编译 ui.cpp + ui_help.cpp + 链接）、ctest 41/41、pty 冒烟 exit 0 + clean endin（q→y 退出对话框）。
+- 帮助窗（`?` 键）待人工验证（应与拆前逐字同行为）。
 
 ---
 

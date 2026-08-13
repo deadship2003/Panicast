@@ -1,4 +1,21 @@
 
+## D17 — god-object 拆分首刀：draw_help → ui_help.cpp（M3 · 拆 god-object 启动）
+
+**Context:** ROADMAP M3 任务"拆 god-object：split app_run.cpp/ui.cpp/mpv_controller.cpp/ini_config.h"。剩余 hub 是缠绕的 run-loop/draw/mpv 生命周期核心——最难的拆分地带。用户指示"做里程碑级的拆！"，启动该轨道。
+
+**Decision:** 首刀抽 `UI::draw_help`（帮助/热键覆盖窗渲染器，ui.cpp 668-945，~278 行，全文件最大单块）入新 `src/ui/ui_help.cpp`，逐字节 verbatim 搬迁；方法仍 UI 成员、声明留 ui.h、CMake 加源；ui.cpp 947→668。
+
+**Why draw_help 作首刀（不是 mpv wrapper 组 / app_run）:**
+1. **最大干净收益**：~278 行单块，是 ui.cpp 内最大的可抽取体。
+2. **精确同构既有模式**：与 12 个已抽 `ui_*.cpp` 渲染器（info_panel/popups/status_bar/tree_renderer/lyric_renderer…）同一 idiom——渲染器落 sibling、方法留成员、声明在 header。零新 idiom。
+3. **零依赖搬运**：三形参全 `(void)` 弃用；只用 `h/w` 私有成员 + constants.h + utils.h + fmt + ncurses(via ui.h)。常量/成员全 header 可见，**无需动 header**。（对比：mpv wrapper 组虽也已核查 header 可见，但 mpv 无既有 sibling 模式、是首建 `playback/` 拆分轨道，风险略高，留作后续刀。）
+
+**Why 纯机械 verbatim:** ctest（41）不覆盖 ui 运行时；hub 拆分无自动测试护驾。逐字节搬迁（脚本抽取）保证行为零变化，依赖人工 pty 冒烟 + 末尾统一实测。
+
+**后续链:** ui.cpp 再抽（生命周期组/setter 组/draw 留核心）→ mpv_controller wrapper 组（建 `mpv_*.cpp` 模式，依赖已核查全 header 可见）→ ini_config.h。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。帮助窗（`?`）待统一实测。
+
 ## D16 — save 路径 current_title 收敛到 now_playing()（持久侧 now-playing 单通道）
 
 **Context:** D15 把渲染侧 now-playing 身份统一到 DisplayContext 单通道（url+title）。但 app_run.cpp 的 player_state save 块仍分裂：`current_title = playback_.playback_node()->title`、`canonical_url = playback_.now_playing().id.url()`——同一 save 块、同一 now-playing 身份、两通道（节点指针 + now_playing()）。
