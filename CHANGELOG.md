@@ -4,6 +4,30 @@
 
 ---
 
+## 新架构 D14-2 — 2026-08-13 — PlaybackService canonical now-playing Media + remote 快照首消费（M2 主线 · 首次接线 · 读侧收敛起点）
+
+> D14-1 建好逻辑身份 MediaID/Media（零接线）；本增量首次接线——PlaybackService 暴露 canonical now-playing Media，首个消费者=远程快照（网络控制终端同步面）。
+>
+> **关键修正（原 D14 计划）**：原"PlaybackTrackChanged 携带 Media + SubtitleService 订阅取 Media"作废。该事件唯一订阅者 SubtitleService::begin_track(e.node, e.has_video) 需 TreeNodePtr（读 subtitle_url/has_subtitle/asr_srt_path），而 Media 是窄视图（id/title/art_url/is_video，无 node）——事件改携 Media 会切断字幕。故 PlaybackTrackChanged 保持 {node,mode,has_video}（字幕通道独立、正确）；canonical Media 仅供读侧/持久侧。
+
+### 改动
+- `playback_service.h/.cpp`：新增 `Media now_playing() const`（从 `playback_node_` 经 `media_from_node` 派生 id/title/art_url + 设 is_video）+ 私有 `now_playing_is_video_`（TreeNode 无 is_video 字段，故单独存）；play_current(440)/on_playback_ended(215) 两站点随 `playback_node_` 赋值时同步设 `now_playing_is_video_ = has_video`。
+- `app_remote.cpp` 远程快照：title/url/has_video/art_url 从双源（ps=mpv 状态 + playback_node）统一到 `playback_.now_playing()`；修 `s.url = ps.current_url`（缓存项=本地文件路径）→ canonical 源 URL；s.title 用权威节点标题（F35 既定意图，替 mpv media-title）；ps 兜底无源节点边界（直链播放未经服务）。删冗余 art_url 块（已并入 now_playing 分支）。
+
+### 设计
+- **为什么 now_playing() 派生而非存 Media 成员**：playback_node_ 已是权威源节点；media_from_node(node) 即时派生 id/title/art_url，避免 url/title 三份拷贝与 node 漂移；仅 is_video（非 TreeNode 字段）单独存。clear playback_node_ 自动使 now_playing() 失效，无额外同步态。
+- **为什么先收敛 remote 而非 TUI**：remote 快照 now-playing 字段（title/url/has_video/art_url）正是 Media 形状 + 跨序列化边界（App→网络终端）——证明 Media 端到端、价值最直接（终端显示 canonical 源 URL 而非本地缓存路径）。TUI 读侧经 DisplayContext 推入链路，留 D14-3。
+- **为什么 has_video 取自 PlaylistItem.is_video**：play_current/on_playback_ended 在锁内已 snapshot `current_playlist_[idx].is_video`（建队列时分类好），无需 now_playing() 时重算 URLClassifier（domain 层亦不可依赖 net/，D14-1 既定）。
+
+### 验收
+- ctest 44/44、构建 0-warning（18 单元重链——playback_service.h 加 media.h 触发）、pty 冒烟 exit 0 + clean endwin。
+- `PlaybackTrackChanged`/SubtitleService 未改（事件仍是字幕所需的 {node,mode,has_video}）。
+
+### 后续
+- **D14-3**：TUI 读侧（tree_renderer 高亮 / status_bar / info_panel / lyric 重取触发）改读 canonical Media（经 DisplayContext），替 `current_url`；+ 4× is_streaming（app_input×3+app_remote，ASR 路径）去重。
+
+---
+
 ## 新架构 D14-1 — 2026-08-13 — MediaID 逻辑身份重写（M2 主线 · identity 模型 · 增量1）
 
 > D14（Media 域从 TreeNode 收敛）的第一步：定 identity 模型。审计发现 now-playing 身份当前分裂为三种表示——内存 `TreeNodePtr`、播放路径串（`MPVController::State::current_url`，Y23.9 起对缓存项是**原始本地路径**非 `file://`）、源 URL 串——三者从不统一；本地/流式判定 `url[0]=='/'||file://` 在 app_input(×3)/app_remote(×1) 复制 4 份。D4 的 `MediaID` 是**指针身份**（`node_.lock().get()==` 比较），对持久化/跨会话/网络终端完全无效——这也是历史误判 history"形式化"的根因。

@@ -215,6 +215,7 @@ void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_
     playback_node_ = next_node;   // D9-2: authoritative track state (queried via playback_node())
     playback_mode_ = mode;
     bool has_video = current_playlist_[next].is_video; // snapshot under the lock (event + play below)
+    now_playing_is_video_ = has_video;                 // D14-2: per-track is_video for now_playing()
     // D9 + D10-3 Step 2: publish the track change WITH its re-identified has_video flag. SubtitleService
     //   subscribes → begin_track(next_node, has_video): auto-advance now runs the SAME full A/B branch
     //   as a manual play (Option B — was a Method-B-only load_transcript). Dispatch is synchronous on
@@ -409,6 +410,15 @@ PlaybackService::resolve_youtube_url(const std::string &url, bool has_video) con
     return {}; // empty → caller skips playback (single resolve path, no fallback)
 }
 
+// D14-2: canonical now-playing Media — the single identity+view the read/persist side converges on
+//   (replacing the scattered current_url string = mpv's played path). Derives from the authoritative
+//   playback_node_ (source url/title/art_url) + the per-track is_video flag.
+Media PlaybackService::now_playing() const {
+    Media m = media_from_node(playback_node_);
+    m.is_video = now_playing_is_video_;
+    return m;
+}
+
 // Play a single item by index (pointer-driven model).
 // F23: YouTube URLs resolved async in pool_ (non-blocking); local/non-YouTube play immediately.
 void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
@@ -439,6 +449,7 @@ void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
     //   (stream URL/ICY for radio, not the station name).
     playback_node_ = pn;           // D9-2: authoritative track state (queried via playback_node())
     playback_mode_ = mode;
+    now_playing_is_video_ = has_video; // D14-2: per-track is_video for now_playing()
     // D9 + D10-3 Step 2: publish the track change WITH its has_video flag. SubtitleService subscribes
     //   → begin_track(pn, has_video) — subtitle A/B setup is now event-driven (was a direct call
     //   here). Dispatch is synchronous on this (UI) thread, so begin_track runs before play() below,

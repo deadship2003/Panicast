@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "panicast/core/types.h" // AppMode, PlaylistItem, PlayMode, TreeNodePtr
+#include "panicast/domain/media.h" // D14-2: now_playing() returns Media
 #include "panicast/playback/mpv_controller.h"
 
 namespace panicast
@@ -87,6 +88,13 @@ public:
         return playback_mode_;
     }
 
+    // D14-2: canonical now-playing identity + view. Derives from playback_node_ (the authoritative
+    //   source node) so consumers read the canonical SOURCE url (node->url), NOT mpv's played path
+    //   (a local filesystem path for cached items — the bug D14-3 fixes across the read side).
+    //   is_video = the per-track flag (current_playlist_[idx].is_video). Returns an invalid Media
+    //   (empty url) when nothing is playing. UI-thread-only state (same writer/thread as playback_node_).
+    Media now_playing() const;
+
     // ── Buffering state (D9-3, moved out of App) ──────────────────────────────
     // Per-frame buffering-lifecycle tick (called from App's run loop with mpv's has_media). Owns
     //   playback_pending_(_start_): a just-started track is "pending" until mpv reports it loaded
@@ -127,6 +135,7 @@ private:
     // ── Track state (D9-2, moved out of App) ─────────────────────────────────
     TreeNodePtr playback_node_;              // source node of the playing item (INFO title, ASR)
     AppMode playback_mode_ = AppMode::RADIO; // mode when playback started (for N = jump-to-playing)
+    bool now_playing_is_video_ = false;      // D14-2: is_video for now_playing() (TreeNode has no such field)
 
     // ── Buffering state (D9-3, moved out of App) ─────────────────────────────
     bool playback_pending_ = false;

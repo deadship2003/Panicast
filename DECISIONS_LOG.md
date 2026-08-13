@@ -1,4 +1,24 @@
 
+## D14-2 — PlaybackService canonical now-playing Media + remote 快照首消费（M2 第 3 人日，D14 增量2 · 首次接线）
+
+**Context:** D14-1 建好逻辑身份 MediaID/Media（零生产接线）。本增量首次接线：PlaybackService 暴露 canonical now-playing Media，让读侧用 canonical 源 URL（node->url）替 `MPVController::State::current_url`（= 播放路径，缓存项为本地文件路径——非规范身份）。原 D14 计划写"PlaybackTrackChanged 携带 Media + SubtitleService 订阅取 Media"。
+
+**Decision: 修正原计划——事件不变，canonical Media 供读侧；首个消费者=remote 快照。** ① 审计 `PlaybackTrackChanged`(playback_events.h:24，`{TreeNodePtr node; AppMode mode; bool has_video}`) 唯一订阅者：SubtitleService(subtitle_service.cpp:57) `begin_track(e.node, e.has_video)`——它**需 TreeNodePtr**（读 subtitle_url/has_subtitle/asr_srt_path/local 字幕解析）。Media 是窄视图（id/title/art_url/is_video，无 node），事件改携 Media 会切断字幕 setup。故事件保持 {node,mode,has_video}（字幕通道独立、正确）；canonical Media 是**另一条**给读侧/持久侧的身份。② PlaybackService 新增 `Media now_playing() const`（media_from_node(playback_node_) 派生 id/title/art_url + 设 is_video）+ `now_playing_is_video_`（TreeNode 无 is_video 字段，单独存）；play_current(440)/on_playback_ended(215) 随 playback_node_ 赋值时同步设。③ remote 快照(app_remote.cpp) title/url/has_video/art_url 从双源（ps + playback_node）统一到 now_playing()；修 s.url 本地路径 bug；ps 兜底无节点边界。
+
+**Why now_playing() 派生而非存 Media 成员:** playback_node_ 已是权威源节点；即时派生避免 url/title 三份拷贝与 node 漂移；仅 is_video（非 TreeNode 字段）单独存。clear playback_node_ 自动使 now_playing() 失效，无额外同步态。UI 线程单写单读（与 playback_node_ 同），无需 mutex。
+
+**Why 先 remote 而非 TUI:** remote 快照 now-playing 字段（title/url/has_video/art_url）正是 Media 形状 + 跨序列化边界（App→网络终端）——证明 Media 端到端、价值最直接。TUI 读侧经 DisplayContext 推入链路，留 D14-3。
+
+**Why 修正原计划（事件不改携 Media）:** D14-1 立项时未察觉的约束。SubtitleService 需 node 是硬约束（字幕源解析依赖树节点字段）；强把事件改成 Media 会逼字幕另寻 node（回耦合 PlaybackService::playback_node()，撤销 D9/D10-3 的事件化解耦）。正确切分：事件=字幕通道（携 node），canonical Media=读侧/持久侧身份。两条独立、各得其所。
+
+**Gotcha — has_video 取自 PlaylistItem.is_video:** play_current(427)/on_playback_ended(217) 在 playlist_mutex_ 锁内已 snapshot `current_playlist_[idx].is_video`（建队列时 URLClassifier 分类好）。now_playing_is_video_ 直接存此值，无需 now_playing() 时重算 URLClassifier（domain 层亦不可依赖 net/，D14-1 既定）。
+
+**Gotcha — ps 兜底:** 直链播放等未经 PlaybackService::play_current 的路径不设 playback_node_ → now_playing() 返无效 Media → 快照回退 ps（current_url/title/has_video），保旧行为、无回归。
+
+**Acceptance:** ctest 44/44、0-warning（18 单元重链——playback_service.h 加 media.h 触发）、pty 冒烟 exit 0 + clean endwin。PlaybackTrackChanged/SubtitleService 未改。now_playing() 调用点：app_remote.cpp 快照（首消费者）。
+
+**Followups:** D14-3 TUI 读侧收敛（tree_renderer 高亮/status_bar/info_panel/lyric 经 DisplayContext 读 canonical Media）+ 4× is_streaming 去重（ASR 路径）。D14-4 持久侧。D14-5 Favourites。
+
 ## D14-1 — MediaID 逻辑身份重写（M2 第 2 人日，D14 增量1 · identity 模型）
 
 **Context:** D14（Media 域从 TreeNode 收敛）的第一步是定 identity 模型。审计 now-playing 身份的真实载体：`MPVController::State::current_url`（`mpv_controller.cpp:1256` `state_.current_url = path`）——Y23.9 起给 mpv 传**原始本地路径**（非 file://），故缓存项的 current_url 是本地路径、`node->url` 是源 URL，二者不同形。该字符串身份被 15+ 处直读且无归一：持久化（`player_state_repo.cpp:40/67`、`app_run.cpp:485` save_progress）、显示（`tree_renderer.cpp:59` `url==current_url` 高亮、status_bar、info_panel、`lyric_renderer.cpp:15` 重取触发）、远程（`app_remote.cpp:140` `s.url=ps.current_url`）；本地/流式判定 `url[0]=='/'||file://` 在 `app_input.cpp:248/734/822`+`app_remote.cpp:525` **复制 4 份**。而 D4 的 `MediaID`（media.h）是**指针身份**（`TreeNodeWeakPtr`、`lock().get()==` 比较）——对持久化/跨会话/网络终端完全无效（指针随节点/进程消亡）。用户确认：身份以**真实绝对源 URL**为准。

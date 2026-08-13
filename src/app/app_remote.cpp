@@ -136,9 +136,20 @@ void App::update_remote_state_cache() {
     s.speed = ps.speed;
     s.elapsed = ps.time_pos;
     s.duration = ps.media_duration;
-    s.title = ps.title;
-    s.url = ps.current_url;
-    s.has_video = ps.has_video;
+    // D14-2: now-playing identity + view from the canonical source (PlaybackService::now_playing(),
+    //   built from the authoritative playback_node_) — canonical SOURCE url + node title, not mpv's
+    //   played path (a local filesystem path for cached items) / media-title. Falls back to mpv
+    //   state when no source node is set (e.g. a direct-URL play not routed through the service).
+    if (Media np = playback_.now_playing(); np.id.valid()) {
+        s.url = np.id.url();           // canonical source url (was ps.current_url = played path)
+        s.title = std::move(np.title); // authoritative node title (was ps.title = mpv media-title)
+        s.has_video = np.is_video;
+        s.art_url = std::move(np.art_url);
+    } else {
+        s.title = ps.title;
+        s.url = ps.current_url;
+        s.has_video = ps.has_video;
+    }
     s.playlist_pos = ps.playlist_pos;
     s.playlist_count = ps.playlist_count;
     s.net_speed_bps = ps.net_speed_bps;
@@ -158,9 +169,6 @@ void App::update_remote_state_cache() {
         }
     }
 
-    if (auto pn = playback_.playback_node()) {
-        s.art_url = pn->art_url;
-    }
     if (SleepTimer::instance().is_active()) {
         s.sleep_remaining = SleepTimer::instance().remaining_seconds();
     } else {
