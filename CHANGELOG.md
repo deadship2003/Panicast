@@ -10,6 +10,20 @@
 
 ---
 
+## 新架构 D29 — 2026-08-14 — god-object 拆分第十三刀：ini_config 核心存取簇（load/save/get_int/set）inline→cpp（M3 · main 主线）
+
+> ini_config.h 第六抽：**核心存取簇**——INI 文件 I/O + 泛型 int 存取 + 写回（`load`/`save`/`get_int`/`set`，4 个方法、约 115 行）整块 verbatim 迁 `src/config/ini_config.cpp`。这是 IniConfig 的 load-bearing 核心（启动 `load()` 读 INI、`set()` 写回调 `save()`），体含深嵌套（while/for/if/try-catch）。`get`/`get_float`/`get_bool`（多行签名 + 续行对齐）刻意留 inline。ini_config.h 966→854。
+
+### 改动
+- 声明/定义分离：header 留声明（`load()`/`save()`/`get_int(...) const`/`set(...)`），`IniConfig::` 限定定义迁 cpp。**体逐字节保留**（仅整体去 4 空格、保相对嵌套）。
+- **两处脚本修正**（本轮暴露）：①嵌套体不可 `strip()`+统一 4 缩进（会压平 load/save 的 if/while 嵌套）→ 改逐行 `b[4:]` 保相对缩进；②**默认参数剥离**——`get_int(int default_val = 0)` 的 `= 0` 只能在声明处，定义处须剥（C++ 规则），脚本加 `re.sub(r"\s*=\s*[^,);]+","")`。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin（启动经 `load()` 实测正常）。
+- **D24-D29 累计**：62 个 ini_config 方法由 inline 迁 out-of-line，ini_config.h 1087→854（−233 行）。
+
+---
+
 ## 新架构 D28 — 2026-08-14 — god-object 拆分第十二刀：ini_config display getter 组 inline→cpp（M3 · main 主线）
 
 > ini_config.h 第五抽（D24-D27 手法复用）：**display 配置 getter 组**（`get_log_height_ratio`/`get_log_compress_height`/`get_display_state_refresh_ms`/`get_display_lyric`/`get_display_lyric_lines`/`get_display_lyric_bar`/`get_display_lyric_bar_height`，7 个单行 `return get_*` 委派 getter）声明/定义分离 → `src/config/ini_config.cpp`。F36/Y11/Y12/Y24 阈值文档注释留 header 作 API 文档。ini_config.h 980→966。

@@ -202,4 +202,123 @@ int IniConfig::get_display_lyric_bar_height() const {
     return get_int("display", "lyric_bar_height", 5);
 }
 
+
+// ── core accessors: load/save/get_int/set (D29: moved out-of-line from ini_config.h) ──
+void IniConfig::load() {
+    std::string path = get_config_file();
+    if (!fs::exists(path)) {
+        create_default(path);
+    }
+
+    std::ifstream f(path);
+    std::string line;
+    std::string current_section;
+    raw_lines_.clear();
+
+    while (std::getline(f, line)) {
+        // Keep original lines for writeback in save() (including comments, blank lines, original order)
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        raw_lines_.push_back(line);
+
+        std::string trimmed = line;
+        trimmed.erase(0, trimmed.find_first_not_of(" \t\r\n"));
+        trimmed.erase(trimmed.find_last_not_of(" \t\r\n") + 1);
+
+        if (trimmed.empty() || trimmed[0] == '#' || trimmed[0] == ';')
+            continue;
+
+        if (trimmed[0] == '[' && trimmed.back() == ']') {
+            current_section = trimmed.substr(1, trimmed.length() - 2);
+            continue;
+        }
+
+        size_t pos = trimmed.find('=');
+        if (pos != std::string::npos) {
+            std::string key = trimmed.substr(0, pos);
+            std::string value = trimmed.substr(pos + 1);
+
+            key.erase(0, key.find_first_not_of(" \t"));
+            key.erase(key.find_last_not_of(" \t") + 1);
+            value.erase(0, value.find_first_not_of(" \t"));
+            value.erase(value.find_last_not_of(" \t") + 1);
+
+            if (value.length() >= 2 && value.front() == '"' && value.back() == '"') {
+                value = value.substr(1, value.length() - 2);
+            }
+
+            data_[current_section][key] = value;
+        }
+    }
+}
+int IniConfig::get_int(const std::string &section, const std::string &key, int default_val) const {
+    std::string val = get(section, key);
+    if (!val.empty()) {
+        try {
+            return std::stoi(val);
+        } catch (...) {
+        }
+    }
+    return default_val;
+}
+void IniConfig::set(const std::string &section, const std::string &key, const std::string &value) {
+    std::unique_lock<std::shared_mutex> lk(cfg_mtx_); // P2 (Y23.7): exclusive write
+    data_[section][key] = value;
+    lk.unlock();
+    save();
+}
+void IniConfig::save() {
+    std::string path = get_config_file();
+    if (path.empty())
+        return;
+    std::ofstream f(path);
+    if (!f.is_open())
+        return;
+    std::set<std::string> written; // "section\x1fkey"
+    std::string current_section;
+    for (const auto &raw : raw_lines_) {
+        std::string line = raw;
+        size_t a = line.find_first_not_of(" \t");
+        if (a == std::string::npos) {
+            f << raw << "\n";
+            continue;
+        }
+        if (line[a] == '#' || line[a] == ';') {
+            f << raw << "\n";
+            continue;
+        }
+        if (line[a] == '[') {
+            size_t rb = line.find(']', a);
+            if (rb != std::string::npos)
+                current_section = line.substr(a + 1, rb - a - 1);
+            f << raw << "\n";
+            continue;
+        }
+        size_t eq = line.find('=', a);
+        if (eq == std::string::npos) {
+            f << raw << "\n";
+            continue;
+        }
+        std::string key = line.substr(a, eq - a);
+        key.erase(key.find_last_not_of(" \t") + 1);
+        std::string id = current_section + "\x1f" + key;
+        if (data_.count(current_section) && data_[current_section].count(key)) {
+            f << key << " = " << data_[current_section][key] << "\n";
+            written.insert(id);
+        } else {
+            f << raw << "\n";
+        }
+    }
+    // Append new keys not present in the file
+    for (const auto &[section, kv] : data_) {
+        for (const auto &[k, v] : kv) {
+            std::string id = section + "\x1f" + k;
+            if (!written.count(id)) {
+                f << "[" << section << "]\n" << k << " = " << v << "\n";
+                written.insert(id);
+            }
+        }
+    }
+}
+
 } // namespace panicast

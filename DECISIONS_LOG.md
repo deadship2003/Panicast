@@ -1,5 +1,19 @@
 
-## D28 — ini_config display getter 组 inline→cpp（7 个声明/定义分离）
+## D29 — ini_config 核心存取簇（load/save/get_int/set）inline→cpp（4 方法，~115 行）
+
+**Context:** D28 抽完所有简单 getter 后，剩 inline 多为带逻辑方法。但**任何 inline 方法整块迁对应 cpp 都是编译安全的**（cpp `#include` header = 依赖超集；即便 load-bearing 核心亦然），故核心存取簇仍属纯机械 verbatim 搬迁。选 load/save/get_int/set（单行签名、高价值 ~115 行）；get/get_float/get_bool（多行签名 + 续行对齐）留 inline（搬迁须重排续行，收益低）。
+
+**Decision:** D24-D28 手法 + 泛化 name 匹配（通用 sig_re `^    .*\b(\w+)\s*\(.*\)...{`、TARGETS 白名单、`len==` 断言）。体含深嵌套（while/for/if/try-catch），方法级闭括号在 4 空格处——脚本只匹配它，对嵌套稳健。ini_config.h 966→854。
+
+**关键点（两处脚本缺陷本轮暴露并修正）:**
+1. **嵌套体不可压平**：D24-D28 的 body 重构用 `"    "+b.strip()`（单行 getter 体 OK）会把 load/save 的 if/while 嵌套全压到 4 空格。改逐行 `b[4:]` 保相对缩进（去 4 空格、留嵌套层级、留 `\n`）。
+2. **默认参数剥离**：`get_int(int default_val = 0)` 整签名搬进定义会触发 `-fpermissive` error（默认参数 C++ 只能在声明处给一次）。脚本加 `re.sub(r"\s*=\s*[^,);]+","",nm)` 剥定义处默认值（声明保留）。此为 inline→cpp 搬迁带默认参数方法的**通用坑**。
+
+**D24-D29 阶段小结:** 62 个 ini_config 方法由 inline 迁 out-of-line；ini_config.h 1087→854（−233 行）。剩余 inline（get/get_float/get_bool 多行签名、get_statusbar_color_config/get_play_mode/get_proxy/color/get_node_color/is_url_safe/normalize_proxy/get_config_file 带逻辑或 static）非高性价比机械搬迁。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin（启动 load() 实测）。
+
+
 
 **Context:** D27 小结误判"简单 getter 簇基本尽"——复查发现 display 配置组（log_height_ratio/log_compress_height/display_state_refresh_ms/display_lyric/display_lyric_lines/display_lyric_bar/display_lyric_bar_height）7 个单行 `return get_*` 委派 getter 仍是纯机械搬迁目标。
 
