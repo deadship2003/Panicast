@@ -61,6 +61,10 @@ public:
     // Take the path part of the URL (after the scheme up to before '?' or '#'), used for suffix matching
     static std::string url_path(const std::string &url);
     static bool ends_with_ci(const std::string &s, const char *suffix);
+    // D14-3b: the explicit "is this a local file" gate (file:// or absolute path) — the check
+    //   classify() applies internally as its first branch, exposed as a boolean because classify()
+    //   returns RADIO_STREAM/VIDEO_FILE and cannot express "local" as a category.
+    static bool is_local_file(const std::string &url);
     static URLType classify(const std::string &url);
     static std::string type_name(URLType type);
     static bool is_youtube(URLType type);

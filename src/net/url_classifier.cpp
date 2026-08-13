@@ -32,13 +32,22 @@ bool URLClassifier::ends_with_ci(const std::string &s, const char *suffix) {
     return true;
 }
 
+bool URLClassifier::is_local_file(const std::string &url) {
+    // D14-3b: the explicit "is this a local file" gate — file:// URL or an absolute path.
+    //   classify() applies this same check as its first branch but returns RADIO_STREAM/VIDEO_FILE
+    //   (distinguished by extension); it cannot express "local" as a category. ASR callers
+    //   (is_streaming) and the offline-transcription local-reachability gate need the boolean, so
+    //   this is the single source of truth they share with classify().
+    return !url.empty() && (url.rfind("file://", 0) == 0 || url[0] == '/');
+}
+
 URLType URLClassifier::classify(const std::string &url) {
     if (url.empty())
         return URLType::UNKNOWN;
 
     // Local files (file:// or absolute path): distinguish audio/video by extension,
     //   so local .mp4/.mkv etc. play in the video window, everything else as an audio stream.
-    if (url.compare(0, 7, "file://") == 0 || url[0] == '/') {
+    if (is_local_file(url)) {
         std::string lpath = url_path(url);
         static const char *vid_ext[] = {".mp4", ".m4v", ".webm", ".mkv",  ".avi", ".mov", ".flv",
                                         ".ogv", ".ogm", ".ts",   ".m2ts", ".mts", ".mpg", ".mpeg",

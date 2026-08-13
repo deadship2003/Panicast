@@ -5,6 +5,7 @@
 #include <map>
 
 #include "panicast/net/tiktok_region.h" // Y24.11: T-mode region name in the T-key status line
+#include "panicast/net/url_classifier.h" // D14-3b: is_local_file() for ASR streaming/local + offline-transcription gate
 
 namespace panicast
 {
@@ -245,7 +246,7 @@ void App::open_command_window() {
         auto pst = player.get_state();
         if (pst.has_media && !subtitle_.transcription_engine().realtime_running()) {
             std::string url = pst.current_url;
-            bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
+            bool is_streaming = !URLClassifier::is_local_file(url);
             subtitle_.transcription_engine().start_realtime(playback_.playback_node(), url, is_streaming);
             EVENT_LOG("Force ASR (bypassing embedded/local-SRT/online sources)");
         } else {
@@ -731,7 +732,7 @@ void App::handle_input(int ch, int marked_count) {
             auto pn = playback_.playback_node();
             bool vo_open = player.is_video_window_open();
             std::string url = pst.current_url;
-            bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
+            bool is_streaming = !URLClassifier::is_local_file(url);
 
             // D11-3a: source resolution centralized in SubtitleService::resolve_subtitle_source
             //   (embedded > local SRT [unified find_local_subtitle] > online). ASR only when none.
@@ -818,8 +819,7 @@ void App::handle_input(int ch, int marked_count) {
             } else if (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size()) {
                 auto n = library_.display_list()[library_.selected_idx()].node;
                 bool is_local =
-                    !n->local_file.empty() ||
-                    (!n->url.empty() && (n->url[0] == '/' || n->url.rfind("file://", 0) == 0));
+                    !n->local_file.empty() || URLClassifier::is_local_file(n->url);
                 if (is_playable_node(n) && is_local) {
                     targets.push_back(n);
                 }

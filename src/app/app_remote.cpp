@@ -18,6 +18,7 @@
 #include "panicast/core/event_log.h"
 #include "panicast/core/logger.h"
 #include "panicast/playback/sleep_timer.h"
+#include "panicast/net/url_classifier.h" // D14-3b: is_local_file() for remote asr_start streaming/local
 
 #include <mpv/client.h>
 
@@ -530,7 +531,7 @@ void App::dispatch_remote(const RemoteCommand &cmd) {
                 EVENT_LOG("Remote: local/online subtitle found — loading instead of ASR");
             } else {
                 const std::string &url = pst.current_url;
-                bool is_streaming = !(!url.empty() && (url[0] == '/' || url.rfind("file://", 0) == 0));
+                bool is_streaming = !URLClassifier::is_local_file(url);
                 subtitle_.transcription_engine().start_realtime(pn, url, is_streaming);
                 EVENT_LOG("Remote: ASR start");
             }

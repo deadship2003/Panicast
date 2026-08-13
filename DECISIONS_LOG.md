@@ -1,4 +1,16 @@
 
+## D14-3b — is_streaming 去重（URLClassifier::is_local_file）（M2 · D14 读侧补遗）
+
+**Context:** D14-3 收敛 TUI 读侧时拆出的代码质量增量（不阻 D14 收官）。`url[0]=='/'||file://` 本地/流式判定在 ASR 路径（app_input `:asr`/L 键 is_streaming、F 模式 is_local、app_remote asr_start）复制多处。D14-5 收官后补做。
+
+**Decision: 抽 `URLClassifier::is_local_file(url)`，放 net/url_classifier，非 Utils/core。** ① 本地/非本地本就是 URL 分类关注点；② `classify()` 内部首分支**早已**做此判定（`url.compare(0,7,"file://")==0 || url[0]=='/'`），只是落进 RADIO_STREAM/VIDEO_FILE 分支、无法表达"本地"为独立类别——暴露为公共方法 = 提升既有内部判定为接口，零新依赖（纯函数）；③ classify 内部也改调它（DRY，本地判定 5 处→1 真相源）。
+
+**Why 不放 Utils/core:** Utils 是横切文本/显示工具；本地文件判定是 URL 语义，与 classify/type_name/is_video 同域，放分类器内聚。若放 Utils 反割裂"URL 判定"的单一归属。
+
+**Verification:** ctest 44/44、0-warning、pty 冒烟绿。`rfind("file://",0)==0` ≡ `compare(0,7,"file://")==0`（均判前 7 字符）→ classify 行为零变化；4 处调用点语义等价。
+
+**修正:** 立项称"4 处 is_streaming"，核实为 3 处 is_streaming + 1 处 is_local（F 模式，多 `!local_file.empty()||`），共享本地路径子表达式——抽 is_local_file 后两类均受益。
+
 ## D14-5 — Favourites LINK 收敛（sync 指针身份 → URL 身份）· D14 收官（M2 第 6 人日，D14 增量5）
 
 **Context:** D14-4 收敛持久侧。Favourites LINK 机制（收藏树节点引用 RADIO/PODCAST/ONLINE 等目标节点）：D14-5 原框架"shared_ptr 跨树引用 → MediaID(URL) 解析重建"基于 AUDIT §5/197 + P1-2。审计当前态（代码自 monolithic app.cpp 拆分后演进，AUDIT 行号失效）。

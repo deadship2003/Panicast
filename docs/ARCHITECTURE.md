@@ -36,7 +36,7 @@ src/<module>/*.cpp              实现
 **核心判据（稳定依赖原则）**：某层能否依赖 X，看 X 是否随业务变化——稳定基础设施可依赖，易变业务/运行时状态不可依赖。
 
 UI（`src/ui/`）是纯呈现层，依赖规则：
-- **允许（横切基础设施，性质等同标准库）**：`Utils::*`（文本/显示工具）、`LOG`/`EVENT_LOG`（后者是 UI 右侧日志环形缓冲，见 §3）、`get_emoji_width`（终端度量）、`URLClassifier::classify`/`is_youtube`（**无状态**纯函数：URL 串→`URLType` 枚举、表驱动、无 I/O 无 `instance()`——物理在 `net/` 但性质同 Utils，§3 亦列为基础设施）。同类软件（mpv / cmus / Qt / LLVM / Chromium）的界面层都直接用日志与工具函数——日志是**横切关注点**（cross-cutting concern），不服从"只能往下调"的字面分层。
+- **允许（横切基础设施，性质等同标准库）**：`Utils::*`（文本/显示工具）、`LOG`/`EVENT_LOG`（后者是 UI 右侧日志环形缓冲，见 §3）、`get_emoji_width`（终端度量）、`URLClassifier::classify`/`is_local_file`/`is_youtube`（**无状态**纯函数：URL 串→`URLType` 枚举 / 本地文件判定、表驱动、无 I/O 无 `instance()`——物理在 `net/` 但性质同 Utils，§3 亦列为基础设施）。同类软件（mpv / cmus / Qt / LLVM / Chromium）的界面层都直接用日志与工具函数——日志是**横切关注点**（cross-cutting concern），不服从"只能往下调"的字面分层。
 - **禁止（Core 业务 / 运行时状态）**：`Paths`（文件系统）、`crypto`、`ThreadPool`、`EventBus`、`process_utils`、`safe_tmp`，以及 `storage`/`net`/`playback`/`app` 的**业务/运行时状态查询**（即带 `instance()` 的有状态 singleton——如 `SleepTimer`/`OnlineState`/`TikTokRegion`）。UI 不得直查运行时状态，应经视图模型 / 事件获得数据。**D12-1 已解耦**这 3 个运行时 singleton → App 每帧构建 `DisplayContext`（睡眠定时 + 区域名）推进 `ui.draw()`。
 
 > 由 `scripts/check.sh` §4 grep 门固化：`src/ui/` 出现 Core 业务符号即报警（咨询、不阻断）。Utils / LOG / URLClassifier 不剥离——剥离横切基础设施只给文件改名，不消除任何真实耦合（`DECISIONS_LOG` D11-4）。当前门**绿**（0 命中）。D12-1 后 `src/ui/` 的运行时 singleton 查询（`SleepTimer`/`OnlineState`/`TikTokRegion`）已**归零**——改由 `DisplayContext` 视图模型推入；`URLClassifier`（纯函数）保留。
