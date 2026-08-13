@@ -1,4 +1,20 @@
 
+## D14-5 — Favourites LINK 收敛（sync 指针身份 → URL 身份）· D14 收官（M2 第 6 人日，D14 增量5）
+
+**Context:** D14-4 收敛持久侧。Favourites LINK 机制（收藏树节点引用 RADIO/PODCAST/ONLINE 等目标节点）：D14-5 原框架"shared_ptr 跨树引用 → MediaID(URL) 解析重建"基于 AUDIT §5/197 + P1-2。审计当前态（代码自 monolithic app.cpp 拆分后演进，AUDIT 行号失效）。
+
+**Decision: 审计修正——大改前提已过时；收敛 sync 的最后一块指针身份。** ① `linked_node` 已是 `weak_ptr`（types.h:95，运行期缓存、不持有所有权）——AUDIT 197 的 shared_ptr 所有权债**已修**。② `link_target_url` 已是持久 URL 身份（types.h:97），favourites DB round-trip（persistence.cpp save:68/load:112），收藏创建时设为目标源 URL（app_subscriptions:435/532）。③ `find_node_by_url` URL 解析重建已在 expand_link_node Step 1（target 过期则按 URL 重建）。④ P1-2 parent 不变式**已修**（shared children 不重设 parent，app_tree_expand.cpp:188/232/266 注释）。⑤ 真正剩余：sync_link_node_status:85 用指针相等 `linked.get()==target.get()` 匹配 LINK→target——target 被 Step 3 按 URL 重建后 weak_ptr 指向旧对象→指针失配→漏 sync。改 URL 身份 `link_target_url==target->url`（OR 指针快路径→严格无回归）+ 命中刷新 linked_node。
+
+**Why OR 指针快路径而非纯 URL:** 零回归。指针相等时必命中（含 online_root 等合成键，target url 可能 ≠ link_target_url）；URL 身份补重建场景。OR 是原条件超集。online_root 经 load_search_history 另路、通常不进 sync，但 OR 兜底。
+
+**Why 不抽 resolve_link_target helper / 不大改:** expand 的 URL 解析仅一处使用（find_node_by_url 单定义单使用）；抽 helper 是 used-once YAGNI churn，铁律禁过度设计。sync 指针→URL 是实质身份收敛（重建后漏 sync 的 bug 类）。
+
+**Gotcha — AUDIT 行号失效:** AUDIT_REPORT 的 L10990/L13002 等是旧 monolithic app.cpp 行号；代码已拆入 app_tree_expand.cpp / app_subscriptions.cpp / persistence.cpp。D14-5 立项时的"工作量最大"判断基于过时 AUDIT——审计当前态后，大改已在前序（pre-D14）演进中完成，D14-5 实质工作仅 sync 一处。
+
+**Acceptance:** ctest 44/44、0-warning（2 单元重链：app_tree_expand）、pty 冒烟 exit 0 + clean endwin。sync 重建场景 pty 测不出——审查确认 + OR 无回归。
+
+**Followups（不阻 D14 完成）:** D14-3b is_streaming 去重；流式项 resume gap（键统一后可扩 resume 到流式项）；§5.2 测试镜像漂移。**D14 收官。**
+
 ## D14-4 — 持久侧收敛 progress/player_state 键 → canonical 源 URL + 无损迁移（M2 第 5 人日，D14 增量4 · 持久侧）
 
 **Context:** D14-3 收敛 TUI 读侧。持久侧 now-playing 身份：history 键于 `orig_url`（源 URL），但 progress + player_state 键于 `player_state.current_url`（= mpv 播放路径；Y23.9 起缓存项=本地缓存路径）。审计：save_progress(app_run:488 current_url) / get_progress(playback_service:487 local_url) / save_player_state(app_run:479 current_url)。同一源流式（current_url=流 URL）与缓存（current_url=本地路径）产生双键——progress 取决于"怎么播"而非源身份。

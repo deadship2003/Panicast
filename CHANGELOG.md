@@ -4,6 +4,28 @@
 
 ---
 
+## 新架构 D14-5 — 2026-08-13 — Favourites LINK 收敛（sync 指针身份 → URL 身份）· D14 收官（M2 主线）
+
+> D14-4 收敛持久侧。本增量收敛 Favourites LINK 的最后一块指针身份残留，**D14（Media 域从 TreeNode 收敛）收官**。
+>
+> **审计修正（原"工作量最大"前提已过时）**：D14-5 原框架"shared_ptr 跨树引用 → MediaID(URL) 解析重建"基于 AUDIT §5/197 + P1-2，但二者**早已修复**——`linked_node` 已是 `weak_ptr`（运行期缓存、不持有所有权）、`link_target_url` 已是持久 URL 身份、`find_node_by_url` URL 解析重建已在 expand_link_node、favourites DB round-trip link_target_url。代码自 monolithic app.cpp 拆分后已演进过 AUDIT 行号。真正剩余=sync_link_node_status 的指针身份匹配。
+
+### 改动
+- `app_tree_expand.cpp` sync_link_node_status:85：LINK→target 匹配由指针相等（`linked.get()==target.get()`）改为 URL 身份（`link_target_url==target->url`），OR 指针快路径（含 online_root 合成键情形→严格无回归）+ 命中后 `linked_node = target` 刷新运行期缓存。
+
+### 设计
+- **为什么改 sync 匹配**：target 被 expand_link_node Step 3（原节点已删）按 URL 重建后，LINK 的 weak_ptr 仍指向旧（已销毁）对象→指针失配→漏状态同步。URL 身份稳定跨重建。expand 路径早已按 URL 解析（find_node_by_url），sync 是唯一残留的指针身份。
+- **为什么 OR 指针快路径而非纯 URL**：零回归——指针相等时必命中（含 online_root 等合成键 target url 可能 ≠ link_target_url）；URL 身份补重建场景。OR 是原条件超集。
+- **为什么不大改（抽 resolve_link_target helper 等）**：expand 的 URL 解析仅一处使用（find_node_by_url 单定义单使用），抽 helper 是 used-once YAGNI churn；铁律禁过度设计。sync 指针→URL 是实质身份收敛（重建后漏 sync 的 bug 类）。
+
+### 验收
+- ctest 44/44、构建 0-warning（2 单元重链）、pty 冒烟 exit 0 + clean endwin。sync 重建场景 pty 测不出——审查确认 + OR 无回归。
+
+### D14 收官
+- D14-1~5 全完成：now-playing 身份统一以**真实绝对源 URL（MediaID）**为准——D14-1 identity 模型 / D14-2 PlaybackService canonical now-playing / D14-3 TUI 读侧 / D14-4 持久侧（+无损迁移）/ D14-5 Favourites LINK。跨内存（TreeNodePtr 运行期）/ 读侧（current_url 播放路径）/ 持久侧（progress/player_state）/ 收藏 LINK（linked_node 指针）的四处身份分裂收敛到单一 URL 身份。残留（不阻 D14 完成）：D14-3b is_streaming 去重、流式项 resume gap（可选）、§5.2 测试镜像漂移。
+
+---
+
 ## 新架构 D14-4 — 2026-08-13 — 持久侧收敛 progress/player_state 键 → canonical 源 URL + 无损迁移（M2 主线 · 持久侧）
 
 > D14-3 收敛 TUI 读侧。本增量收敛持久侧：progress + player_state 的键由播放路径（mpv current_url，缓存项=本地缓存路径）改为 canonical 源 URL，与 history（早已 orig_url 键）+ remote(D14-2) + UI(D14-3) 对齐。**审计修正**：history 本就键于 orig_url（`record_play_history` 全 5 调用点传 orig_url），无需收敛；真正分裂的是 progress/player_state。

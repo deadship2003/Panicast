@@ -82,8 +82,17 @@ void App::sync_link_node_status(TreeNodePtr target) {
     std::function<void(TreeNodePtr)> sync_children = [&](TreeNodePtr parent) {
         for (auto &child : parent->children) {
             if (child->is_link) {
+                // D14-5: match the LINK→target relation by URL identity (link_target_url), not by
+                //   pointer equality of the runtime weak_ptr cache. The weak_ptr expires when the
+                //   target is destroyed + rebuilt by URL (expand_link_node Step 3); a pointer-only
+                //   match would then miss the rebuild. Pointer equality kept as a fast path (e.g.
+                //   online_root, whose target url may not equal the synthetic "online_root" key) so
+                //   this is strictly a superset of the old condition — no regression.
                 auto linked = child->linked_node.lock();
-                if (linked.get() == target.get()) {
+                std::string lt =
+                    child->link_target_url.empty() ? child->url : child->link_target_url;
+                if ((linked && linked.get() == target.get()) || lt == target->url) {
+                    child->linked_node = target; // refresh runtime cache to the resolved target
                     // Found a LINK node referencing this target; sync status
                     child->loading = false;
                     child->children_loaded = true;
