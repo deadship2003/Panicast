@@ -285,11 +285,14 @@ void App::run() {
                 }
             }
             // Y11: consume a pending async selection (set by a pool task that built a new node,
-            //   e.g. YouTube search results) — move the cursor to it once, then clear.
+            //   e.g. YouTube search results, or D12-2's eventized jump_to_match) — move the cursor
+            //   to it once, then clear. D12-2: also center the view (was jump_to_match's inline
+            //   scroll) so search-jump, jump_to_playing, and async selects all center consistently.
             if (library_.pending_select()) {
                 for (size_t i = 0; i < library_.display_list().size(); ++i) {
                     if (library_.display_list()[i].node == library_.pending_select()) {
                         library_.selected_idx() = (int)i;
+                        library_.view_start() = std::max(0, (int)i - (LINES - 5) / 2);
                         break;
                     }
                 }

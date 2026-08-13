@@ -244,11 +244,11 @@ private:
     void reset_search();
     void perform_search();
     // D11-3b: search_recursive + the context-aware collection moved into SearchService
-    //   (search_::search_recursive / collect_context_matches / cycle_match); App keeps only the
-    //   display orchestration (perform_search entry, jump_to_match, reveal_node).
+    //   (search_::search_recursive / collect_context_matches / cycle_match). D12-2: reveal_node also
+    //   moved there (pure tree expand), and jump_to_match's cursor jump is eventized via
+    //   pending_select (deferred to the run loop) — App keeps only perform_search (entry).
     void jump_search(int dir);
     void jump_to_match(int idx);
-    void reveal_node(TreeNodePtr node);
 
     // ── app_subscriptions.cpp ──────────────────────────────────────────────────
     void add_feed();

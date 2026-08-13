@@ -1,4 +1,20 @@
 
+## D12-2 — 游标事件化：reveal_node→SearchService + jump_to_match→pending_select（M1 · D12 收官）
+
+**Context:** D11-3b 把搜索算法（search_recursive/collect_context_matches/cycle_match）搬进 SearchService，但 jump_to_match/reveal_node 留在 App——头注释明说"moving them needs the cursor event-driven, deferred"。D12-2 是这个延迟步骤。
+
+**Decision:**
+- **reveal_node → `SearchService::reveal_node(roots, node)`**（纯树展开，lock-free，调用方持 tree_mutex——同 collect_context_matches 先例）。它本就是纯树变异，与搜索算法同域、同锁约定，能干净搬入。
+- **jump_to_match 内联 flatten+select+scroll → pending_select 延迟机制**（reveal + 设 pending_select → 主循环下帧 select+居中）。主循环每帧重建 display_list，jump_to_match 的内联 flatten 是冗余。
+
+**Why 不让 SearchService 读视图态（偏离原 spec 字面）:** 原 task 描述"游标经访问器/事件让 SearchService 读视图态"。但 SearchService 读 selected_idx/view_start = 搜索层→视图层反向依赖，破坏 display-decoupling。改为让游标跳转**完全延迟到视图**（run loop 解析 pending_select），SearchService 只产"要跳到的节点"+展开祖先，视图自己 select+scroll。更彻底符合"搜索只负责搜索的事"。
+
+**Why pending_select 而非新 EventBus 事件:** pending_select 已是项目既有的游标延迟机制（Y11），event_bus.h:6-9 注记它是 EventBus post/drain 的前身。搜索游标统一到它上面 = 三条路径（search/jump_to_playing/异步建节点）共用一个解析点，且为日后 pending_select→EventBus 统一迁移铺路。新增独立 SearchReveal 事件会再造一个并行机制。
+
+**Why 补居中到共享消费点:** jump_to_match 原内联 `view_start = max(0, sel-(LINES-5)/2)` 居中。搬出后把居中也搬到 pending_select 消费点，三条路径一致居中。jump_to_playing 原只 select 不居中——现也居中（一致性改进，非回归）。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟绿。搜索跳转/jump_to_playing 居中行为待人工验证（pty smoke 只覆盖启动/退出）。
+
 ## 测试镜像漂移 2/3+3/3 — parse_time 链入真实 / escape_sql 删除（M2 · 测试质量补遗）
 
 **Context:** test_units.cpp 手抄了 classify/parse_time_string/escape_sql 三副本，测副本非真实 → 真实改动副本不变 = 假阳性。1/3（classify）已链入真实。本增量决 2/3、3/3（+ 用户要求睡眠时间非法时提示正确格式）。

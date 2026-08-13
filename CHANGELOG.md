@@ -4,6 +4,27 @@
 
 ---
 
+## 新架构 D12-2 — 2026-08-13 — 游标事件化（reveal_node→SearchService + jump_to_match→pending_select）（M1 · D12 收官）
+
+> D11-3b 把搜索算法搬进 SearchService 时，故意把 jump_to_match/reveal_node 留在 App（头注释："moving them needs the cursor event-driven, deferred"）。D12-2 补这一步：reveal_node 移入 SearchService，jump_to_match 的内联 flatten+select+scroll 事件化为 pending_select 延迟机制。App 搜索路径不再碰 display_list/selected_idx/view_start/LINES。
+
+### 改动
+- `SearchService::reveal_node(roots, node)`（search_service.h/cpp）：纯树展开（递归设祖先 `expanded`），lock-free（调用方持 tree_mutex，同 collect_context_matches 先例）。从 App::reveal_node 逐字搬迁。
+- `App::jump_to_match`（app_search.cpp）：原 17 行内联（reveal + flatten + 扫描 select + center scroll）→ 4 行（`SearchService::reveal_node` + `pending_select = node`）。主循环每帧本就 flatten，内联是冗余；延迟到下帧（~16ms，按键节奏下不可察）。
+- 删 `App::reveal_node`（app_search.cpp）+ app.h 声明（唯一调用者是 jump_to_match）。
+- 主循环 pending_select 消费点（app_run.cpp）：补 `view_start = max(0, i - (LINES-5)/2)` 居中——原是 jump_to_match 内联 scroll，现统一三条路径（search 跳转 / jump_to_playing / 异步建节点 select）。
+
+### 设计
+- **未让 SearchService 读视图态**（原 spec 字面"让 SearchService 经访问器读 selected_idx"会引入反向依赖：搜索层→视图层）。改为让游标跳转**完全延迟到视图**（run loop 解析 pending_select），SearchService 保持 display-decoupled——更彻底符合"搜索只负责搜索"。reveal_node 能搬入正因它是纯树变异（与 collect_context_matches 同域、同锁先例）。
+- **pending_select 是 EventBus 前身**（event_bus.h:6-9 已注记）；本增量把搜索游标统一到它上面，为日后 pending_select→EventBus post/drain 迁移铺路。
+- **jump_to_playing 行为变化**：原 select 不居中，现也居中（共享消费点）——一致性改进，非回归。
+
+### 验收
+- ctest 41/41、0-warning（`-Wall -Wextra -Wpedantic`）、pty 冒烟绿（exit 0 + endwin + quit）。
+- **人工验证待办**：搜索跳转（`/` + query + n/N）、jump_to_playing（N 键）居中行为。
+
+---
+
 ## 测试 — 2026-08-13 — 测试镜像漂移修复 2/3 + 3/3（parse_time 链入 + escape_sql 删除）+ 睡眠 CLI 提示
 
 > 继 1/3（classify）后修剩余两个镜像。**parse_time_string**（2/3）：链入真实 `SleepTimer::parse_time_string`（CMake 加 `sleep_timer.cpp`+`event_log.cpp`，timer 用 EVENT_LOG/LOG 5 处）；删副本；InvalidInput 期望 -1→0（真实无效输入返回 0，CLI 经 `if(seconds>0)` 跳过 + 提示）。**escape_sql**（3/3）：核实为**死代码（生产 0 调用）**，功能已被 `account_repo.cpp` prepared statement（`sqlite3_bind_*`）完全接管 → 删 impl(database.cpp)+ 声明(database.h)+ 副本 + 3 EscapeSql 测试（不拆分生产代码，为死代码动生产代码不合理）。

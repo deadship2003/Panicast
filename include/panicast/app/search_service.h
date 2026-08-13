@@ -5,11 +5,10 @@
 //   algorithm: search_recursive (subtree title-match), collect_context_matches (the F20
 //   context-aware collection: peers-same-type → peers-diff-type → cursor subtree → global, +
 //   dedup), and cycle_match (the jump_search cursor math). Principle ("搜索只负责搜索的事"):
-//   search produces a match list + cursor (model); reveal/flatten/scroll is the VIEW's job and
-//   stays in App — jump_to_match / reveal_node remain there (they rewrite display_list / selected
-//   / view_start under tree_mutex and use ncurses LINES; moving them needs the cursor
-//   event-driven, deferred). perform_search stays the App entry: input_box → read cursor →
-//   lock → search_.collect_context_matches(...) → unlock → display reset → jump_to_match.
+//   search produces a match list + cursor (model); flatten/scroll/select is the VIEW's job —
+//   jump_to_match now only expands ancestors (SearchService::reveal_node) + hands the node to
+//   pending_select (the deferred cursor the run loop resolves); App no longer touches display.
+//   perform_search stays the App entry.
 //   The online search-record cache (perform_online_search*, build_search_result_node,
 //   add_search_record, …) is account-coupled and stays in App (AccountService territory).
 //   (D10-2 state-holder cut — UI-decoupling M1; D11-3b algorithm cut.)
@@ -73,6 +72,11 @@ public:
     // jump_search cursor math: advance the match index by `dir` (±1), wrapping. Returns false
     //   when there are no matches (caller skips). Updates current_match_idx_.
     bool cycle_match(int dir);
+
+    // D12-2: expand the ancestor chain of `node` so it appears in the flattened display_list.
+    //   Pure tree mutation (sets expanded=true on the path roots→node); caller holds tree_mutex,
+    //   same convention as collect_context_matches — this method never locks nor touches display.
+    static void reveal_node(const std::vector<TreeNodePtr> &roots, const TreeNodePtr &node);
 
 private:
     std::string search_query_;

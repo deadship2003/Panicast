@@ -220,41 +220,21 @@ void App::jump_search(int dir) {
         jump_to_match(search_.current_match_idx());
 }
 
+// D12-2: cursor eventized. reveal_node moved into SearchService (pure tree expand, lock-free — the
+//   caller holds tree_mutex, same convention as collect_context_matches). The flatten+select+scroll
+//   jump_to_match used to do INLINE was redundant with the run loop (it rebuilds display_list every
+//   frame), so the cursor jump now hands the node to pending_select (the deferred mechanism the run
+//   loop resolves — same one jump_to_playing / async node-builds use). App no longer touches
+//   display_list / selected_idx / view_start / LINES for search.
 void App::jump_to_match(int idx) {
     if (idx < 0 || idx >= search_.total_matches())
         return;
     auto node = search_.search_matches()[idx];
-    reveal_node(node);
     {
         std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
-        library_.display_list().clear();
-        flatten_items(cur_items());
+        SearchService::reveal_node(cur_items(), node);
+        library_.pending_select() = node; // run loop resolves: select + center (app_run.cpp)
     }
-    for (int i = 0; i < (int)library_.display_list().size(); ++i) {
-        if (library_.display_list()[i].node == node) {
-            library_.selected_idx() = i;
-            library_.view_start() = std::max(0, library_.selected_idx() - (LINES - 5) / 2);
-            return;
-        }
-    }
-}
-
-void App::reveal_node(TreeNodePtr node) {
-    std::function<bool(TreeNodePtr)> reveal = [&](TreeNodePtr curr) -> bool {
-        if (curr == node)
-            return true;
-        for (auto &child : curr->children) {
-            if (reveal(child)) {
-                curr->expanded = true;
-                return true;
-            }
-        }
-        return false;
-    };
-    std::lock_guard<std::recursive_mutex> lock(
-        library_.tree_mutex()); // traversal + changing expanded must be mutually exclusive
-    for (auto &it : cur_items())
-        reveal(it); // E: was reveal(current_root)
 }
 
 // ═════════════════════════════════════════════════════════════════════════

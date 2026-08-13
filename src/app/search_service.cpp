@@ -1,6 +1,7 @@
 #include "panicast/app/search_service.h"
 
-#include <utility> // std::move
+#include <functional> // std::function (reveal_node's recursive lambda)
+#include <utility>    // std::move
 
 namespace panicast
 {
@@ -77,6 +78,25 @@ bool SearchService::cycle_match(int dir) {
         return false;
     current_match_idx_ = (current_match_idx_ + dir + total_matches_) % total_matches_;
     return true;
+}
+
+// D12-2: relocated from App::reveal_node (app_search.cpp). Walks each root's subtree recursively;
+//   on the path that reaches `node`, sets expanded=true so the node is visible when flattened.
+//   Caller holds tree_mutex (traversal + mutation); this method never locks nor touches display.
+void SearchService::reveal_node(const std::vector<TreeNodePtr> &roots, const TreeNodePtr &node) {
+    std::function<bool(TreeNodePtr)> reveal = [&](TreeNodePtr curr) -> bool {
+        if (curr == node)
+            return true;
+        for (auto &child : curr->children) {
+            if (reveal(child)) {
+                curr->expanded = true;
+                return true;
+            }
+        }
+        return false;
+    };
+    for (auto &it : roots)
+        reveal(it);
 }
 
 } // namespace panicast
