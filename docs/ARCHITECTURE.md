@@ -19,7 +19,7 @@ src/<module>/*.cpp              实现
 | 模块 | 职责 |
 |---|---|
 | `core` | 基础设施：types/constants/logger/event_log/thread_pool/crypto/paths/terminal/safe_tmp/platform/utils |
-| `config` | INI 配置：`ini_config.h`（声明 + 默认值文档）+ `ini_config.cpp`（D24-D27 起 51 个 getter out-of-line 定义；简单 getter 簇机械抽尽，剩余带逻辑方法 load/save/color/proxy 仍 inline） |
+| `config` | INI 配置：`ini_config.h`（声明 + 默认值文档）+ `ini_config.cpp`（D24-D28 起 58 个 getter out-of-line 定义；简单 getter 簇机械抽尽，剩余带逻辑方法 load/save/color/proxy/statusbar/get_int/normalize_proxy 仍 inline） |
 | `net` | 网络：HTTP（`network.cpp` 代理入口）、URL 分类、yt-dlp 运行、Google OAuth、Bilibili API、远程控制（server/session/ws/command_bus/protocol）、TikTok 区域 |
 | `parsers` | feed 解析器（`IFeedParser` + `ParserRegistry` 自注册：rss/opml/youtube_channel）+ 非feed解析器（bilibili API/itunes 搜索/m3u/tiktok/transcript） |
 | `playback` | libmpv 封装（`mpv_controller` 生命周期核心 + `mpv_commands` D18 控制 wrapper + `mpv_metadata` D19 静态诊断 + `mpv_iptv` D20 IPTV 检测）、睡眠定时 |
@@ -78,7 +78,7 @@ UI（`src/ui/`）是纯呈现层，依赖规则：
 
 ## 6. 已知技术债（重构输入，详见 AUDIT_REPORT）
 
-- **上帝对象/文件**：`App`（`app.h` 605 行声明）、`app_run.cpp`(1195)、`mpv_controller.cpp`(1149)、`ini_config.h`(957，配置+默认+注释混杂)、`app_input.cpp`(746，硬编码 `switch(ch)`)。
+- **上帝对象/文件**：`App`（`app.h` 605 行声明）、`app_run.cpp`(1195)、`mpv_controller.cpp`(1149)、`ini_config.h`(966，配置+默认+注释混杂；D24-D28 已迁 58 个 getter 出体)、`app_input.cpp`(746，硬编码 `switch(ch)`)。
 - **竞态**：`pending_select_` + 跨线程裸回调（P1-4 向量竞态、P1-5 两锁一树、P1-8 `~App` 缺失致 UAF）。
 - **SQL 卫生**：多处忽略 `exec_sql` 返回、Bilibili 一处 `fmt::format` 拼接（注入面）、`atoll` 解 TEXT 时间戳恒为 0、`StmtRAII` 预编译缓存造好但零使用。
 - **热键硬编码**：`app_input.cpp` `handle_input` 的 `switch(ch)`，不可配置（`ini_config.h` 注释自承）。

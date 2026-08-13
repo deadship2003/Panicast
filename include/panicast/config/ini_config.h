@@ -287,38 +287,24 @@ public:
 
     // Right-panel INFO/LOG height split: fraction of the right panel reserved for the LOG area
     //   (the rest goes to INFO). 0.3 = LOG 30% / INFO 70% (the default). [display] section.
-    float get_log_height_ratio() const {
-        return get_float("display", "log_height_ratio", 0.3f);
-    }
+    float get_log_height_ratio() const;
     // F36: terminal height (incl. 3-row status bar) at/above which the INFO:LOG ratio holds.
     //   Below it, LOG is compressed 1 row per 1 row of height loss (INFO prioritized), then
     //   hidden when < 2 rows. Configurable so a different display can adjust. The app cannot
     //   lock the terminal window size — this is a degradation threshold, not a hard limit.
-    int get_log_compress_height() const {
-        return get_int("display", "log_compress_height", 23);
-    }
+    int get_log_compress_height() const;
     // Y11: unified playback-state refresh interval (ms). update_state() polls codec/bitrate/
     //   network/position/... at this cadence; the INFO "Network: | Buffering:" line refreshes
     //   here too. Default 100ms (10fps); raise to lower CPU/refresh, lower for smoother INFO.
-    int get_display_state_refresh_ms() const {
-        return get_int("display", "state_refresh_ms", 100);
-    }
+    int get_display_state_refresh_ms() const;
     // Y12: lyric panel (right panel, between INFO and LOG). Shows the current subtitle/lyric line
     //   (mpv sub-text) + recent lines, auto-scrolling. lyric=on/off; lyric_lines=rows shown.
-    bool get_display_lyric() const {
-        return get_bool("display", "lyric", true);
-    }
-    int get_display_lyric_lines() const {
-        return get_int("display", "lyric_lines", 3);
-    }
+    bool get_display_lyric() const;
+    int get_display_lyric_lines() const;
     // Y24: L-mode — full-width LYRIC bar at the bottom (replaces status bar when active).
     //   lyric_bar = on/off (default off); lyric_bar_height = total rows incl. borders (default 5 → 3 lyric lines).
-    bool get_display_lyric_bar() const {
-        return get_bool("display", "lyric_bar", false);
-    }
-    int get_display_lyric_bar_height() const {
-        return get_int("display", "lyric_bar_height", 5);
-    }
+    bool get_display_lyric_bar() const;
+    int get_display_lyric_bar_height() const;
 
     // ── MPV playback config ([mpv] section) ───────────────────────────────────
     std::string get_mpv_vo() const;

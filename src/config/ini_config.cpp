@@ -178,4 +178,28 @@ bool IniConfig::get_url_hyperlink() const {
     return get_bool("display", "url_hyperlink", true);
 }
 
+
+// ── display getters ([display] section) (D28: moved out-of-line from ini_config.h) ──
+float IniConfig::get_log_height_ratio() const {
+    return get_float("display", "log_height_ratio", 0.3f);
+}
+int IniConfig::get_log_compress_height() const {
+    return get_int("display", "log_compress_height", 23);
+}
+int IniConfig::get_display_state_refresh_ms() const {
+    return get_int("display", "state_refresh_ms", 100);
+}
+bool IniConfig::get_display_lyric() const {
+    return get_bool("display", "lyric", true);
+}
+int IniConfig::get_display_lyric_lines() const {
+    return get_int("display", "lyric_lines", 3);
+}
+bool IniConfig::get_display_lyric_bar() const {
+    return get_bool("display", "lyric_bar", false);
+}
+int IniConfig::get_display_lyric_bar_height() const {
+    return get_int("display", "lyric_bar_height", 5);
+}
+
 } // namespace panicast

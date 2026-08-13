@@ -1,5 +1,17 @@
 
-## D27 — ini_config 杂项 getter 组 inline→cpp（8 个声明/定义分离）
+## D28 — ini_config display getter 组 inline→cpp（7 个声明/定义分离）
+
+**Context:** D27 小结误判"简单 getter 簇基本尽"——复查发现 display 配置组（log_height_ratio/log_compress_height/display_state_refresh_ms/display_lyric/display_lyric_lines/display_lyric_bar/display_lyric_bar_height）7 个单行 `return get_*` 委派 getter 仍是纯机械搬迁目标。
+
+**Decision:** D24-D27 同手法（sig_re=`get_\w+...const {`、块边界严格断言、dedent 4、`IniConfig::` 限定）。文档注释（F36 终端高度阈值 / Y11 刷新间隔 / Y12 lyric / Y24 lyric bar 阈值说明）留 header 作 API 文档。ini_config.h 980→966。
+
+**关键点:** D27 脚本两处缺陷（声明丢缩进；定义插到 `namespace panicast{}` 闭括号外 + 缩进倍增）暴露后修正：①header 重写须 `"    "+decl`；②cpp 须 `rfind("} // namespace panicast")` 在其前插入、0 缩进 sig / 4 缩进 body、2 空行+`// ── ... (Dxx: moved out-of-line) ──` 组头。脚本即回归基准。
+
+**D24-D28 阶段小结:** 58 个 ini_config getter 由 inline 迁 out-of-line；ini_config.h 1087→966（−121 行）。display 简单 getter 簇尽。剩余 inline（load/save/get_statusbar_color_config/get_play_mode/get_proxy/color/get_node_color/is_url_safe/get_config_file/normalize_proxy/get_int）均带逻辑，非纯机械。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
+
 
 **Context:** D24-D26 抽完 mpv/youtube/cookies-iptv-remote 四个前缀簇后，剩余简单 getter 散落（search/history/region/network/url_hyperlink 等，非同前缀）。
 

@@ -10,6 +10,16 @@
 
 ---
 
+## 新架构 D28 — 2026-08-14 — god-object 拆分第十二刀：ini_config display getter 组 inline→cpp（M3 · main 主线）
+
+> ini_config.h 第五抽（D24-D27 手法复用）：**display 配置 getter 组**（`get_log_height_ratio`/`get_log_compress_height`/`get_display_state_refresh_ms`/`get_display_lyric`/`get_display_lyric_lines`/`get_display_lyric_bar`/`get_display_lyric_bar_height`，7 个单行 `return get_*` 委派 getter）声明/定义分离 → `src/config/ini_config.cpp`。F36/Y11/Y12/Y24 阈值文档注释留 header 作 API 文档。ini_config.h 980→966。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
+- **D24-D28 累计**：58 个 ini_config getter 由 inline 迁 out-of-line，ini_config.h 1087→966（−121 行）。简单 getter 簇（mpv/YouTube/cookies-IPTV-remote/杂项/display）尽。
+
+---
+
 ## 新架构 D27 — 2026-08-14 — god-object 拆分第十一刀：ini_config 杂项 getter 组 inline→cpp（M3 · main 主线）
 
 > ini_config.h 第四抽（D24-D26 手法复用）：**杂项 getter 组**（`get_search_cache_max`/`get_history_max_records`/`get_history_max_days`/`get_default_region`/`get_tls_verify`/`get_reject_unsafe_url`/`get_network_timeout`/`get_url_hyperlink`，8 个简单 getter）声明/定义分离 → ini_config.cpp。`get_statusbar_color_config`（循环+try/catch）、`get_play_mode`（std::transform+多 if）、`get_proxy`（路径解析）、color 组等结构稍复杂者刻意留 inline。ini_config.h 996→980。
