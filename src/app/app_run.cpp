@@ -430,12 +430,15 @@ void App::run() {
             dctx.online_region_name =
                 ITunesSearch::get_region_name(OnlineState::instance().current_region);
             dctx.tiktok_region = TikTokRegion::current();
-            // D14-3: canonical now-playing source URL from PlaybackService. Read-side consumes this
-            //   instead of state.current_url (played path) so cached items identify by source URL.
-            dctx.now_playing_url = playback_.now_playing().id.url();
+            // D14-3/D15: canonical now-playing identity from PlaybackService. The UI reads the
+            //   playing track's url+title from this view-model bag instead of a domain TreeNodePtr,
+            //   so cached items identify by source URL (not the played path) and the render
+            //   contract stays view-model-only for the playing track.
+            const Media np = playback_.now_playing();
+            dctx.now_playing_url = np.id.url();
+            dctx.now_playing_title = np.title;
 
             frontend_->draw(mode, library_.display_list(), library_.selected_idx(), state, library_.view_start(), app_state,
-                    playback_.playback_node(),
                     marked, search_.search_query(), search_.current_match_idx(),
                     search_.total_matches(), sel_node, downloads,
                     visual_mode_, visual_start_, playback_.playlist(), current_index_snap,

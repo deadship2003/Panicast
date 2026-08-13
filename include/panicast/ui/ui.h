@@ -171,7 +171,7 @@ public:
 
     void draw(AppMode mode, const std::vector<DisplayItem> &list, int selected,
               const MPVController::State &state, int view_start, AppState app_state,
-              TreeNodePtr playback_node, int marked_count, const std::string &search_query,
+              int marked_count, const std::string &search_query,
               int current_match, int total_matches, TreeNodePtr selected_node,
               const std::vector<DownloadProgress> &downloads, bool visual_mode, int visual_start,
               const std::vector<PlaylistItem> &playlist = {}, int playlist_index = -1,
@@ -340,7 +340,7 @@ private:
     //Added playlist parameter
     //Added List mode parameter
     void draw_info(WINDOW *win, const MPVController::State &state, AppState app_state,
-                   TreeNodePtr playback_node, int marked_count, const std::string &search_query,
+                   const DisplayContext &dctx, int marked_count, const std::string &search_query,
                    int current_match, int total_matches, TreeNodePtr selected_node,
                    const std::vector<DownloadProgress> &downloads, bool visual_mode, int cw,
                    const std::vector<PlaylistItem> &playlist = {}, int playlist_index = -1,

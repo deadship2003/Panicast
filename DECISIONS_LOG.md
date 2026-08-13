@@ -1,4 +1,18 @@
 
+## D15 — 渲染契约 now-playing 去冗余通道：拔 playback_node 域指针（M1 UI 解耦收尾）
+
+**Context:** D14-3 读侧收敛时把 now-playing **url** 收进 `DisplayContext.now_playing_url`，但 info_panel 仍用既有的 `TreeNodePtr playback_node` 形参取 title/url（D14-3 只换值来源 current_url→playback_node->url，未动契约形状）。结果同一 now-playing 身份在渲染契约里走两通道：dctx（url）+ 域指针（title/url）。
+
+**Decision:** title 并入 `DisplayContext.now_playing_title`；`IFrontend::draw` 删 `TreeNodePtr playback_node` 形参；`draw_info` 形参 `playback_node`→`const DisplayContext&`，读 dctx。渲染契约对 now-playing 身份只走视图模型一通道。
+
+**Why 现在做（D14 收官之后）:** 不是 D14 身份收敛（D14-5 已收官，身份早已统一）。这是 D14-3 留下的**契约形状补遗**——url 进了 dctx、title 还在指针上，是同一身份两通道的冗余。补 title 进 dctx + 拔指针 = 收口这层冗余，属 M1 UI 解耦（视图模型化）收尾。
+
+**Why 行为零变化仍可做（对照 D14-3 lyric_renderer 原则）:** D14-3 对 lyric_renderer 保留 current_url 因"无行为收益不改契约方法"。本增量同样无行为收益，但改的是身份的**传递通道**（指针→dctx）非**值**（current_url↔源 URL）；`now_playing().title≡playback_node->title`（`media_from_node` 派生），值逐字不变。签名变更是机械的（编译挡位置错位）、唯一实现者是 UI（无 mock 要跟）；去冗余本身是收益（契约不再对同一身份持两通道）。
+
+**Why 不做完整脱耦（坦注边界）:** 契约仍经 `selected_node`（渲染游标块正当需节点字段）+ `DisplayItem.node` 持 TreeNode。整契约从 TreeNode 解耦需 TreeNode 视图化（DisplayItem/selected 都换成视图模型）——更大的 M1 后续，超出"去 now-playing 冗余通道"范围，暂不做（避免过度设计）。本增量只去 now-playing 身份这一处冗余。
+
+**Verification:** ctest 41/41、0-warning（`-Wall -Wextra -Wpedantic`，5 文件 11 处）、pty 冒烟 exit 0 + clean endin + q→y 退出对话框。INFO 面板 now-playing Title/Streaming URL 显示待人工验证（应与 D14-3 后同行为）。
+
 ## D12-2 — 游标事件化：reveal_node→SearchService + jump_to_match→pending_select（M1 · D12 收官）
 
 **Context:** D11-3b 把搜索算法（search_recursive/collect_context_matches/cycle_match）搬进 SearchService，但 jump_to_match/reveal_node 留在 App——头注释明说"moving them needs the cursor event-driven, deferred"。D12-2 是这个延迟步骤。

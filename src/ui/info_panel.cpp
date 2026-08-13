@@ -12,7 +12,7 @@ namespace panicast
 {
 
 void UI::draw_info(WINDOW *win, const MPVController::State &state, AppState app_state,
-                   TreeNodePtr playback_node, int marked_count, const std::string &search_query,
+                   const DisplayContext &dctx, int marked_count, const std::string &search_query,
                    int current_match, int total_matches, TreeNodePtr selected_node,
                    const std::vector<DownloadProgress> &downloads, bool visual_mode, int cw,
                    const std::vector<PlaylistItem> &playlist, int playlist_index,
@@ -380,8 +380,12 @@ void UI::draw_info(WINDOW *win, const MPVController::State &state, AppState app_
         }
         y++;
 
+        // D15: now-playing title/url arrive via the DisplayContext view-model (the canonical
+        //   source identity from PlaybackService::now_playing()), not a domain TreeNodePtr — the
+        //   UI render path no longer holds the playback node. Empty when nothing is playing →
+        //   fall back to mpv's state (state.title / state.current_url played path).
         std::string title_display =
-            (playback_node && !playback_node->title.empty()) ? playback_node->title : state.title;
+            !dctx.now_playing_title.empty() ? dctx.now_playing_title : state.title;
         if (!title_display.empty()) {
             mvwprintw(win, y++, 2, "Title: %s",
                       Utils::truncate_by_display_width(title_display, safe_cw - 7).c_str());
@@ -389,10 +393,11 @@ void UI::draw_info(WINDOW *win, const MPVController::State &state, AppState app_
         // F32: pair the playing program's Streaming URL with its Title (both in the playing
         //   block, on top). Previously the Streaming URL was wedged inside the cursor-node
         //   block, mixing the playing stream URL with the cursor node's own URL.
-        // D14-3: display the canonical source URL (playback_node->url), not the played mpv/cache
-        //   path (state.current_url) — a cached item shows its real source URL.
+        // D14-3/D15: display the canonical source URL (dctx.now_playing_url, fed by
+        //   PlaybackService::now_playing()), not the played mpv/cache path (state.current_url) —
+        //   a cached item shows its real source URL.
         std::string stream_url =
-            (playback_node && !playback_node->url.empty()) ? playback_node->url : state.current_url;
+            !dctx.now_playing_url.empty() ? dctx.now_playing_url : state.current_url;
         if (state.has_media && !stream_url.empty()) {
             if (y < split_y)
                 mvwprintw(win, y++, 2, "Streaming URL:");

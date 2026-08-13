@@ -45,6 +45,10 @@ struct DisplayContext {
     std::string now_playing_url;    // D14-3: canonical now-playing source URL (the real absolute
                                     //   source URL; NOT state.current_url, which holds the played
                                     //   mpv/cache path). Read-side converges on this identity.
+    std::string now_playing_title;  // D15: now-playing display title (from
+                                    //   PlaybackService::now_playing()). Pairs with now_playing_url so
+                                    //   the UI renders now-playing identity from this view-model bag
+                                    //   instead of a domain TreeNodePtr (see draw() contract).
 };
 
 // Y24.48: per-track manual LYRIC override (L key). Auto = follow auto-detection (open only when a
@@ -64,9 +68,13 @@ public:
     virtual void handle_resize() = 0;
 
     // ── main render entry ──
+    // D15: now-playing identity is no longer passed as a domain TreeNodePtr — the UI reads it
+    //   from DisplayContext (now_playing_url + now_playing_title), so the render contract speaks
+    //   only view-model types for the playing track. selected_node stays (it renders the
+    //   cursor-node block, which legitimately needs node fields).
     virtual void draw(AppMode mode, const std::vector<DisplayItem> &list, int selected,
                       const MPVController::State &state, int view_start, AppState app_state,
-                      TreeNodePtr playback_node, int marked_count, const std::string &search_query,
+                      int marked_count, const std::string &search_query,
                       int current_match, int total_matches, TreeNodePtr selected_node,
                       const std::vector<DownloadProgress> &downloads, bool visual_mode,
                       int visual_start, const std::vector<PlaylistItem> &playlist = {},

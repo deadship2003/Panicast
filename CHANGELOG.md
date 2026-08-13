@@ -7,8 +7,30 @@
 > **📦 待测试批次（pre-test）—— 2026-08-13 起**
 > 工作流切换为**分支化批量迭代**：`dev/m2` 分支承接 M2 迭代；`main` 冻结在 `d94ea88`（标签 `pretest/m2-batch-start`）作安全回退点。
 > 用户将在**全部 M2 迭代完成后统一测试** `dev/m2` 尖端，通过后 fast-forward 回 `main`；有问题在 `dev/m2` 上 revert/修，`main` 不动。
-> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修。
+> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道。
 > 每步仍守铁律（0-warning + ctest 绿 + commit），仅不再逐步打断等测。
+
+---
+
+## 新架构 D15 — 2026-08-13 — 渲染契约 now-playing 身份去冗余通道（拔 playback_node 域指针，title 并入 DisplayContext）（M1 · UI 解耦收尾）
+
+> D14-3 把 now-playing 的**url** 收进 `DisplayContext.now_playing_url`，但 info_panel 仍另持域 `TreeNodePtr playback_node` 取 title/url——**同一 now-playing 身份走两通道**（视图模型 + 域指针）。D15 去这层冗余：title 并入 dctx，渲染契约（IFrontend::draw / draw_info）对 now-playing 身份只走 DisplayContext 视图模型一通道。属 **M1 UI 解耦收尾**（不是 D14 身份收敛——D14 已 D14-5 收官；这是 D14-3 读侧收敛后留下的契约形状补遗）。
+
+### 改动
+- `DisplayContext`（frontend.h）：加 `now_playing_title`（配 `now_playing_url`，D14-3）。
+- `IFrontend::draw`（frontend.h）：删 `TreeNodePtr playback_node` 形参；`UI::draw` override（ui.h）/ impl（ui.cpp）同步删。
+- `UI::draw_info`（ui.h 声明 / info_panel.cpp impl）：形参 `TreeNodePtr playback_node` → `const DisplayContext &dctx`；title/url 两处 `(playback_node && !->X.empty()) ? playback_node->X : state.X` → `!dctx.now_playing_X.empty() ? dctx.now_playing_X : state.X`。
+- `app_run.cpp`：dctx 填 `now_playing_title`（单次 `now_playing()` 取 url+title）；`frontend_->draw(...)` 实参删 `playback_.playback_node()`。
+
+### 设计
+- **动机=去冗余通道**（非行为收敛）：D14-3 后 now-playing url 已在 dctx，info_panel 却仍经域指针取 title——同一身份两通道是契约冗余。D15 统一到 dctx 一通道，并补 title（D14-3 只放了 url）。
+- **语义严格等价**：`PlaybackService::now_playing()` = `media_from_node(playback_node_)`（拷 url/title/art_url），故 `now_playing().title ≡ playback_node->title`、`now_playing().id.url() ≡ playback_node->url`；空（无播放）时回退 `state.title`/`state.current_url` 与旧逻辑逐字一致。**行为零变化**（与 D14-3 对 lyric_renderer 的判断同精神：无行为收益则不切值——本增量不改任何值，只改身份的**传递通道**）。
+- **坦注（非完整脱耦）**：契约仍经 `selected_node`（TreeNodePtr，渲染游标块正当需节点字段）+ `DisplayItem.node` 持有 TreeNode——本增量去的是 now-playing 身份的冗余通道，非把整个渲染契约从 TreeNode 解耦。完整脱耦需 TreeNode 视图化（更大的 M1 后续，暂不做）。
+- **唯一 IFrontend 实现者是 UI**（无测试 mock）→ 契约签名变更只波及契约 + UI + caller，无其他实现者要跟。
+
+### 验收
+- 0-warning（`-Wall -Wextra -Wpedantic`，5 文件 11 处全部干净编译）、ctest 41/41、pty 冒烟绿（exit 0 + endin + q→y 退出对话框正常关闭）。
+- **人工验证待办**：INFO 面板 now-playing Title / Streaming URL 显示（含缓存项显示真实源 URL 而非播放路径——D14-3 已修，本增量换通道后应同行为）。
 
 ---
 

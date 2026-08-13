@@ -425,7 +425,7 @@ void UI::set_lyric_bar_requested(bool requested) {
 void UI::draw(
     AppMode mode, const std::vector<DisplayItem> &list, int selected,
     const MPVController::State &state, int view_start, AppState app_state,
-    TreeNodePtr playback_node, int marked_count, const std::string &search_query, int current_match,
+    int marked_count, const std::string &search_query, int current_match,
     int total_matches, TreeNodePtr selected_node, const std::vector<DownloadProgress> &downloads,
     bool visual_mode, int visual_start, const std::vector<PlaylistItem> &playlist,
     int playlist_index, //Play mode + INFO play-context (7-line: 3 history + current + 3 next)
@@ -629,7 +629,7 @@ void UI::draw(
 
     //Pass playlist data
     pending_osc8_.clear(); // Y24.12: reset per-frame OSC 8 link list before draw_info populates it
-    draw_info(right_win, state, app_state, playback_node, marked_count, search_query, current_match,
+    draw_info(right_win, state, app_state, dctx, marked_count, search_query, current_match,
               total_matches, selected_node, downloads, visual_mode, right_inner_width, playlist,
               playlist_index, play_mode, history_titles, next_indices);
 

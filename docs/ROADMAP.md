@@ -144,6 +144,8 @@
 
   - [x] **测试镜像漂移修复**（test_units 抄 classify/parse_time_string/escape_sql 三副本→测副本非真实，假阳性）✅ 2026-08-13。**classify**：删 panicast_test 副本，链入真实 URLClassifier（CMake `target_sources`，纯函数零依赖）。**parse_time**：链入真实 `SleepTimer::parse_time_string`（加 `sleep_timer.cpp`+`event_log.cpp`，timer 用 EVENT_LOG/LOG）；InvalidInput -1→0（真实无效返回 0）。**escape_sql**：核实**死代码（生产 0 调用）**+ 功能已迁移 `account_repo.cpp` prepared statement → 删 impl/声明/副本/3 测试（不拆死代码）；panicast 链接无未定义符号坐实零调用。**CLI**：睡眠时间非法提示正确格式（main.cpp）。ctest **41/41**（删 3 EscapeSql）、0-warning、pty 冒烟绿。
 
+  - [x] **D15 — 渲染契约 now-playing 身份去冗余通道（拔 playback_node 域指针，title 并入 DisplayContext）** ✅ 2026-08-13（M1 UI 解耦收尾 · dev/m2 批次）。D14-3 把 now-playing url 收进 `DisplayContext.now_playing_url` 后，info_panel 仍另持域 `TreeNodePtr playback_node` 取 title/url——同一身份两通道（视图模型 + 域指针）的契约冗余。D15 去冗余：`DisplayContext` += `now_playing_title`；`IFrontend::draw` 删 `playback_node` 形参（UI::draw override/impl 同步）；`draw_info` 形参 `playback_node`→`const DisplayContext&`，title/url 改读 `dctx.now_playing_*`；app_run 单次 `now_playing()` 填 url+title。**语义严格等价**（`now_playing().title≡playback_node->title`，经 `media_from_node` 派生；空回退 state 同旧）。**坦注**：契约仍经 `selected_node`+`DisplayItem.node` 持 TreeNode——本增量只去 now-playing 身份冗余通道，非整契约脱耦（完整脱耦需 TreeNode 视图化，更大的 M1 后续，暂不做，避免过度设计）。唯一 IFrontend 实现者=UI（无 mock）。验收：ctest 41/41、0-warning（5 文件 11 处）、pty 冒烟 exit 0 + clean endin。**→ M2 实质完成**（D13 Provider 审计 + D14 Media 收敛收官 + 测试镜像修复 + D15 渲染契约去冗余）；建议转 M3（SubtitleController 中介者）。
+
 ## 里程碑 M3 — 字幕/ASR
 - [ ] **Dn** — `SubtitleController` 中介者（修 READY/L-key 冲突）；ASR 作 SubtitleProducer。
 
