@@ -1,4 +1,16 @@
 
+## D16 — save 路径 current_title 收敛到 now_playing()（持久侧 now-playing 单通道）
+
+**Context:** D15 把渲染侧 now-playing 身份统一到 DisplayContext 单通道（url+title）。但 app_run.cpp 的 player_state save 块仍分裂：`current_title = playback_.playback_node()->title`、`canonical_url = playback_.now_playing().id.url()`——同一 save 块、同一 now-playing 身份、两通道（节点指针 + now_playing()）。
+
+**Decision:** 合并为单次 `const Media np = playback_.now_playing(); canonical_url = np.id.url(); current_title = np.title;`，删 `cur_node`。app_run.cpp 的 `playback_node()` 直调归零（now-playing 身份全经 now_playing()）。
+
+**Why D15 的对偶、现在做:** D15 收口渲染侧、D16 收口持久侧——两路 now-playing 身份读取都从单一 now_playing() 通道。这是 D15 留下的对称 loose end（渲染侧拔了 playback_node，持久侧还有 cur_node）；补上即 app_run.cpp 全程单通道。
+
+**Why 零续播风险:** `current_title` 仅存 player_state 供下次启动展示（"正在播放"标题），非 resume 键——resume 仍键于 `canonical_url`（D14-4 已收敛源 URL，本增量未动）。`now_playing().title≡playback_node_->title`（media_from_node 派生），值逐字不变。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
 ## D15 — 渲染契约 now-playing 去冗余通道：拔 playback_node 域指针（M1 UI 解耦收尾）
 
 **Context:** D14-3 读侧收敛时把 now-playing **url** 收进 `DisplayContext.now_playing_url`，但 info_panel 仍用既有的 `TreeNodePtr playback_node` 形参取 title/url（D14-3 只换值来源 current_url→playback_node->url，未动契约形状）。结果同一 now-playing 身份在渲染契约里走两通道：dctx（url）+ 域指针（title/url）。

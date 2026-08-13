@@ -146,6 +146,8 @@
 
   - [x] **D15 — 渲染契约 now-playing 身份去冗余通道（拔 playback_node 域指针，title 并入 DisplayContext）** ✅ 2026-08-13（M1 UI 解耦收尾 · dev/m2 批次）。D14-3 把 now-playing url 收进 `DisplayContext.now_playing_url` 后，info_panel 仍另持域 `TreeNodePtr playback_node` 取 title/url——同一身份两通道（视图模型 + 域指针）的契约冗余。D15 去冗余：`DisplayContext` += `now_playing_title`；`IFrontend::draw` 删 `playback_node` 形参（UI::draw override/impl 同步）；`draw_info` 形参 `playback_node`→`const DisplayContext&`，title/url 改读 `dctx.now_playing_*`；app_run 单次 `now_playing()` 填 url+title。**语义严格等价**（`now_playing().title≡playback_node->title`，经 `media_from_node` 派生；空回退 state 同旧）。**坦注**：契约仍经 `selected_node`+`DisplayItem.node` 持 TreeNode——本增量只去 now-playing 身份冗余通道，非整契约脱耦（完整脱耦需 TreeNode 视图化，更大的 M1 后续，暂不做，避免过度设计）。唯一 IFrontend 实现者=UI（无 mock）。验收：ctest 41/41、0-warning（5 文件 11 处）、pty 冒烟 exit 0 + clean endin。**→ M2 实质完成**（D13 Provider 审计 + D14 Media 收敛收官 + 测试镜像修复 + D15 渲染契约去冗余）；建议转 M3（SubtitleController 中介者）。
 
+  - [x] **D16 — save 路径 current_title 收敛到 now_playing()（持久侧 now-playing 单通道）** ✅ 2026-08-13（M1 Media 收敛收尾 · dev/m2）。D15 统一渲染侧 now-playing 通道后，持久侧 save 块仍分裂：`current_title` 走 `playback_node()->title`、`canonical_url` 走 `now_playing().id.url()`（同一 save 块两通道）。D16 合并为单次 `now_playing()` 取 url+title，删 `cur_node`/`playback_node()` 间接。**app_run.cpp 不再直接调 `playback_node()`**（now-playing 身份全经 now_playing()）。语义等价（`now_playing().title≡playback_node_->title`，空=无播放同旧）。`current_title` 仅展示用（resume 键仍是 `canonical_url`，未动）→ 零续播影响。D15 的对偶（渲染侧+持久侧皆单通道）。验收：ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
 ## 里程碑 M3 — 字幕/ASR
 - [ ] **Dn** — `SubtitleController` 中介者（修 READY/L-key 冲突）；ASR 作 SubtitleProducer。
 

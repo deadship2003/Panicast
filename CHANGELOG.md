@@ -7,8 +7,25 @@
 > **📦 待测试批次（pre-test）—— 2026-08-13 起**
 > 工作流切换为**分支化批量迭代**：`dev/m2` 分支承接 M2 迭代；`main` 冻结在 `d94ea88`（标签 `pretest/m2-batch-start`）作安全回退点。
 > 用户将在**全部 M2 迭代完成后统一测试** `dev/m2` 尖端，通过后 fast-forward 回 `main`；有问题在 `dev/m2` 上 revert/修，`main` 不动。
-> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道。
+> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道。
 > 每步仍守铁律（0-warning + ctest 绿 + commit），仅不再逐步打断等测。
+
+---
+
+## 新架构 D16 — 2026-08-13 — save 路径 current_title 收敛到 now_playing()（持久侧 now-playing 单通道）（M1 · Media 收敛收尾）
+
+> D15 统一了**渲染侧**的 now-playing 通道（url+title 经 DisplayContext）；D16 统一**持久侧**：player_state save 块里 `current_title` 原走 `playback_node()->title`、`canonical_url` 走 `now_playing().id.url()`——同一 save 块内 title/url 两通道。D16 合并为单次 `now_playing()` 取 url+title，删 `cur_node`/`playback_node()` 间接。**app_run.cpp 至此不再直接调 `playback_node()`**（now-playing 身份全经 now_playing()）。
+
+### 改动
+- `app_run.cpp` save 块：`cur_node = playback_.playback_node(); current_title = cur_node?cur_node->title:""` + `canonical_url = now_playing().id.url()` → 单次 `const Media np = now_playing(); canonical_url = np.id.url(); current_title = np.title;`。
+
+### 设计
+- **语义等价**：`now_playing().title ≡ playback_node_->title`（`media_from_node` 派生），空（无播放）时 `np.title` 空 = 旧 `cur_node?...:""`。零行为变化。
+- **D15 的对偶**：渲染侧（D15，dctx 灌 url+title）+ 持久侧（D16，save 取 url+title）现在都从单一 `now_playing()` 通道读 now-playing 身份。app_run.cpp 的 `playback_node()` 直调归零（仅注释提及）。
+- **零续播风险**：`current_title` 仅存 player_state 供下次启动展示，**非 resume 键**（resume 仍键于 `canonical_url`，D14-4 已收敛源 URL，本增量未动）。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟绿（exit 0 + endin）。
 
 ---
 

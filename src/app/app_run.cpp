@@ -479,13 +479,15 @@ void App::run() {
 
     // Save player state
     auto player_state = player.get_state();
-    const auto cur_node = playback_.playback_node();
-    std::string current_title = cur_node ? cur_node->title : "";
     int mode_int = static_cast<int>(mode);
-    // D14-4: store the canonical source URL (not the played mpv/cache path) as the now-playing
-    //   identity in player_state + progress — aligns with history (orig_url), remote (D14-2), UI
-    //   (D14-3). now_playing() derives it from playback_node_ (empty when nothing is playing).
-    std::string canonical_url = playback_.now_playing().id.url();
+    // D14-4/D16: canonical now-playing identity (url + title) from ONE PlaybackService::now_playing()
+    //   call. D14-4 keyed the url on the source URL (not the played path); D16 also routes title
+    //   through now_playing() (was a separate playback_node() indirection) so the SAVE path — like
+    //   the RENDER path (D15) — reads now-playing identity from a single channel. now_playing()
+    //   derives url+title from playback_node_ (both empty when nothing is playing).
+    const Media np = playback_.now_playing();
+    std::string canonical_url = np.id.url();
+    std::string current_title = np.title;
     DatabaseManager::instance().save_player_state(
         player_state.volume, player_state.speed, player_state.paused, canonical_url,
         player_state.time_pos, frontend_->is_scroll_mode(),
