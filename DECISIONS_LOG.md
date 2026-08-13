@@ -1,4 +1,14 @@
 
+## D27 — ini_config 杂项 getter 组 inline→cpp（8 个声明/定义分离）
+
+**Context:** D24-D26 抽完 mpv/youtube/cookies-iptv-remote 四个前缀簇后，剩余简单 getter 散落（search/history/region/network/url_hyperlink 等，非同前缀）。
+
+**Decision:** 在有界块（245-282）内用**通用 `get_\w+` sig 模式**抽 8 个 → ini_config.cpp。块边界严格断言，故通用模式安全（块内仅这 8 个 get_ 签名）。`get_statusbar_color_config`/`get_play_mode`/`get_proxy`/color 组结构稍复杂（循环/transform/路径解析）刻意留 inline，后续单独评估。ini_config.h 996→980。
+
+**D24-D27 阶段小结:** 51 个 ini_config getter 由 inline 迁 out-of-line；ini_config.h 1087→980（−107 行）。剩余 inline 多为带逻辑的方法（load/save/color/proxy/statusbar），非纯机械，需更细评估——ini_config 的"简单 getter 簇"机械抽到此基本尽。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
 ## D26 — ini_config cookies/IPTV/remote getter 组 inline→cpp（14 个声明/定义分离）
 
 **Context:** D24/D25 手法持续验证。继续抽 cookies(bilibili/tiktok) + IPTV + remote-control 三个相邻简单 getter 组（14 个，连续 416–475 行）。

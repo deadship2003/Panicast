@@ -10,6 +10,16 @@
 
 ---
 
+## 新架构 D27 — 2026-08-14 — god-object 拆分第十一刀：ini_config 杂项 getter 组 inline→cpp（M3 · main 主线）
+
+> ini_config.h 第四抽（D24-D26 手法复用）：**杂项 getter 组**（`get_search_cache_max`/`get_history_max_records`/`get_history_max_days`/`get_default_region`/`get_tls_verify`/`get_reject_unsafe_url`/`get_network_timeout`/`get_url_hyperlink`，8 个简单 getter）声明/定义分离 → ini_config.cpp。`get_statusbar_color_config`（循环+try/catch）、`get_play_mode`（std::transform+多 if）、`get_proxy`（路径解析）、color 组等结构稍复杂者刻意留 inline。ini_config.h 996→980。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
+- **D24-D27 累计**：51 个 ini_config getter 由 inline 体迁 out-of-line 定义，ini_config.h 1087→980（−107 行）。
+
+---
+
 ## 新架构 D26 — 2026-08-14 — god-object 拆分第十刀：ini_config cookies/IPTV/remote getter 组 inline→cpp（M3 · main 主线）
 
 > ini_config.h 第三抽（D24/D25 手法复用）：**cookies + IPTV + remote-control getter 组**（`get_bilibili/tiktok_cookies_file` + `get_iptv_*`(5) + `get_remote_*`(6)，共 14 个简单 getter）声明/定义分离——声明 + 文档注释留 header，`IniConfig::` 限定定义迁 ini_config.cpp。get_proxy（含路径解析逻辑）及 color 组刻意留 inline。ini_config.h 1024→996。

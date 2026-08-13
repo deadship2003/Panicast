@@ -151,4 +151,31 @@ int IniConfig::get_remote_discovery_port() const {
     return get_int("remote", "discovery_port", 18430);
 }
 
+
+// ── misc getters: search/history/region/network/display (D27: moved out-of-line) ──
+int IniConfig::get_search_cache_max() {
+    return get_int("storage", "search_cache_max", 1024);
+}
+int IniConfig::get_history_max_records() {
+    return get_int("storage", "history_max_records", 2048);
+}
+int IniConfig::get_history_max_days() {
+    return get_int("storage", "history_max_days", 1080);
+}
+std::string IniConfig::get_default_region() {
+    return get("search", "default_region", "US");
+}
+bool IniConfig::get_tls_verify() const {
+    return get_bool("network", "tls_verify", true);
+}
+bool IniConfig::get_reject_unsafe_url() const {
+    return get_bool("network", "reject_unsafe_url", true);
+}
+int IniConfig::get_network_timeout() const {
+    return get_int("network", "timeout", 30);
+}
+bool IniConfig::get_url_hyperlink() const {
+    return get_bool("display", "url_hyperlink", true);
+}
+
 } // namespace panicast

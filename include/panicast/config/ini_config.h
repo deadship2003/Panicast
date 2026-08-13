@@ -242,44 +242,28 @@ public:
     }
 
     // Get search cache max count (default 1024)
-    int get_search_cache_max() {
-        return get_int("storage", "search_cache_max", 1024);
-    }
+    int get_search_cache_max();
 
     // Get podcast cache expiry in days
 
     // Get playback history max records (default 2048)
-    int get_history_max_records() {
-        return get_int("storage", "history_max_records", 2048);
-    }
+    int get_history_max_records();
 
     // Get playback history max days (default 1080 days ≈ 3 years)
-    int get_history_max_days() {
-        return get_int("storage", "history_max_days", 1080);
-    }
+    int get_history_max_days();
 
     // Get default search region
-    std::string get_default_region() {
-        return get("search", "default_region", "US");
-    }
+    std::string get_default_region();
 
     // Newly added config items
 
     // P0-2/P0-5: network security config accessors
-    bool get_tls_verify() const {
-        return get_bool("network", "tls_verify", true);
-    }
-    bool get_reject_unsafe_url() const {
-        return get_bool("network", "reject_unsafe_url", true);
-    }
-    int get_network_timeout() const {
-        return get_int("network", "timeout", 30);
-    }
+    bool get_tls_verify() const;
+    bool get_reject_unsafe_url() const;
+    int get_network_timeout() const;
     // Y24.12: emit OSC 8 terminal hyperlinks for URLs in the INFO/LOG areas (so a wrapped URL
     //   is recognized as ONE link, not just the first line). Off on terminals without OSC 8 support.
-    bool get_url_hyperlink() const {
-        return get_bool("display", "url_hyperlink", true);
-    }
+    bool get_url_hyperlink() const;
 
     // ─── Playback config ([playback] section) ───────────────────────────────
     // Play mode persistence ([playback] mode = repeat|shuffle|cycle).
