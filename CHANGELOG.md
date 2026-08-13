@@ -4,6 +4,14 @@
 
 ---
 
+> **📦 待测试批次（pre-test）—— 2026-08-13 起**
+> 工作流切换为**分支化批量迭代**：`dev/m2` 分支承接 M2 迭代；`main` 冻结在 `d94ea88`（标签 `pretest/m2-batch-start`）作安全回退点。
+> 用户将在**全部 M2 迭代完成后统一测试** `dev/m2` 尖端，通过后 fast-forward 回 `main`；有问题在 `dev/m2` 上 revert/修，`main` 不动。
+> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修。
+> 每步仍守铁律（0-warning + ctest 绿 + commit），仅不再逐步打断等测。
+
+---
+
 ## 新架构 D12-2 — 2026-08-13 — 游标事件化（reveal_node→SearchService + jump_to_match→pending_select）（M1 · D12 收官）
 
 > D11-3b 把搜索算法搬进 SearchService 时，故意把 jump_to_match/reveal_node 留在 App（头注释："moving them needs the cursor event-driven, deferred"）。D12-2 补这一步：reveal_node 移入 SearchService，jump_to_match 的内联 flatten+select+scroll 事件化为 pending_select 延迟机制。App 搜索路径不再碰 display_list/selected_idx/view_start/LINES。
