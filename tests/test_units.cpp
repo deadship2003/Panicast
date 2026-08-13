@@ -12,158 +12,97 @@
 #include "panicast/core/event_bus.h"
 #include "panicast/core/event_log.h"
 #include "panicast/net/proxy_manager.h"
+#include "panicast/net/url_classifier.h" // D14-test: link real classify (was mirrored copy)
 #include "panicast/domain/media.h"
 #include "panicast/parsers/feed_parser.h"
 
 // ─── Since panicast.cpp is a single file, we mirror the pure-function logic for independent testing ───
 // Real integration tests require splitting the modules (v0.6 work)
 
-namespace panicast_test
-{
-
-enum class URLType {
-    UNKNOWN,
-    OPML,
-    RSS_PODCAST,
-    YOUTUBE_RSS,
-    YOUTUBE_CHANNEL,
-    YOUTUBE_VIDEO,
-    YOUTUBE_PLAYLIST,
-    APPLE_PODCAST,
-    RADIO_STREAM,
-    VIDEO_FILE
-};
-
-struct UrlPattern {
-    const char *needle;
-    URLType type;
-};
-static constexpr UrlPattern PATTERNS[] = {
-    {"youtube.com/feeds/videos.xml", URLType::YOUTUBE_RSS},
-    {"youtube.com/playlist", URLType::YOUTUBE_PLAYLIST},
-    {"youtube.com/watch", URLType::YOUTUBE_VIDEO},
-    {"youtu.be/", URLType::YOUTUBE_VIDEO},
-    {"youtube.com/@", URLType::YOUTUBE_CHANNEL},
-    {"youtube.com/channel/", URLType::YOUTUBE_CHANNEL},
-    {"youtube.com/c/", URLType::YOUTUBE_CHANNEL},
-    {"podcasts.apple.com", URLType::APPLE_PODCAST},
-    {".mp4", URLType::VIDEO_FILE},
-    {".webm", URLType::VIDEO_FILE},
-    {".mkv", URLType::VIDEO_FILE},
-    {".avi", URLType::VIDEO_FILE},
-    {".mov", URLType::VIDEO_FILE},
-    {".m3u8", URLType::RADIO_STREAM},
-    {".mp3", URLType::RADIO_STREAM},
-    {".aac", URLType::RADIO_STREAM},
-    {"Browse.ashx", URLType::OPML},
-    {".opml", URLType::OPML},
-    {".xml", URLType::RSS_PODCAST},
-    {"/feed", URLType::RSS_PODCAST},
-    {"/rss", URLType::RSS_PODCAST},
-};
-
-URLType classify(const std::string &url) {
-    if (url.empty())
-        return URLType::UNKNOWN;
-    if (url.compare(0, 7, "file://") == 0 || (!url.empty() && url[0] == '/')) {
-        return URLType::RADIO_STREAM;
-    }
-    if (url.find("Tune.ashx") != std::string::npos) {
-        if (url.find("c=pbrowse") != std::string::npos ||
-            url.find("c=sbrowse") != std::string::npos) {
-            return URLType::OPML;
-        }
-        return URLType::RADIO_STREAM;
-    }
-    for (const auto &p : PATTERNS) {
-        if (url.find(p.needle) != std::string::npos)
-            return p.type;
-    }
-    return URLType::UNKNOWN;
-}
-
-} // namespace panicast_test
-
-using namespace panicast_test;
+// D14-test: the mirrored URLType / UrlPattern / PATTERNS / classify copy was deleted — tests now
+//   link the real URLClassifier::classify (src/net/url_classifier.cpp) so they track the production
+//   classifier instead of a hand-maintained duplicate that silently drifts (the copy had already
+//   diverged: no local-video extension branch, no TikTok, no suffix-aware table matching).
+using namespace panicast;
 
 // ─── URLClassifier test cases ───
 
 TEST(URLClassifier, EmptyUrl) {
-    EXPECT_EQ(classify(""), URLType::UNKNOWN);
+    EXPECT_EQ(URLClassifier::classify(""), URLType::UNKNOWN);
 }
 
 TEST(URLClassifier, LocalFile) {
-    EXPECT_EQ(classify("file:///home/user/music.mp3"), URLType::RADIO_STREAM);
-    EXPECT_EQ(classify("/abs/path/file.mp3"), URLType::RADIO_STREAM);
+    EXPECT_EQ(URLClassifier::classify("file:///home/user/music.mp3"), URLType::RADIO_STREAM);
+    EXPECT_EQ(URLClassifier::classify("/abs/path/file.mp3"), URLType::RADIO_STREAM);
 }
 
 TEST(URLClassifier, YouTubeChannel) {
-    EXPECT_EQ(classify("https://youtube.com/@SomeChannel"), URLType::YOUTUBE_CHANNEL);
-    EXPECT_EQ(classify("https://youtube.com/channel/UC123456"), URLType::YOUTUBE_CHANNEL);
-    EXPECT_EQ(classify("https://youtube.com/c/SomeChannel"), URLType::YOUTUBE_CHANNEL);
+    EXPECT_EQ(URLClassifier::classify("https://youtube.com/@SomeChannel"), URLType::YOUTUBE_CHANNEL);
+    EXPECT_EQ(URLClassifier::classify("https://youtube.com/channel/UC123456"), URLType::YOUTUBE_CHANNEL);
+    EXPECT_EQ(URLClassifier::classify("https://youtube.com/c/SomeChannel"), URLType::YOUTUBE_CHANNEL);
 }
 
 TEST(URLClassifier, YouTubeVideo) {
-    EXPECT_EQ(classify("https://youtube.com/watch?v=dQw4w9WgXcQ"), URLType::YOUTUBE_VIDEO);
-    EXPECT_EQ(classify("https://youtu.be/dQw4w9WgXcQ"), URLType::YOUTUBE_VIDEO);
+    EXPECT_EQ(URLClassifier::classify("https://youtube.com/watch?v=dQw4w9WgXcQ"), URLType::YOUTUBE_VIDEO);
+    EXPECT_EQ(URLClassifier::classify("https://youtu.be/dQw4w9WgXcQ"), URLType::YOUTUBE_VIDEO);
 }
 
 TEST(URLClassifier, YouTubePlaylist) {
-    EXPECT_EQ(classify("https://youtube.com/playlist?list=PL123"), URLType::YOUTUBE_PLAYLIST);
+    EXPECT_EQ(URLClassifier::classify("https://youtube.com/playlist?list=PL123"), URLType::YOUTUBE_PLAYLIST);
 }
 
 TEST(URLClassifier, YouTubeRSS) {
-    EXPECT_EQ(classify("https://youtube.com/feeds/videos.xml?channel_id=UC123"),
+    EXPECT_EQ(URLClassifier::classify("https://youtube.com/feeds/videos.xml?channel_id=UC123"),
               URLType::YOUTUBE_RSS);
 }
 
 TEST(URLClassifier, ApplePodcast) {
-    EXPECT_EQ(classify("https://podcasts.apple.com/us/podcast/example/id123"),
+    EXPECT_EQ(URLClassifier::classify("https://podcasts.apple.com/us/podcast/example/id123"),
               URLType::APPLE_PODCAST);
 }
 
 TEST(URLClassifier, VideoFiles) {
-    EXPECT_EQ(classify("https://example.com/video.mp4"), URLType::VIDEO_FILE);
-    EXPECT_EQ(classify("https://example.com/video.webm"), URLType::VIDEO_FILE);
-    EXPECT_EQ(classify("https://example.com/video.mkv"), URLType::VIDEO_FILE);
-    EXPECT_EQ(classify("https://example.com/video.avi"), URLType::VIDEO_FILE);
-    EXPECT_EQ(classify("https://example.com/video.mov"), URLType::VIDEO_FILE);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/video.mp4"), URLType::VIDEO_FILE);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/video.webm"), URLType::VIDEO_FILE);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/video.mkv"), URLType::VIDEO_FILE);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/video.avi"), URLType::VIDEO_FILE);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/video.mov"), URLType::VIDEO_FILE);
 }
 
 TEST(URLClassifier, AudioStreams) {
-    EXPECT_EQ(classify("https://radio.example.com/live.m3u8"), URLType::RADIO_STREAM);
-    EXPECT_EQ(classify("https://example.com/podcast.mp3"), URLType::RADIO_STREAM);
-    EXPECT_EQ(classify("https://example.com/audio.aac"), URLType::RADIO_STREAM);
+    EXPECT_EQ(URLClassifier::classify("https://radio.example.com/live.m3u8"), URLType::RADIO_STREAM);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/podcast.mp3"), URLType::RADIO_STREAM);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/audio.aac"), URLType::RADIO_STREAM);
 }
 
 TEST(URLClassifier, OPML) {
-    EXPECT_EQ(classify("https://opml.example.com/Browse.ashx"), URLType::OPML);
-    EXPECT_EQ(classify("https://example.com/feeds.opml"), URLType::OPML);
+    EXPECT_EQ(URLClassifier::classify("https://opml.example.com/Browse.ashx"), URLType::OPML);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/feeds.opml"), URLType::OPML);
 }
 
 TEST(URLClassifier, RSSPodcast) {
-    EXPECT_EQ(classify("https://example.com/feed.xml"), URLType::RSS_PODCAST);
-    EXPECT_EQ(classify("https://example.com/feed"), URLType::RSS_PODCAST);
-    EXPECT_EQ(classify("https://example.com/rss"), URLType::RSS_PODCAST);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/feed.xml"), URLType::RSS_PODCAST);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/feed"), URLType::RSS_PODCAST);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/rss"), URLType::RSS_PODCAST);
 }
 
 TEST(URLClassifier, TuneInBrowseVsStream) {
-    EXPECT_EQ(classify("https://tunein.com/Tune.ashx?id=123&c=pbrowse"), URLType::OPML);
-    EXPECT_EQ(classify("https://tunein.com/Tune.ashx?id=123&c=sbrowse"), URLType::OPML);
-    EXPECT_EQ(classify("https://tunein.com/Tune.ashx?id=123"), URLType::RADIO_STREAM);
+    EXPECT_EQ(URLClassifier::classify("https://tunein.com/Tune.ashx?id=123&c=pbrowse"), URLType::OPML);
+    EXPECT_EQ(URLClassifier::classify("https://tunein.com/Tune.ashx?id=123&c=sbrowse"), URLType::OPML);
+    EXPECT_EQ(URLClassifier::classify("https://tunein.com/Tune.ashx?id=123"), URLType::RADIO_STREAM);
 }
 
 TEST(URLClassifier, UnknownUrl) {
-    EXPECT_EQ(classify("https://example.com/some/page"), URLType::UNKNOWN);
-    EXPECT_EQ(classify("https://example.com/"), URLType::UNKNOWN);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/some/page"), URLType::UNKNOWN);
+    EXPECT_EQ(URLClassifier::classify("https://example.com/"), URLType::UNKNOWN);
 }
 
 TEST(URLClassifier, PatternPriority) {
     // youtube.com/feeds/videos.xml takes priority over youtube.com/
-    EXPECT_EQ(classify("https://youtube.com/feeds/videos.xml?channel_id=UC123"),
+    EXPECT_EQ(URLClassifier::classify("https://youtube.com/feeds/videos.xml?channel_id=UC123"),
               URLType::YOUTUBE_RSS);
     // youtube.com/watch will not be mismatched by youtube.com/
-    EXPECT_EQ(classify("https://youtube.com/watch?v=abc"), URLType::YOUTUBE_VIDEO);
+    EXPECT_EQ(URLClassifier::classify("https://youtube.com/watch?v=abc"), URLType::YOUTUBE_VIDEO);
 }
 
 // ─── Time format parsing tests ───

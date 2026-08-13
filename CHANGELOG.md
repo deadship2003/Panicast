@@ -4,6 +4,21 @@
 
 ---
 
+## 测试 — 2026-08-13 — URLClassifier 测试镜像→真实链入（测试镜像漂移修复 1/3）
+
+> test_units.cpp 此前在 panicast_test namespace 内手抄了 URLType/UrlPattern/PATTERNS/classify 副本——测的是副本而非真实 URLClassifier。真实 classify 一旦改动副本不变 → 测试假阳性。副本已漂移（缺本地视频扩展名分支、缺 TikTok、PATTERNS 不区分 suffix）。本增量修第 1 个（漂移面最大的 classify）。
+
+### 改动
+- 删 panicast_test 副本（URLType/UrlPattern/PATTERNS/classify）；测试改调真实 `URLClassifier::classify` + `using namespace panicast`（panicast::URLType）。
+- CMakeLists：test_units 经 `target_sources` 链入 `src/net/url_classifier.cpp`（纯函数零依赖 → 零代价，不拖 sqlite/curl）。
+- 现有 URLClassifier 测试全过（ctest 44/44）——证实现有 case 与真实巧合一致；镜像风险根除（今后真实 classify 改动，测试自动跟随）。
+
+### 待评估（2/3、3/3）
+- **parse_time_string**：链入真实 `SleepTimer::parse_time_string` 需拖 `event_log.cpp`+`sleep_timer.cpp`（test 从纯单元变链 log/timer）；漂移=InvalidInput 返回值（真实 0 / 副本 -1）。
+- **escape_sql**：真实 `DatabaseManager::escape_sql` **生产 0 调用（死代码）** + 副本漂移（真实 strip NUL / 副本不 strip）。database.cpp 拖 sqlite 不可直接链——为死代码拆分生产代码不合理，倾向**删除**（escape_sql + 其测试）。
+
+---
+
 ## 新架构 D14-4b — 2026-08-13 — save 守卫对齐 read（流式项 resume gap 清理）（M2 主线 · 持久侧补遗）
 
 > D14-4 收敛持久侧键后暴露的 gap：流式项（电台/在线播客/本地音频）progress **存而不读**——save 无类型守卫全存，read 侧 `ut != RADIO_STREAM` 却挡掉续播，库积累死行（电台最高频）。本增量把 save 守卫对齐 read。
