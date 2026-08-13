@@ -1,4 +1,16 @@
 
+## D23 — app 持久化组 → app_persistence.cpp（load_data/load_persistent_data/save_persistent_data/restore_player_state）
+
+**Context:** app_run.cpp 1414 行（最大 app 文件）。survey 后选**持久化组**作首抽：4 方法 cohesive（启动/退出 DB load/save/restore），体量适中（83 行），低于 feed-loading 组（~738 行，parse_feed_by_type/load_default_podcasts 大且缠绕）。
+
+**Decision:** 抽 → `src/app/app_persistence.cpp`，逐字节 verbatim。app_run.cpp 1414→1330。
+
+**Why 干净机械:** 实查 app_run.cpp **无文件局部 helper**（无 anon-namespace、无 static 自由函数）；4 方法只依赖 header 可见符号——`Persistence::`(persistence.h)、`DatabaseManager::`(database.h)、`OnlineState::`(online_state.h)、`EVENT_LOG`/`fmt`(ui.h→event_log.h / fmt) 全经 **app.h 传递可见**（app.h:78,81,86,98），加 `<iostream>`（std::cout）即最小正确集。`switch_mode` 是 App 成员（app.h 声明、sibling 定义），跨 TU 链接无碍。
+
+**Why 选持久化组而非 feed 组:** feed-loading 组虽 cohesive 但 parse_feed_by_type(142 行)/load_default_podcasts(388 行) 大且缠绕、依赖更多——留作后续需更细 survey 的项。持久化组是 app_run.cpp 当前最干净的一刀，与既有 18 个 app_*.cpp sibling 同 idiom。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
 ## D22 — ui lifecycle 组 → ui_lifecycle.cpp（终端/信号簇 + init/cleanup/handle_resize + 3 文件局部全局连带搬）
 
 **Context:** D21 后 ui.cpp 剩 init/cleanup/handle_resize/draw 四块。任务预设 lifecycle 组引用文件局部全局需特殊处理——实查（grep）推翻：`init`/`cleanup`/`handle_resize` **只引用 extern/header 符号**（emoji 全局在 `core/terminal.h:35-36` extern）；3 个文件局部全局（anon-namespace `g_original_termios`/`g_termios_saved`、`static g_term_sig_count`）**仅**被终端/信号自由函数簇引用。

@@ -7,8 +7,22 @@
 > **📦 待测试批次（pre-test）—— 2026-08-13 起**
 > 工作流切换为**分支化批量迭代**：`dev/m2` 分支承接 M2 迭代；`main` 冻结在 `d94ea88`（标签 `pretest/m2-batch-start`）作安全回退点。
 > 用户将在**全部 M2 迭代完成后统一测试** `dev/m2` 尖端，通过后 fast-forward 回 `main`；有问题在 `dev/m2` 上 revert/修，`main` 不动。
-> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp（mpv_controller.cpp 1379→1203）/ D19 mpv_controller 静态元数据组→mpv_metadata.cpp（mpv_controller.cpp 1203→1126）/ D20 mpv IPTV 检测组→mpv_iptv.cpp（含 log_has 连带搬 + 修 reset 伪 inline；mpv_controller.cpp 1126→1050）/ D21 ui setter/toggle 组→ui_toggles.cpp（ui.cpp 668→638）/ D22 ui lifecycle 组→ui_lifecycle.cpp（终端/信号簇 + init/cleanup/handle_resize + 3 文件局部全局连带搬；ui.cpp 638→263）。
+> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp（mpv_controller.cpp 1379→1203）/ D19 mpv_controller 静态元数据组→mpv_metadata.cpp（mpv_controller.cpp 1203→1126）/ D20 mpv IPTV 检测组→mpv_iptv.cpp（含 log_has 连带搬 + 修 reset 伪 inline；mpv_controller.cpp 1126→1050）/ D21 ui setter/toggle 组→ui_toggles.cpp（ui.cpp 668→638）/ D22 ui lifecycle 组→ui_lifecycle.cpp（终端/信号簇 + init/cleanup/handle_resize + 3 文件局部全局连带搬；ui.cpp 638→263）/ D23 app 持久化组→app_persistence.cpp（load_data/load_persistent_data/save_persistent_data/restore_player_state；app_run.cpp 1414→1330）。
 > 每步仍守铁律（0-warning + ctest 绿 + commit），仅不再逐步打断等测。
+
+---
+
+## 新架构 D23 — 2026-08-13 — god-object 拆分第七刀：app 持久化组 → app_persistence.cpp（M3 · 5 刀批次 4/5）
+
+> app_run.cpp 第一抽：启动/退出 DB 持久化组（`load_data`/`load_persistent_data`/`save_persistent_data`/`restore_player_state`）→ 新 `src/app/app_persistence.cpp`，逐字节 verbatim。4 方法均为 App 成员（app.h:119,341-343 声明），cohesive（DB load/save/restore 生命周期）。app_run.cpp 1414→1330。
+
+### 改动
+- 新文件 `src/app/app_persistence.cpp`：4 方法迁入；include = app.h（传递含 Persistence/DatabaseManager/OnlineState/EVENT_LOG/fmt）+ `<iostream>`（std::cout）——最小正确集，无冗余。
+- `src/app/app_run.cpp`：删原 537-619；run() 收尾 → spawn_load_radio 段。CMake 加源。header 不动。
+- 实查：app_run.cpp **无文件局部 helper**（无 anon namespace、无 static 自由函数）→ 4 方法只依赖 header 可见符号（Persistence/DatabaseManager/OnlineState + App 成员），干净机械抽。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
 
 ---
 
