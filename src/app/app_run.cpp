@@ -427,6 +427,9 @@ void App::run() {
             dctx.online_region_name =
                 ITunesSearch::get_region_name(OnlineState::instance().current_region);
             dctx.tiktok_region = TikTokRegion::current();
+            // D14-3: canonical now-playing source URL from PlaybackService. Read-side consumes this
+            //   instead of state.current_url (played path) so cached items identify by source URL.
+            dctx.now_playing_url = playback_.now_playing().id.url();
 
             frontend_->draw(mode, library_.display_list(), library_.selected_idx(), state, library_.view_start(), app_state,
                     playback_.playback_node(),

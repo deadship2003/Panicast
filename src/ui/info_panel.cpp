@@ -389,13 +389,17 @@ void UI::draw_info(WINDOW *win, const MPVController::State &state, AppState app_
         // F32: pair the playing program's Streaming URL with its Title (both in the playing
         //   block, on top). Previously the Streaming URL was wedged inside the cursor-node
         //   block, mixing the playing stream URL with the cursor node's own URL.
-        if (state.has_media && !state.current_url.empty()) {
+        // D14-3: display the canonical source URL (playback_node->url), not the played mpv/cache
+        //   path (state.current_url) — a cached item shows its real source URL.
+        std::string stream_url =
+            (playback_node && !playback_node->url.empty()) ? playback_node->url : state.current_url;
+        if (state.has_media && !stream_url.empty()) {
             if (y < split_y)
                 mvwprintw(win, y++, 2, "Streaming URL:");
             int su_width = safe_cw - 2;
             if (su_width < 10)
                 su_width = 10;
-            std::string full_url = Utils::http_to_https(state.current_url);
+            std::string full_url = Utils::http_to_https(stream_url);
             std::vector<std::string> su_lines = Utils::wrap_text(full_url, su_width, 12);
             bool osc8 = url_hyperlink_;
             int by = 0, bx = 0;

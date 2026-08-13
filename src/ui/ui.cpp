@@ -598,7 +598,7 @@ void UI::draw(
             visual_mode && visual_start >= 0 &&
             ((visual_start <= i && i <= selected) || (selected <= i && i <= visual_start));
         draw_line(left_win, line_num, list[i], is_sel, in_visual, tree_line_width,
-                  state.current_url);
+                  dctx.now_playing_url);
         line_num++;
     }
 

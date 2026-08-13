@@ -4,6 +4,30 @@
 
 ---
 
+## 新架构 D14-3 — 2026-08-13 — TUI 读侧收敛 current_url → canonical now-playing 源 URL（M2 主线 · 读侧 · 修缓存项高亮 bug）
+
+> D14-2 让 PlaybackService 暴露 canonical now-playing Media、remote 快照首消费。本增量收敛 TUI 读侧：3 个 `current_url`（= mpv 播放路径，缓存项为本地文件路径）读点改读 canonical 源 URL。**核心收益 = 修缓存项高亮 bug**：tree_renderer 高亮比 `item.node->url == current_url`，缓存项 `node->url` 是源 URL 而 `current_url` 是本地缓存路径，二者永不等 → 缓存下载的节目此前在树里永不点亮。
+
+### 改动
+- `frontend.h` `DisplayContext` += `std::string now_playing_url`（canonical now-playing 源 URL，非 `state.current_url` 播放路径）。
+- `app_run.cpp`：每帧 `dctx.now_playing_url = playback_.now_playing().id.url()`（D14-2 访问器），随 dctx 推入 `frontend_->draw()`。
+- `ui.cpp:601`：draw_line 的 current_url 参数由 `state.current_url` → `dctx.now_playing_url`（tree_renderer:59 高亮比改用 canonical 源 URL → 缓存项点亮）。
+- `status_bar.cpp:60`：播放 URL 由 `state.current_url` → `dctx.now_playing_url`。
+- `info_panel.cpp:392/398`："Streaming URL" 由 `state.current_url` → `playback_node->url`（已收 playback_node 参数；fallback current_url 无节点边界）。
+- `lyric_renderer.cpp:15`：**保留** `state.current_url` + 注明——逐轨重取触发键（变化检测器，播放路径逐轨必变故触发正确）；是 IFrontend 契约方法，canonical 源 URL 在此无行为收益。
+
+### 设计
+- **为什么经 DisplayContext 而非 UI 直调 now_playing()**：UI 是纯呈现层、不持 PlaybackService 引用（D12-3c IFrontend 可换）；canonical 身份随 dctx 视图模型每帧推入，与 D12-1（sleep/region 经 dctx）一致——UI 只渲染纯值、不自查运行时状态（§2.1）。status_bar 已收 dctx（零新增管线）；tree_renderer 经 ui.cpp 调用点传 `dctx.now_playing_url`（draw() 本就有 dctx 作用域）；info_panel 经已有 `playback_node`（== dctx 值，同源节点）。
+- **为什么 lyric 不收敛**：`update_lyric_history(state)` 是 IFrontend 契约方法、仅用 current_url 做逐轨变化检测（非显示）；播放路径逐轨必变、触发语义保持。改它须动契约签名传 canonical url，零行为收益。注明防后混淆。
+
+### 验收
+- ctest 44/44、构建 0-warning（6 单元重链）、pty 冒烟 exit 0 + clean endwin + quit dialog。无新行为，仅身份源由播放路径切到 canonical 源 URL。
+
+### 后续
+- **D14-3b**：4× is_streaming（app_input×3 + app_remote:525）本地/流式判定去重 → 抽 helper（从本增量拆出：独立代码质量关注、ASR 路径、pty 测不出字幕行为）。**D14-4** 持久侧。**D14-5** Favourites。
+
+---
+
 ## 新架构 D14-2 — 2026-08-13 — PlaybackService canonical now-playing Media + remote 快照首消费（M2 主线 · 首次接线 · 读侧收敛起点）
 
 > D14-1 建好逻辑身份 MediaID/Media（零接线）；本增量首次接线——PlaybackService 暴露 canonical now-playing Media，首个消费者=远程快照（网络控制终端同步面）。

@@ -1,4 +1,20 @@
 
+## D14-3 — TUI 读侧收敛 current_url → canonical now-playing 源 URL（M2 第 4 人日，D14 增量3 · 读侧）
+
+**Context:** D14-2 让 PlaybackService 暴露 `now_playing()` canonical Media、remote 快照首消费。TUI 读侧仍直读 `MPVController::State::current_url`（= mpv 播放路径；Y23.9 起缓存项给 mpv 传**原始本地路径**非 file://，故 current_url 是本地缓存路径）。读点：tree_renderer:59 高亮比 `item.node->url == current_url`、status_bar:60、info_panel:392/398 "Streaming URL"、lyric_renderer:15 逐轨重取触发。
+
+**Decision: canonical 身份经 DisplayContext 视图模型推入；3 显示/高亮读点收敛，lyric 触发保留。** ① `DisplayContext` += `now_playing_url`，App 每帧 `playback_.now_playing().id.url()` 灌入（复用 D12-1 dctx 推入链、与 D12-3c IFrontend 可换一致——UI 不持 PlaybackService 引用）。② tree_renderer 高亮：ui.cpp:601 传 `dctx.now_playing_url`（替 `state.current_url`）→ **修缓存项高亮 bug**（`node->url`=源 URL ≠ `current_url`=本地路径，此前永不点亮）。③ status_bar:60 → `dctx.now_playing_url`。④ info_panel → `playback_node->url`（已收该参数，fallback current_url 无节点边界）。⑤ lyric_renderer:15 **保留** current_url + 注明。
+
+**Why 经 DisplayContext 而非 UI 直调 now_playing():** UI 是纯呈现层、经 IFrontend 抽象（D12-3c 可换 Qt）；canonical 身份属"App 每帧解析、UI 只渲染纯值"的视图模型（与 D12-1 解耦 SleepTimer/OnlineState/TikTokRegion 同模式——§2.1：UI 不得自查运行时状态）。status_bar 已收 dctx（零新增管线）；tree_renderer 经调用点传 `dctx.now_playing_url`（draw() 有 dctx 作用域）；info_panel 经已有 playback_node（== dctx 值同源）。
+
+**Why lyric 不收敛:** `update_lyric_history` 是 IFrontend 契约方法（形参 `const State&`），current_url 仅作逐轨变化检测（非显示）。播放路径逐轨必变 → 触发语义保持；canonical 源 URL 零行为收益，改它须动契约签名。注明防后混淆。
+
+**Gotcha — info_panel 不经 dctx 而经 playback_node:** draw_info 已收 playback_node 参数（F32 接的）；`playback_node->url` == `playback_.now_playing().id.url()` == `dctx.now_playing_url`（同源节点）。就近用已有参数，免给 draw_info 加 dctx 形参。两表达同值。
+
+**Acceptance:** ctest 44/44、0-warning（6 单元重链：frontend.h + app_run/ui/status_bar/info_panel/lyric_renderer）、pty 冒烟 exit 0 + clean endwin + quit dialog。无新行为，仅身份源切换。`current_url` 在 src/ui 残留仅 lyric_renderer:15/17（有意保留，注明）。
+
+**Followups:** D14-3b is_streaming 去重（ASR 路径，从本增量拆出）；D14-4 持久侧；D14-5 Favourites。
+
 ## D14-2 — PlaybackService canonical now-playing Media + remote 快照首消费（M2 第 3 人日，D14 增量2 · 首次接线）
 
 **Context:** D14-1 建好逻辑身份 MediaID/Media（零生产接线）。本增量首次接线：PlaybackService 暴露 canonical now-playing Media，让读侧用 canonical 源 URL（node->url）替 `MPVController::State::current_url`（= 播放路径，缓存项为本地文件路径——非规范身份）。原 D14 计划写"PlaybackTrackChanged 携带 Media + SubtitleService 订阅取 Media"。

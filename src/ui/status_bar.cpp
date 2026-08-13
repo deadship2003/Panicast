@@ -57,7 +57,7 @@ void UI::draw_status(WINDOW *win, const MPVController::State &state, TreeNodePtr
         mid_content = fmt::format("⏰ {:02d}:{:02d}:{:02d}", hours, minutes, seconds);
     } else {
         std::string url_to_show =
-            state.has_media ? state.current_url : (selected_node ? selected_node->url : "");
+            state.has_media ? dctx.now_playing_url : (selected_node ? selected_node->url : "");
         url_to_show = Utils::http_to_https(url_to_show);
         mid_content = url_to_show;
     }

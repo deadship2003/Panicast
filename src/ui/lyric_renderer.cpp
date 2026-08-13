@@ -12,6 +12,9 @@ namespace panicast
 {
 
 void UI::update_lyric_history(const MPVController::State &state) {
+    // D14-3: state.current_url here is a per-track change-detection key only (never displayed).
+    //   The played path changes per track, so the reload trigger fires correctly; the canonical
+    //   source URL adds no behavioral gain, and this is an IFrontend contract method — left as-is.
     if (state.current_url != last_lyric_url_) {
         lyric_history_.clear();
         last_lyric_url_ = state.current_url;

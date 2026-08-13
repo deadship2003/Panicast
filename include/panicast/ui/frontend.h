@@ -42,6 +42,9 @@ struct DisplayContext {
     int sleep_remaining = 0;        // seconds (valid only when sleep_active)
     std::string online_region_name; // resolved name for the ONLINE title
     std::string tiktok_region;      // current TikTok region code (e.g. "CN")
+    std::string now_playing_url;    // D14-3: canonical now-playing source URL (the real absolute
+                                    //   source URL; NOT state.current_url, which holds the played
+                                    //   mpv/cache path). Read-side converges on this identity.
 };
 
 // Y24.48: per-track manual LYRIC override (L key). Auto = follow auto-detection (open only when a
