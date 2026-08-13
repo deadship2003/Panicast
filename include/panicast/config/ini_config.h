@@ -337,76 +337,32 @@ public:
     }
 
     // ── MPV playback config ([mpv] section) ───────────────────────────────────
-    std::string get_mpv_vo() const {
-        return get("mpv", "vo", "auto");
-    }
-    std::string get_mpv_vid() const {
-        return get("mpv", "vid", "auto");
-    }
-    std::string get_mpv_ao() const {
-        // F40: treat empty INI value as the default (old config.ini had "ao =" empty,
-        //   which otherwise overrides the default → mpv auto → pipewire probe noise).
-        std::string v = get("mpv", "ao", "pulse,alsa");
-        return v.empty() ? "pulse,alsa" : v;
-    }
-    std::string get_mpv_ytdl_format() const {
-        return get("mpv", "ytdl_format", "bestvideo+bestaudio");
-    }
-    std::string get_mpv_user_agent() const {
-        return get("mpv", "user_agent",
-                   "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0");
-    }
-    std::string get_mpv_cache() const {
-        return get("mpv", "cache", "yes");
-    }
-    std::string get_mpv_demuxer_max_bytes() const {
-        return get("mpv", "demuxer_max_bytes", "50MiB");
-    }
-    std::string get_mpv_demuxer_max_back_bytes() const {
-        return get("mpv", "demuxer_max_back_bytes", "25MiB");
-    }
-    int get_mpv_cache_secs() const {
-        return get_int("mpv", "cache_secs", 10);
-    }
+    std::string get_mpv_vo() const;
+    std::string get_mpv_vid() const;
+    std::string get_mpv_ao() const;
+    std::string get_mpv_ytdl_format() const;
+    std::string get_mpv_user_agent() const;
+    std::string get_mpv_cache() const;
+    std::string get_mpv_demuxer_max_bytes() const;
+    std::string get_mpv_demuxer_max_back_bytes() const;
+    int get_mpv_cache_secs() const;
     // Y24.12: audio (podcast/radio) fast-start profile — small initial buffer so long episodes
     //   start playing ASAP and stream while buffering, instead of waiting to fill cache_secs.
     //   Applied per-file in play_audio(); video restores the larger [mpv] cache in play_video().
-    int get_mpv_audio_cache_secs() const {
-        return get_int("mpv", "audio_cache_secs", 5);
-    }
-    std::string get_mpv_audio_demuxer_max_bytes() const {
-        return get("mpv", "audio_demuxer_max_bytes", "5MiB");
-    }
-    std::string get_mpv_audio_demuxer_max_back_bytes() const {
-        return get("mpv", "audio_demuxer_max_back_bytes", "2MiB");
-    }
-    int get_mpv_audio_cache_pause_wait() const {
-        return get_int("mpv", "audio_cache_pause_wait", 1);
-    }
-    bool get_mpv_tls_verify() const {
-        return get_bool("mpv", "tls_verify", true);
-    }
-    bool get_mpv_keep_open() const {
-        return get_bool("mpv", "keep_open", true);
-    }
+    int get_mpv_audio_cache_secs() const;
+    std::string get_mpv_audio_demuxer_max_bytes() const;
+    std::string get_mpv_audio_demuxer_max_back_bytes() const;
+    int get_mpv_audio_cache_pause_wait() const;
+    bool get_mpv_tls_verify() const;
+    bool get_mpv_keep_open() const;
     // Y14: mpv subtitle settings (INI-configurable, was hardcoded in Y13).
     //   For VIDEO: subtitles render in the video window (mpv native). For AUDIO: TUI lyric panel.
-    std::string get_mpv_sub_align_x() const {
-        return get("mpv", "sub_align_x", "center");
-    }
-    std::string get_mpv_sub_align_y() const {
-        return get("mpv", "sub_align_y", "bottom");
-    }
-    std::string get_mpv_sub_visibility() const {
-        return get("mpv", "sub_visibility", "yes");
-    }
-    std::string get_mpv_sub_ass_override() const {
-        return get("mpv", "sub_ass_override", "auto");
-    }
+    std::string get_mpv_sub_align_x() const;
+    std::string get_mpv_sub_align_y() const;
+    std::string get_mpv_sub_visibility() const;
+    std::string get_mpv_sub_ass_override() const;
     // Y24.43: preferred subtitle language for selecting among multiple embedded tracks (mpv slang).
-    std::string get_mpv_sub_lang() const {
-        return get("mpv", "sub_lang", "en");
-    }
+    std::string get_mpv_sub_lang() const;
     // ─── YouTube config ([youtube] section) ─────────────────────────────────
     // cookies_file: the SINGLE cookies source for yt-dlp playback (no browser fallback).
     //   Resolved to an absolute path:

@@ -19,7 +19,7 @@ src/<module>/*.cpp              实现
 | 模块 | 职责 |
 |---|---|
 | `core` | 基础设施：types/constants/logger/event_log/thread_pool/crypto/paths/terminal/safe_tmp/platform/utils |
-| `config` | INI 配置（`ini_config.h`） |
+| `config` | INI 配置：`ini_config.h`（声明 + 默认值文档）+ `ini_config.cpp`（D24 起 mpv getter 组 out-of-line 定义，inline→cpp 增量拆分进行中） |
 | `net` | 网络：HTTP（`network.cpp` 代理入口）、URL 分类、yt-dlp 运行、Google OAuth、Bilibili API、远程控制（server/session/ws/command_bus/protocol）、TikTok 区域 |
 | `parsers` | feed 解析器（`IFeedParser` + `ParserRegistry` 自注册：rss/opml/youtube_channel）+ 非feed解析器（bilibili API/itunes 搜索/m3u/tiktok/transcript） |
 | `playback` | libmpv 封装（`mpv_controller` 生命周期核心 + `mpv_commands` D18 控制 wrapper + `mpv_metadata` D19 静态诊断 + `mpv_iptv` D20 IPTV 检测）、睡眠定时 |

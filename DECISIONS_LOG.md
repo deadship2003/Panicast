@@ -1,4 +1,18 @@
 
+## D24 — ini_config mpv getter 组 inline→cpp（20 个 get_mpv_* 声明/定义分离）
+
+**Context:** ini_config.h 1087 行 header god-object，方法全内联（`grep -c IniConfig::` = 0）。ini_config.cpp 仅是 `instance()` stub。任务 #69 = inline→cpp 抽取。
+
+**Decision:** 选 **mpv-config getter 组**（get_mpv_vo…get_mpv_sub_lang，20 个）做声明/定义分离：声明 + 文档注释留 header，`IniConfig::` 限定定义迁 ini_config.cpp。ini_config.h 1087→1043。
+
+**Why 选 mpv getter 组而非全量 119 方法:** 全量 inline→cpp 是 119 方法的逐个签名复制，typo 风险高、非纯 verbatim。mpv getter 组是 header 最大最纯的 cohesive 簇——20 个全为单 return / 单层体、**无嵌套大括号** → 脚本可按"签名行 → 同缩进首个闭合 `}`"机械切分（每方法断言方法名 + 闭合），可验证。其余组（YouTube/bilibili/color/save/load）留后续同手法增量抽，不一刀全切。
+
+**Why 声明/定义分离而非整块 verbatim 搬:** inline→cpp 本质是 per-method 变换（header 去 body 留声明、cpp 加限定定义），非 D17-D23 的字节保持整块搬。但遵循标准约定（声明 + API 文档留 header、cpp 精简实现）使其仍是机械的——无需设计决策。header 仍含全部依赖 → cpp 经 ini_config.h 见私有成员与 get/get_int/get_bool，零新 include、零行为变化。
+
+**Why 注释放 header:** 方法间注释（F40/Y14/Y24.12/Y24.43）是 API 文档（解释每个 getter 的语义/默认值）→ 留 header 服务消费者；cpp 定义不重复（实现即 `return get(...)`，自解释）。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。5 刀批次（D20–D24）完成。
+
 ## D23 — app 持久化组 → app_persistence.cpp（load_data/load_persistent_data/save_persistent_data/restore_player_state）
 
 **Context:** app_run.cpp 1414 行（最大 app 文件）。survey 后选**持久化组**作首抽：4 方法 cohesive（启动/退出 DB load/save/restore），体量适中（83 行），低于 feed-loading 组（~738 行，parse_feed_by_type/load_default_podcasts 大且缠绕）。
