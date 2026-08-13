@@ -1,4 +1,20 @@
 
+## D14-4b — save 守卫对齐 read（流式 resume gap 清理）（M2 · 持久侧补遗）
+
+**Context:** D14-4 把 progress 键收敛到源 URL 后暴露的 gap：save 侧无类型守卫对所有项存 progress，但 read 侧续播条件含 `ut != RADIO_STREAM`（playback_service.cpp:488）——电台/在线播客/本地音频（classify 折叠进 RADIO_STREAM）存了却永不续播，库积累死行（电台最高频）。
+
+**Decision: save_progress 加 `classify(canonical_url) != RADIO_STREAM` 守卫，对齐 read。** save 只存 read 会消费的类型；RADIO_STREAM 项不再存。
+
+**Why 零回归:** 被剔除项（电台/播客/本地音频）此前也不续播（read `ut != RADIO_STREAM` 挡掉）；不存仅停止累积无用行，续播行为零变化。保留 VIDEO_FILE（本地视频 + 在线视频缓存，续播）/ YouTube / RSS（日后缓存可读）。本地音频文件因 classify 折叠进 RADIO_STREAM 也不存——它本就不续播（同后果 B，URLClassifier 无 LOCAL 类别）。
+
+**Why 不清理旧死数据:** D14-4 迁移后已存的 RADIO_STREAM progress 行保留。清理需 C++ 端遍历 classify（SQL 不知 URLClassifier），且旧行无害。阻新不清旧，增量最小。
+
+**Why 不动 player_state:** save_player_state 是"上次播放"指针（不涉 progress 续播），无需类型守卫。
+
+**Verification:** ctest 44/44、0-warning、pty 冒烟绿。续播路径未动（read 守卫不变）。
+
+**Followups（可选）:** 旧 RADIO_STREAM progress 死数据清理（单独增量，C++ 端）；流式视频续播扩展（问题二方案 B，功能增强非收敛，需人工验证 mpv 网络流 resume）。
+
 ## D14-3b — is_streaming 去重（URLClassifier::is_local_file）（M2 · D14 读侧补遗）
 
 **Context:** D14-3 收敛 TUI 读侧时拆出的代码质量增量（不阻 D14 收官）。`url[0]=='/'||file://` 本地/流式判定在 ASR 路径（app_input `:asr`/L 键 is_streaming、F 模式 is_local、app_remote asr_start）复制多处。D14-5 收官后补做。

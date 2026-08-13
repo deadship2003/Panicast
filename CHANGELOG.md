@@ -4,6 +4,24 @@
 
 ---
 
+## 新架构 D14-4b — 2026-08-13 — save 守卫对齐 read（流式项 resume gap 清理）（M2 主线 · 持久侧补遗）
+
+> D14-4 收敛持久侧键后暴露的 gap：流式项（电台/在线播客/本地音频）progress **存而不读**——save 无类型守卫全存，read 侧 `ut != RADIO_STREAM` 却挡掉续播，库积累死行（电台最高频）。本增量把 save 守卫对齐 read。
+
+### 改动
+- `app_run.cpp` save 函数：`save_progress` 加 `URLClassifier::classify(canonical_url) != RADIO_STREAM` 守卫；RADIO_STREAM 项（电台 live / 在线播客 .mp3 / 本地音频——classify 把本地文件折叠进 RADIO_STREAM）不再存 progress，加 else LOG 标注跳过。
+
+### 设计
+- **为什么 save/read 守卫必须对齐**：read 续播条件 = `local_url 非空 && ut != RADIO_STREAM`。RADIO_STREAM 类 read 本就挡掉续播，save 却存 → 死行累积。对齐 = 只存会被 read 消费的类型。
+- **零续播回归证明**：被剔除项（电台/播客/本地音频）此前也不续播（read `ut != RADIO_STREAM` 挡掉），不存仅停止累积无用行。保留 VIDEO_FILE / YouTube / RSS（续播现在或日后缓存）。
+- **为什么不清理旧死数据**：D14-4 迁移后已存的 RADIO_STREAM progress 行保留——清理需 C++ 端遍历 classify（SQL 不可用），旧行无害，单独增量。本增量只阻新死数据。
+- **player_state 不动**：save_player_state 是"上次播放"指针（volume/speed/current_url），不涉 progress 续播，无需类型守卫。
+
+### 验收
+- ctest 44/44、构建 0-warning、pty 冒烟 exit 0 + clean endwin。续播路径未动（read 守卫不变），续播行为零回归。
+
+---
+
 ## 新架构 D14-3b — 2026-08-13 — is_streaming 去重（URLClassifier::is_local_file）（M2 主线 · D14 读侧补遗）
 
 > D14-3 收敛 TUI 读侧时拆出的独立代码质量增量（不阻 D14 收官）。`url[0]=='/'||file://` 本地/流式判定此前在 ASR 路径复制多处。

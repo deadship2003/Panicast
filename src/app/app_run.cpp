@@ -487,11 +487,22 @@ void App::run() {
         current_title, mode_int);
     // Also save to the progress table (dedicated to resume playback)
     if (!canonical_url.empty() && player_state.time_pos > 5.0) {
-        bool completed = (player_state.media_duration > 0 &&
-                          player_state.time_pos >= player_state.media_duration - 5.0);
-        DatabaseManager::instance().save_progress(canonical_url, player_state.time_pos, completed);
-        LOG(fmt::format("[Progress] Saved: {} at {:.1f}s (completed={})", canonical_url,
-                        player_state.time_pos, completed));
+        // Align the save guard with the read-side resume guard (playback_service.cpp
+        //   `ut != RADIO_STREAM`). RADIO_STREAM covers radio live streams, online podcast .mp3,
+        //   AND local audio files (classify() folds local files into RADIO_STREAM) — none resume
+        //   (read side blocks them), so persisting their progress only accumulates dead rows.
+        //   Keep VIDEO_FILE / YouTube / RSS / etc. (resume now or after future caching).
+        //   Zero resume-behavior change (read side already skips these).
+        if (URLClassifier::classify(canonical_url) != URLType::RADIO_STREAM) {
+            bool completed = (player_state.media_duration > 0 &&
+                              player_state.time_pos >= player_state.media_duration - 5.0);
+            DatabaseManager::instance().save_progress(canonical_url, player_state.time_pos, completed);
+            LOG(fmt::format("[Progress] Saved: {} at {:.1f}s (completed={})", canonical_url,
+                            player_state.time_pos, completed));
+        } else {
+            LOG(fmt::format("[Progress] Skip (RADIO_STREAM, no resume — aligns with read side): {}",
+                            canonical_url));
+        }
     }
     EVENT_LOG("Player state saved");
 
