@@ -476,18 +476,21 @@ void App::run() {
     const auto cur_node = playback_.playback_node();
     std::string current_title = cur_node ? cur_node->title : "";
     int mode_int = static_cast<int>(mode);
+    // D14-4: store the canonical source URL (not the played mpv/cache path) as the now-playing
+    //   identity in player_state + progress — aligns with history (orig_url), remote (D14-2), UI
+    //   (D14-3). now_playing() derives it from playback_node_ (empty when nothing is playing).
+    std::string canonical_url = playback_.now_playing().id.url();
     DatabaseManager::instance().save_player_state(
-        player_state.volume, player_state.speed, player_state.paused, player_state.current_url,
+        player_state.volume, player_state.speed, player_state.paused, canonical_url,
         player_state.time_pos, frontend_->is_scroll_mode(),
         frontend_->is_show_tree_lines(), // persist user T-key preference (no longer hardcoded true)
         current_title, mode_int);
     // Also save to the progress table (dedicated to resume playback)
-    if (!player_state.current_url.empty() && player_state.time_pos > 5.0) {
+    if (!canonical_url.empty() && player_state.time_pos > 5.0) {
         bool completed = (player_state.media_duration > 0 &&
                           player_state.time_pos >= player_state.media_duration - 5.0);
-        DatabaseManager::instance().save_progress(player_state.current_url, player_state.time_pos,
-                                                  completed);
-        LOG(fmt::format("[Progress] Saved: {} at {:.1f}s (completed={})", player_state.current_url,
+        DatabaseManager::instance().save_progress(canonical_url, player_state.time_pos, completed);
+        LOG(fmt::format("[Progress] Saved: {} at {:.1f}s (completed={})", canonical_url,
                         player_state.time_pos, completed));
     }
     EVENT_LOG("Player state saved");

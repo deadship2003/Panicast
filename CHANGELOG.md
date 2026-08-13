@@ -4,6 +4,29 @@
 
 ---
 
+## 新架构 D14-4 — 2026-08-13 — 持久侧收敛 progress/player_state 键 → canonical 源 URL + 无损迁移（M2 主线 · 持久侧）
+
+> D14-3 收敛 TUI 读侧。本增量收敛持久侧：progress + player_state 的键由播放路径（mpv current_url，缓存项=本地缓存路径）改为 canonical 源 URL，与 history（早已 orig_url 键）+ remote(D14-2) + UI(D14-3) 对齐。**审计修正**：history 本就键于 orig_url（`record_play_history` 全 5 调用点传 orig_url），无需收敛；真正分裂的是 progress/player_state。
+
+### 改动
+- `app_run.cpp`（save 函数）：引入 `canonical_url = playback_.now_playing().id.url()`，save_player_state 与 save_progress 的键由 `player_state.current_url` → canonical_url（守卫/日志同改）。
+- `playback_service.cpp:487`：续播读 `get_progress(local_url)` → `get_progress(orig_url)`（orig_url 在作用域 line 436；resume 守卫 `!local_url.empty()` 不变 → resume 行为不变，仅键源切换）。
+- `database.cpp`：SCHEMA_VERSION 47→48 + 一次性迁移——progress/player_state 行的 url 若是缓存路径，经 media_cache 反向映射（local_file→url）re-key 为源 URL。纯 SQL 关联 UPDATE，gated `stored_version<48`，幂等、非破坏（仅 UPDATE url，不删行；缓存已清的项无 media_cache 行→保持不动，本就不可续播）。
+
+### 设计
+- **为什么 progress/player_state 而非 history 需收敛**：审计 `record_play_history` 全 5 调用点（playback_service:261/272/284/498/515）均传 orig_url → history 早键于源 URL。分裂的是 progress（save app_run:488 current_url / read playback_service:487 local_url，缓存项=本地路径）+ player_state。同一源流式/缓存双键的脆弱性在此。
+- **为什么带迁移（而非接受一次性进度丢失）**：用户数据跨版本必须无损。迁移经 media_cache 反向 map re-key，仅对仍缓存的项可行（缓存已清→无文件→本不可续播）→ 对所有可恢复数据无损。player_state 单行也迁（保证首次重启续播按源 URL re-feed progress）。隔离验证：re-key 命中+保 position、cache 已清保持、已是源 URL 不动、幂等。
+- **为什么不动 resume 守卫**：playback_service:486 `if(!local_url.empty())` 使 resume 仅对缓存项触发——既有行为（流式项 progress 存而不读是独立 gap）。键源切换（local_url→orig_url）对缓存项结果等价。
+
+### 验收
+- ctest 44/44、构建 0-warning（4 单元重链）、pty 冒烟 exit 0 + clean endwin。迁移隔离验证（临时 DB 三场景）通过；真实 DB user_version 47→48、progress 行已源 URL 键。
+- `set_resume_position(local_url)`（mpv 自有 watch-later，键=实际播放文件）保持不动。
+
+### 后续
+- **流式项 resume gap**（可选行为变更）：键统一后可扩 resume 到流式项（radio 守卫已在）。**D14-5** Favourites LINK。**D14-3b** is_streaming 去重。
+
+---
+
 ## 新架构 D14-3 — 2026-08-13 — TUI 读侧收敛 current_url → canonical now-playing 源 URL（M2 主线 · 读侧 · 修缓存项高亮 bug）
 
 > D14-2 让 PlaybackService 暴露 canonical now-playing Media、remote 快照首消费。本增量收敛 TUI 读侧：3 个 `current_url`（= mpv 播放路径，缓存项为本地文件路径）读点改读 canonical 源 URL。**核心收益 = 修缓存项高亮 bug**：tree_renderer 高亮比 `item.node->url == current_url`，缓存项 `node->url` 是源 URL 而 `current_url` 是本地缓存路径，二者永不等 → 缓存下载的节目此前在树里永不点亮。

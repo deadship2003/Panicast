@@ -484,7 +484,7 @@ void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
     URLType ut = URLClassifier::classify(orig_url);
 
     if (!local_url.empty()) {
-        auto [saved_pos, completed] = DatabaseManager::instance().get_progress(local_url);
+        auto [saved_pos, completed] = DatabaseManager::instance().get_progress(orig_url); // D14-4: key on source URL (not played cache path)
         if (saved_pos > 5.0 && !completed && ut != URLType::RADIO_STREAM) {
             player_.set_resume_position(local_url, saved_pos);
             EVENT_LOG(fmt::format("Resume from {:02d}:{:02d}", static_cast<int>(saved_pos) / 60,

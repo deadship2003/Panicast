@@ -1,4 +1,22 @@
 
+## D14-4 — 持久侧收敛 progress/player_state 键 → canonical 源 URL + 无损迁移（M2 第 5 人日，D14 增量4 · 持久侧）
+
+**Context:** D14-3 收敛 TUI 读侧。持久侧 now-playing 身份：history 键于 `orig_url`（源 URL），但 progress + player_state 键于 `player_state.current_url`（= mpv 播放路径；Y23.9 起缓存项=本地缓存路径）。审计：save_progress(app_run:488 current_url) / get_progress(playback_service:487 local_url) / save_player_state(app_run:479 current_url)。同一源流式（current_url=流 URL）与缓存（current_url=本地路径）产生双键——progress 取决于"怎么播"而非源身份。
+
+**Decision: progress/player_state 键收敛到 canonical 源 URL + 一次性无损迁移。** ① save(app_run save 函数)：`canonical_url = playback_.now_playing().id.url()`（D14-2 访问器），替 `player_state.current_url` 作 save_player_state + save_progress 的键（守卫/日志同改）。② read(playback_service:487)：`get_progress(orig_url)`（替 local_url；orig_url 在作用域 line 436）。③ 迁移(database.cpp)：SCHEMA_VERSION 47→48，gated `stored_version<48`，progress/player_state 行 url 若是缓存路径则经 media_cache 反向 map（local_file→url）re-key 为源 URL。④ `set_resume_position(local_url)` 不动（mpv watch-later，键=实际播放文件）。
+
+**Why progress/player_state 而非 history:** `record_play_history` 全 5 调用点（playback_service:261/272/284/498/515）均传 orig_url → history 早键于源 URL，无需收敛。原 ROADMAP "save_progress/history 以 MediaID 为键" 的 history 部分是误判——审计修正。
+
+**Why 带迁移（非接受一次性丢失）:** 用户数据跨版本必须无损。迁移经 media_cache 反向 map re-key，仅对仍缓存的项可行（缓存已清→无文件→本不可续播）→ 对所有可恢复数据无损。player_state 单行也迁（首次重启续播按源 URL re-feed progress）。纯 SQL 关联 UPDATE（无 C++ map/新 include），幂等非破坏（仅 UPDATE url，不删行）。
+
+**Why 不动 resume 守卫:** playback_service:486 `if(!local_url.empty())` 使 resume 仅缓存项触发（既有行为）。键源 local_url→orig_url 对缓存项结果等价；流式项 progress 存而不读是独立 gap（可选后续：键统一后可扩 resume 到流式项，radio 守卫已在）。
+
+**Gotcha — 迁移隔离验证:** 迁移嵌入 `DatabaseManager::init`（非独立可测函数）；ctest 用 fresh DB（stored_version=0→gate 跳过）不覆盖。故隔离验证：临时 DB 三场景（缓存项 re-key+保 position / cache 已清保持 / 已是源 URL 不动）+ 幂等，全过；真实 DB user_version 47→48、progress 行源 URL 键确认。
+
+**Acceptance:** ctest 44/44、0-warning（4 单元重链：database/playback_service/app_run）、pty 冒烟 exit 0 + clean endwin。迁移隔离验证通过 + 真实 DB 落地确认。
+
+**Followups:** 流式项 resume gap（可选行为变更）；D14-5 Favourites LINK；D14-3b is_streaming 去重。
+
 ## D14-3 — TUI 读侧收敛 current_url → canonical now-playing 源 URL（M2 第 4 人日，D14 增量3 · 读侧）
 
 **Context:** D14-2 让 PlaybackService 暴露 `now_playing()` canonical Media、remote 快照首消费。TUI 读侧仍直读 `MPVController::State::current_url`（= mpv 播放路径；Y23.9 起缓存项给 mpv 传**原始本地路径**非 file://，故 current_url 是本地缓存路径）。读点：tree_renderer:59 高亮比 `item.node->url == current_url`、status_bar:60、info_panel:392/398 "Streaming URL"、lyric_renderer:15 逐轨重取触发。

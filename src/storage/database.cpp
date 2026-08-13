@@ -92,7 +92,9 @@ bool DatabaseManager::init() {
     //   N05: SCHEMA_VERSION 46 -> 47. history/favourites gain a `media_type` INTEGER column
     //   (DB-stored display category; replaces runtime URL→icon inference). Legacy rows are
     //   backfilled from their URL via classifyMediaType (see backfill below).
-    constexpr int SCHEMA_VERSION = 47;
+    //   D14-4: SCHEMA_VERSION 47 -> 48. progress/player_state current_url re-keyed from the played
+    //     cache path to the canonical source URL (identity convergence w/ history/remote/UI).
+    constexpr int SCHEMA_VERSION = 48;
     int stored_version = 0;
     {
         sqlite3_stmt *sv = nullptr;
@@ -443,6 +445,39 @@ bool DatabaseManager::init() {
         };
         backfill("history");
         backfill("favourites");
+    }
+
+    // D14-4: progress/player_state identity convergence — re-key rows from the played cache path to
+    //   the canonical source URL. Pre-D14-4 these tables stored mpv's current_url (the played path;
+    //   for cached items a local cache path); D14-4 keys them on the source URL (aligning with
+    //   history's orig_url, remote D14-2, UI D14-3). Reverse-map path→source via media_cache: only
+    //   still-cached items can be re-keyed (a cleared cache has no resumable file anyway), so this
+    //   is lossless for all recoverable data. Correlated UPDATE in SQL; runs once (gated < 48).
+    if (stored_version > 0 && stored_version < 48) {
+        const char *rekey_progress =
+            "UPDATE progress "
+            "SET url = (SELECT mc.url FROM media_cache mc WHERE mc.local_file = progress.url) "
+            "WHERE url IN (SELECT local_file FROM media_cache WHERE local_file != '');";
+        const char *rekey_player_state =
+            "UPDATE player_state "
+            "SET current_url = (SELECT mc.url FROM media_cache mc "
+            "                   WHERE mc.local_file = player_state.current_url) "
+            "WHERE current_url IN (SELECT local_file FROM media_cache WHERE local_file != '');";
+        char *e = nullptr;
+        if (sqlite3_exec(db_, rekey_progress, nullptr, nullptr, &e) == SQLITE_OK) {
+            LOG(fmt::format("[DB] D14-4 re-keyed {} progress rows (cache path → source URL)",
+                            sqlite3_changes(db_)));
+        } else {
+            LOG(fmt::format("[DB] D14-4 progress re-key failed: {}", e ? e : "?"));
+            sqlite3_free(e);
+        }
+        e = nullptr;
+        if (sqlite3_exec(db_, rekey_player_state, nullptr, nullptr, &e) == SQLITE_OK) {
+            LOG(fmt::format("[DB] D14-4 re-keyed player_state (cache path → source URL)"));
+        } else {
+            LOG(fmt::format("[DB] D14-4 player_state re-key failed: {}", e ? e : "?"));
+            sqlite3_free(e);
+        }
     }
 
     // Record the schema version (PRAGMA user_version) so future schema changes can detect mismatch.
