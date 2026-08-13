@@ -1,4 +1,14 @@
 
+## D25 — ini_config YouTube getter 组 inline→cpp（9 个 get_youtube_* 声明/定义分离）
+
+**Context:** D24 手法验证可行（mpv getter 组）。继续抽 ini_config.h 下一 cohesive 簇——YouTube getter 组（9 个）。此刀起工作流变更为 **main 主线**（dev/m2 批次已 ff-merge 入 main）。
+
+**Decision:** 抽 → ini_config.cpp out-of-line 定义，声明 + 文档注释留 header。ini_config.h 1043→1024。脚本复用 D24（split_youtube_getters.py，仅改 name 模式 + 边界 + 期望数 9）。
+
+**Why 同手法增量:** D24 已证 inline→cpp 拆分对"简单 getter 簇"是可机械脚本化、可断言、零行为变化的。YouTube 组同性质（9 个全单 return/单层体、无嵌套大括号）。逐组增量抽（mpv→youtube→…）比一刀全切 119 方法安全。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
 ## D24 — ini_config mpv getter 组 inline→cpp（20 个 get_mpv_* 声明/定义分离）
 
 **Context:** ini_config.h 1087 行 header god-object，方法全内联（`grep -c IniConfig::` = 0）。ini_config.cpp 仅是 `instance()` stub。任务 #69 = inline→cpp 抽取。

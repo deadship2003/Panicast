@@ -75,4 +75,35 @@ std::string IniConfig::get_mpv_sub_lang() const {
     return get("mpv", "sub_lang", "en");
 }
 
+
+// ── YouTube-config getters (D25: moved out-of-line from ini_config.h) ──
+std::string IniConfig::get_youtube_cookies_file() const {
+    return resolve_cookies_path("youtube", "cookies_file", "youtube_cookie.txt");
+}
+std::string IniConfig::get_youtube_player_client() const {
+    std::string v = get("youtube", "player_client", "tv_downgraded,web");
+    return v.empty() ? "tv_downgraded,web" : v;
+}
+std::string IniConfig::get_youtube_js_runtime() const {
+    return get("youtube", "js_runtime", "quickjs");
+}
+std::string IniConfig::get_youtube_play_format_video() const {
+    return get("youtube", "play_format_video", "bestvideo[height<=1080]+bestaudio");
+}
+std::string IniConfig::get_youtube_play_format_audio() const {
+    return get("youtube", "play_format_audio", "bestaudio");
+}
+int IniConfig::get_youtube_resolve_timeout_sec() const {
+    return get_int("youtube", "resolve_timeout_sec", 90);
+}
+int IniConfig::get_youtube_resolve_retries() const {
+    return get_int("youtube", "resolve_retries", 3);
+}
+std::string IniConfig::get_youtube_sub_lang() const {
+    return get("youtube", "sub_lang", "");
+}
+bool IniConfig::get_youtube_sub_auto() const {
+    return get_bool("youtube", "sub_auto", true);
+}
+
 } // namespace panicast

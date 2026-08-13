@@ -372,16 +372,11 @@ public:
     //     - other relative → <data_dir>/<input>
     //   The args builder injects `--cookies <path>` only when the file exists (precondition, not a
     //   fallback method). Default bare name is youtube_cookie.txt (Ctrl+B writes this key).
-    std::string get_youtube_cookies_file() const {
-        return resolve_cookies_path("youtube", "cookies_file", "youtube_cookie.txt");
-    }
+    std::string get_youtube_cookies_file() const;
     // player_client: yt-dlp YouTube client (comma-separated, e.g. tv_downgraded,web).
     //   tv_downgraded,web is yt-dlp's own default for cookie-authenticated requests and is the
     //   least likely to trip the "Sign in to confirm you're not a bot" check (Y05: was android,web).
-    std::string get_youtube_player_client() const {
-        std::string v = get("youtube", "player_client", "tv_downgraded,web");
-        return v.empty() ? "tv_downgraded,web" : v;
-    }
+    std::string get_youtube_player_client() const;
     // js_runtime: JS runtime yt-dlp uses to solve YouTube's nsig "n challenge".
     //   "quickjs" → inject `--js-runtimes quickjs` (bundled qjs ~2MB, ~10× faster cold-start
     //     than deno; RECOMMENDED). Needs the EJS solver available: install `yt-dlp[default]`
@@ -390,45 +385,31 @@ public:
     //   "" (empty, key present but blank) → don't inject; yt-dlp picks its default (deno if on PATH).
     //   Y08: DEFAULT is "quickjs" when the key is ABSENT (old configs auto-use quickjs, so removing
     //     deno doesn't break nsig). Optional path form e.g. `quickjs:/opt/qjs/bin/qjs`.
-    std::string get_youtube_js_runtime() const {
-        return get("youtube", "js_runtime", "quickjs");
-    }
+    std::string get_youtube_js_runtime() const;
     // play_format_video: yt-dlp `-f` format for VIDEO playback (Y09, 1A DASH pre-resolve).
     //   Default bestvideo[height<=1080]+bestaudio = up to 1080p DASH (video+audio
     //   separate streams, mpv merges via audio-file). Needs ffmpeg. YouTube has no 1080p
     //   single-file, so 1080p REQUIRES this DASH form (2 URLs).
-    std::string get_youtube_play_format_video() const {
-        return get("youtube", "play_format_video", "bestvideo[height<=1080]+bestaudio");
-    }
+    std::string get_youtube_play_format_video() const;
     // play_format_audio: yt-dlp `-f` format for AUDIO-only playback. Default bestaudio
     //   (highest-quality audio stream, single URL).
-    std::string get_youtube_play_format_audio() const {
-        return get("youtube", "play_format_audio", "bestaudio");
-    }
+    std::string get_youtube_play_format_audio() const;
     // resolve_timeout_sec: per-attempt yt-dlp `-g` timeout for playback resolution. The old fixed
     //   30s was too short: through a SOCKS proxy + quickjs/ejs nsig solving, a single resolve can
     //   legitimately take 30-60s, and the 30s cap caused intermittent "YouTube resolve failed"
     //   (seen as exact-30s YtdlpRunner timeouts in the log). Default 90s.
-    int get_youtube_resolve_timeout_sec() const {
-        return get_int("youtube", "resolve_timeout_sec", 90);
-    }
+    int get_youtube_resolve_timeout_sec() const;
     // resolve_retries: how many times playback resolution is retried on timeout/failure before
     //   giving up. yt-dlp YouTube resolution is flaky (nsig + bot check); a retry usually
     //   succeeds. Default 3 (1 initial + 2 retries).
-    int get_youtube_resolve_retries() const {
-        return get_int("youtube", "resolve_retries", 3);
-    }
+    int get_youtube_resolve_retries() const;
     // sub_lang: YouTube subtitle language code to load for playback (Y11). Empty = no subtitles
     //   (opt-in; soft subs are not loaded unless this is set). e.g. "en", "zh-Hans", "ja".
     //   When set, resolve_youtube_url fetches the .vtt via yt-dlp and mpv loads it as sub-file
     //   (then F/G size, z/Z sync, r/R pos, v visibility all work; mpv centers by default).
-    std::string get_youtube_sub_lang() const {
-        return get("youtube", "sub_lang", "");
-    }
+    std::string get_youtube_sub_lang() const;
     // sub_auto: when sub_lang is set but no manual subtitle exists, use auto-generated captions.
-    bool get_youtube_sub_auto() const {
-        return get_bool("youtube", "sub_auto", true);
-    }
+    bool get_youtube_sub_auto() const;
     // Y15: Bilibili cookies file (Netscape format, for yt-dlp --cookies). QR login writes here;
     //   user can also import a browser-exported cookies.txt. Resolved to absolute path (same
     //   logic as get_youtube_cookies_file).

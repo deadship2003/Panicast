@@ -4,11 +4,22 @@
 
 ---
 
-> **📦 待测试批次（pre-test）—— 2026-08-13 起**
-> 工作流切换为**分支化批量迭代**：`dev/m2` 分支承接 M2 迭代；`main` 冻结在 `d94ea88`（标签 `pretest/m2-batch-start`）作安全回退点。
-> 用户将在**全部 M2 迭代完成后统一测试** `dev/m2` 尖端，通过后 fast-forward 回 `main`；有问题在 `dev/m2` 上 revert/修，`main` 不动。
-> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp（mpv_controller.cpp 1379→1203）/ D19 mpv_controller 静态元数据组→mpv_metadata.cpp（mpv_controller.cpp 1203→1126）/ D20 mpv IPTV 检测组→mpv_iptv.cpp（含 log_has 连带搬 + 修 reset 伪 inline；mpv_controller.cpp 1126→1050）/ D21 ui setter/toggle 组→ui_toggles.cpp（ui.cpp 668→638）/ D22 ui lifecycle 组→ui_lifecycle.cpp（终端/信号簇 + init/cleanup/handle_resize + 3 文件局部全局连带搬；ui.cpp 638→263）/ D23 app 持久化组→app_persistence.cpp（load_data/load_persistent_data/save_persistent_data/restore_player_state；app_run.cpp 1414→1330）/ D24 ini_config mpv getter 组 inline→cpp（20 个 get_mpv_* 声明留 header、定义迁 ini_config.cpp；ini_config.h 1087→1043）。【5 刀批次 5/5 完成】
-> 每步仍守铁律（0-warning + ctest 绿 + commit），仅不再逐步打断等测。
+> **📦 dev/m2 批次已合并入 main（2026-08-14）**
+> dev/m2 的 5 刀批次（D17–D24）已 fast-forward 合并入 `main`（origin/main = `a414b98`，已 push）。该批次含：D14 Media 域收敛 / D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp / D19 静态元数据组→mpv_metadata.cpp / D20 mpv IPTV 检测组→mpv_iptv.cpp（含 log_has 连带搬 + 修 reset 伪 inline）/ D21 ui setter/toggle 组→ui_toggles.cpp / D22 ui lifecycle 组→ui_lifecycle.cpp（ui.cpp 638→263）/ D23 app 持久化组→app_persistence.cpp / D24 ini_config mpv getter 组 inline→cpp。
+> **2026-08-14 起 main 为主线**：新迭代直接进 `main`、push `origin main`（不再走 dev/m2 待测流程）。每步仍守铁律（0-warning + ctest 绿 + commit）。
+
+---
+
+## 新架构 D25 — 2026-08-14 — god-object 拆分第九刀：ini_config YouTube getter 组 inline→cpp（M3 · main 主线）
+
+> ini_config.h 第二抽（D24 手法复用）：**YouTube-config getter 组**（`get_youtube_cookies_file`…`get_youtube_sub_auto`，9 个简单 getter）从 header 内联体改为声明/定义分离——声明 + 文档注释留 header，`IniConfig::` 限定定义迁 `src/config/ini_config.cpp`。ini_config.h 1043→1024。
+
+### 改动
+- `include/panicast/config/ini_config.h`：9 个 `get_youtube_*` 内联体 → 纯声明；方法间文档注释（player_client/js_runtime/play_format/resolve_timeout/sub_lang 等）保留 header 作 API 文档。
+- `src/config/ini_config.cpp`：+9 个 `IniConfig::get_youtube_*()` out-of-line 定义（108→… 行）。`get_youtube_cookies_file` 调私有 `resolve_cookies_path`（经 ini_config.h 可见，同 get/get_int/get_bool）。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
 
 ---
 
