@@ -514,20 +514,6 @@ bool DatabaseManager::rollback_txn() {
     return exec_sql("ROLLBACK;");
 }
 
-std::string DatabaseManager::escape_sql(const std::string &s) {
-    std::string result;
-    result.reserve(s.size() * 2);
-    for (char c : s) {
-        if (c == '\0')
-            continue; // Strip NUL to prevent c_str() from truncating the statement
-        if (c == '\'')
-            result += "''";
-        else
-            result += c;
-    }
-    return result;
-}
-
 bool DatabaseManager::exec_sql(const std::string &sql) {
     char *err_msg = nullptr;
     int rc = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &err_msg);

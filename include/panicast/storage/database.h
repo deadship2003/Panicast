@@ -234,7 +234,6 @@ public:
     }
     void run_locked(const std::function<void()> &
                         fn); // Y23.5: hold mtx_ (recursive) for a transaction-like critical section
-    std::string escape_sql(const std::string &s); // public for AccountsManager SQL building
 
     // Transaction helpers - ensure atomicity of "delete-then-insert" operations, preventing data loss on mid-failure
     bool begin_txn();

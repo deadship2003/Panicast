@@ -1,4 +1,18 @@
 
+## 测试镜像漂移 2/3+3/3 — parse_time 链入真实 / escape_sql 删除（M2 · 测试质量补遗）
+
+**Context:** test_units.cpp 手抄了 classify/parse_time_string/escape_sql 三副本，测副本非真实 → 真实改动副本不变 = 假阳性。1/3（classify）已链入真实。本增量决 2/3、3/3（+ 用户要求睡眠时间非法时提示正确格式）。
+
+**Decision:**
+- **parse_time_string（2/3）= 链入真实 `SleepTimer::parse_time_string`**，非继续手抄。CMake 加 `sleep_timer.cpp`+`event_log.cpp`（timer 用 EVENT_LOG/LOG 5 处，需 EventLog 链入）。副本删除，调用改 `SleepTimer::parse_time_string(`。
+- **escape_sql（3/3）= 删除（不拆分）**。核实：① 生产 **0 调用**（grep src/+include/ 零命中）；② 功能**已迁移**——AccountsManager 的 SQL 全走 `account_repo.cpp` prepared statement（`sqlite3_prepare_v2`+`sqlite3_bind_text/int`），这是防注入的正道，手工转义已被取代。删 database.cpp impl + database.h 声明 + test_units 副本 + 3 EscapeSql 测试。
+
+**Why escape_sql 删而非拆纯逻辑:** 选项曾为"拆纯函数层"——但拆分前提是有人用它。已是死代码，拆出独立纯函数无消费者 = 为死代码动生产代码，不合理。迁移已发生（prepared statement），删除 = 收尾废弃路径。副本漂移（真实 strip NUL 防 c_str 截断 / 副本不 strip）本身是假阳性的另一证据——副本全过的"安全"从未反映真实行为。
+
+**Why parse_time InvalidInput -1→0:** 真实无效输入返回 0（`clamp_ret(v<=0)→0`），非 -1。语义：0=无效/不设，调用方 `if(seconds>0)` 跳过。CLI（main.cpp）早已据此提示非法——本增量补正确格式示例（`30m / 1h / 90s / HH:MM:SS / <分钟>`）。
+
+**Verification:** ctest 41/41（44 - 3 EscapeSql）、0-warning、panicast 链接无未定义符号（坐实 escape_sql 零生产调用）、pty 冒烟绿。
+
 ## D14-4b — save 守卫对齐 read（流式 resume gap 清理）（M2 · 持久侧补遗）
 
 **Context:** D14-4 把 progress 键收敛到源 URL 后暴露的 gap：save 侧无类型守卫对所有项存 progress，但 read 侧续播条件含 `ut != RADIO_STREAM`（playback_service.cpp:488）——电台/在线播客/本地音频（classify 折叠进 RADIO_STREAM）存了却永不续播，库积累死行（电台最高频）。

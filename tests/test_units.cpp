@@ -13,6 +13,7 @@
 #include "panicast/core/event_log.h"
 #include "panicast/net/proxy_manager.h"
 #include "panicast/net/url_classifier.h" // D14-test: link real classify (was mirrored copy)
+#include "panicast/playback/sleep_timer.h" // D14-test: link real parse_time_string (was mirrored copy)
 #include "panicast/domain/media.h"
 #include "panicast/parsers/feed_parser.h"
 
@@ -105,104 +106,37 @@ TEST(URLClassifier, PatternPriority) {
     EXPECT_EQ(URLClassifier::classify("https://youtube.com/watch?v=abc"), URLType::YOUTUBE_VIDEO);
 }
 
-// ─── Time format parsing tests ───
-
-int parse_time_string(const std::string &s) {
-    if (s.empty())
-        return -1;
-    if (s.back() == 'h' || s.back() == 'H') {
-        try {
-            return std::stoi(s.substr(0, s.size() - 1)) * 3600;
-        } catch (...) {
-            return -1;
-        }
-    }
-    if (s.back() == 'm' || s.back() == 'M') {
-        try {
-            return std::stoi(s.substr(0, s.size() - 1)) * 60;
-        } catch (...) {
-            return -1;
-        }
-    }
-    if (s.back() == 's' || s.back() == 'S') {
-        try {
-            return std::stoi(s.substr(0, s.size() - 1));
-        } catch (...) {
-            return -1;
-        }
-    }
-    if (s.find(':') != std::string::npos) {
-        int h = 0, m = 0, sec = 0;
-        if (sscanf(s.c_str(), "%d:%d:%d", &h, &m, &sec) == 3)
-            return h * 3600 + m * 60 + sec;
-        if (sscanf(s.c_str(), "%d:%d", &m, &sec) == 2)
-            return m * 60 + sec;
-        return -1;
-    }
-    try {
-        int n = std::stoi(s);
-        return n < 100 ? n * 3600 : n * 60;
-    } catch (...) {
-        return -1;
-    }
-}
+// ─── Time format parsing tests (link real SleepTimer::parse_time_string, src/playback/sleep_timer.cpp) ───
 
 TEST(TimeParser, SuffixFormats) {
-    EXPECT_EQ(parse_time_string("5h"), 5 * 3600);
-    EXPECT_EQ(parse_time_string("30m"), 30 * 60);
-    EXPECT_EQ(parse_time_string("90s"), 90);
-    EXPECT_EQ(parse_time_string("5H"), 5 * 3600);
-    EXPECT_EQ(parse_time_string("30M"), 30 * 60);
+    EXPECT_EQ(SleepTimer::parse_time_string("5h"), 5 * 3600);
+    EXPECT_EQ(SleepTimer::parse_time_string("30m"), 30 * 60);
+    EXPECT_EQ(SleepTimer::parse_time_string("90s"), 90);
+    EXPECT_EQ(SleepTimer::parse_time_string("5H"), 5 * 3600);
+    EXPECT_EQ(SleepTimer::parse_time_string("30M"), 30 * 60);
 }
 
 TEST(TimeParser, HHMMSS) {
-    EXPECT_EQ(parse_time_string("1:25:15"), 1 * 3600 + 25 * 60 + 15);
-    EXPECT_EQ(parse_time_string("25:15"), 25 * 60 + 15);
-    EXPECT_EQ(parse_time_string("0:0:30"), 30);
+    EXPECT_EQ(SleepTimer::parse_time_string("1:25:15"), 1 * 3600 + 25 * 60 + 15);
+    EXPECT_EQ(SleepTimer::parse_time_string("25:15"), 25 * 60 + 15);
+    EXPECT_EQ(SleepTimer::parse_time_string("0:0:30"), 30);
 }
 
 TEST(TimeParser, PureNumber) {
-    EXPECT_EQ(parse_time_string("5"), 5 * 3600);
-    EXPECT_EQ(parse_time_string("100"), 100 * 60);
-    EXPECT_EQ(parse_time_string("99"), 99 * 3600);
+    EXPECT_EQ(SleepTimer::parse_time_string("5"), 5 * 3600);
+    EXPECT_EQ(SleepTimer::parse_time_string("100"), 100 * 60);
+    EXPECT_EQ(SleepTimer::parse_time_string("99"), 99 * 3600);
 }
 
 TEST(TimeParser, InvalidInput) {
-    EXPECT_EQ(parse_time_string(""), -1);
-    EXPECT_EQ(parse_time_string("abc"), -1);
-    EXPECT_EQ(parse_time_string("h"), -1);
+    EXPECT_EQ(SleepTimer::parse_time_string(""), 0);
+    EXPECT_EQ(SleepTimer::parse_time_string("abc"), 0);
+    EXPECT_EQ(SleepTimer::parse_time_string("h"), 0);
 }
 
-// ─── escape_sql tests ───
-
-std::string escape_sql(const std::string &s) {
-    std::string result;
-    result.reserve(s.size() + 8);
-    for (char c : s) {
-        if (c == '\'')
-            result += "''";
-        else
-            result += c;
-    }
-    return result;
-}
-
-TEST(EscapeSql, NormalString) {
-    EXPECT_EQ(escape_sql("hello"), "hello");
-    EXPECT_EQ(escape_sql(""), "");
-}
-
-TEST(EscapeSql, SingleQuote) {
-    EXPECT_EQ(escape_sql("it's"), "it''s");
-    EXPECT_EQ(escape_sql("' OR 1=1 --"), "'' OR 1=1 --");
-    EXPECT_EQ(escape_sql("a'b'c"), "a''b''c");
-}
-
-TEST(EscapeSql, SqlInjectionAttempt) {
-    std::string malicious = "'; DROP TABLE users; --";
-    std::string escaped = escape_sql(malicious);
-    EXPECT_EQ(escaped, "''; DROP TABLE users; --");
-}
+// ─── escape_sql tests: REMOVED (D14-test). DatabaseManager::escape_sql was dead code (0 production
+//   callers — AccountsManager SQL now uses prepared statements via account_repo.cpp sqlite3_bind_*).
+//   The mirrored copy had also drifted (real strips NUL at database.cpp:521, the copy didn't). ───
 
 // ─── Y01: crypto primitives (token at-rest encryption) ───────────────────────
 #include "panicast/core/crypto.h"

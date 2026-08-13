@@ -4,6 +4,20 @@
 
 ---
 
+## 测试 — 2026-08-13 — 测试镜像漂移修复 2/3 + 3/3（parse_time 链入 + escape_sql 删除）+ 睡眠 CLI 提示
+
+> 继 1/3（classify）后修剩余两个镜像。**parse_time_string**（2/3）：链入真实 `SleepTimer::parse_time_string`（CMake 加 `sleep_timer.cpp`+`event_log.cpp`，timer 用 EVENT_LOG/LOG 5 处）；删副本；InvalidInput 期望 -1→0（真实无效输入返回 0，CLI 经 `if(seconds>0)` 跳过 + 提示）。**escape_sql**（3/3）：核实为**死代码（生产 0 调用）**，功能已被 `account_repo.cpp` prepared statement（`sqlite3_bind_*`）完全接管 → 删 impl(database.cpp)+ 声明(database.h)+ 副本 + 3 EscapeSql 测试（不拆分生产代码，为死代码动生产代码不合理）。
+
+### 改动
+- parse_time：链入真实；`parse_time_string(` → `SleepTimer::parse_time_string(`；InvalidInput 3 处 -1→0。
+- escape_sql：删 `DatabaseManager::escape_sql`（database.cpp impl + database.h 声明）；删 test_units 副本 + EscapeSql 3 测试。panicast 链接无未定义符号 → 坐实无生产调用。
+- CLI：`main.cpp` 睡眠时间非法时提示正确格式示例（`30m / 1h / 90s / HH:MM:SS / <分钟>`，用户功能要求）。
+
+### 验收
+- ctest **41/41**（44 - 3 EscapeSql）；0-warning（`-Wall -Wextra -Wpedantic`）；pty 冒烟绿（exit 0 + endwin + quit）。
+
+---
+
 ## 测试 — 2026-08-13 — URLClassifier 测试镜像→真实链入（测试镜像漂移修复 1/3）
 
 > test_units.cpp 此前在 panicast_test namespace 内手抄了 URLType/UrlPattern/PATTERNS/classify 副本——测的是副本而非真实 URLClassifier。真实 classify 一旦改动副本不变 → 测试假阳性。副本已漂移（缺本地视频扩展名分支、缺 TikTok、PATTERNS 不区分 suffix）。本增量修第 1 个（漂移面最大的 classify）。
@@ -13,9 +27,8 @@
 - CMakeLists：test_units 经 `target_sources` 链入 `src/net/url_classifier.cpp`（纯函数零依赖 → 零代价，不拖 sqlite/curl）。
 - 现有 URLClassifier 测试全过（ctest 44/44）——证实现有 case 与真实巧合一致；镜像风险根除（今后真实 classify 改动，测试自动跟随）。
 
-### 待评估（2/3、3/3）
-- **parse_time_string**：链入真实 `SleepTimer::parse_time_string` 需拖 `event_log.cpp`+`sleep_timer.cpp`（test 从纯单元变链 log/timer）；漂移=InvalidInput 返回值（真实 0 / 副本 -1）。
-- **escape_sql**：真实 `DatabaseManager::escape_sql` **生产 0 调用（死代码）** + 副本漂移（真实 strip NUL / 副本不 strip）。database.cpp 拖 sqlite 不可直接链——为死代码拆分生产代码不合理，倾向**删除**（escape_sql + 其测试）。
+### 2/3 + 3/3（✅ 已完成，见上方独立条目）
+- parse_time：链入真实（拖 event_log/sleep_timer 已实现）；escape_sql：删除（死代码，功能已迁移 prepared statement）。
 
 ---
 

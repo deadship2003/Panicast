@@ -196,7 +196,8 @@ int main(int argc, char *argv[]) {
             SleepTimer::instance().set_duration(seconds);
             std::cout << "Sleep timer set for " << seconds << " seconds" << std::endl;
         } else {
-            std::cerr << "Invalid sleep time format: " << sleep_time << std::endl;
+            std::cerr << "Invalid sleep time format: '" << sleep_time
+                      << "'. Use e.g. 30m / 1h / 90s / HH:MM:SS / <minutes>." << std::endl;
         }
     }
 

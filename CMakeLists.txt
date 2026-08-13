@@ -498,7 +498,10 @@ if(BUILD_TESTING)
             src/parsers/feed_parser.cpp)  # D13: ParserRegistry dispatch contract test
         # D14-test: link the real URLClassifier (pure, dep-free) so URLClassifier tests stop
         #   mirroring classify/PATTERNS by hand (the copy had already drifted from production).
-        target_sources(test_units PRIVATE src/net/url_classifier.cpp)
+        target_sources(test_units PRIVATE
+            src/net/url_classifier.cpp
+            src/playback/sleep_timer.cpp    # D14-test: link real SleepTimer::parse_time_string
+            src/core/event_log.cpp)         # sleep_timer.cpp uses EVENT_LOG → needs EventLog
         target_link_libraries(test_units PRIVATE GTest::gtest_main Threads::Threads)
         if(fmt_FOUND)
             target_link_libraries(test_units PRIVATE fmt::fmt)
