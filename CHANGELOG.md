@@ -4,6 +4,30 @@
 
 ---
 
+## 新架构 D14-1 — 2026-08-13 — MediaID 逻辑身份重写（M2 主线 · identity 模型 · 增量1）
+
+> D14（Media 域从 TreeNode 收敛）的第一步：定 identity 模型。审计发现 now-playing 身份当前分裂为三种表示——内存 `TreeNodePtr`、播放路径串（`MPVController::State::current_url`，Y23.9 起对缓存项是**原始本地路径**非 `file://`）、源 URL 串——三者从不统一；本地/流式判定 `url[0]=='/'||file://` 在 app_input(×3)/app_remote(×1) 复制 4 份。D4 的 `MediaID` 是**指针身份**（`node_.lock().get()==` 比较），对持久化/跨会话/网络终端完全无效——这也是历史误判 history"形式化"的根因。
+>
+> 本增量在 adapter **首次接线前**把 identity 从指针改为**逻辑身份（真实绝对源 URL）**：身份 = 绝对源 URL，`operator==` 即 URL 相等 → 跨内存/DB/H/F/远程一致、跨节点销毁与进程重启存活，与 DB/history/remote 当前的 url-keyed 语义对齐。零生产行为改动（adapter 仅测试包含，grep 验证 src/include 零引用）。
+
+### 改动
+- `include/panicast/domain/media.h`：`MediaID` 由 `TreeNodeWeakPtr` 指针 backing 改为 `std::string url_`（绝对源 URL），`operator==`/`!=` 比 URL，`url()`/`valid()` 访问器，删 `lock()`/`node_`；`Media{id,title,art_url,is_video}`（删冗余 `url`——身份唯一源在 `MediaID::url()`，避免双份漂移）；`media_from_node` 复制 url→id / title / art_url；新增 `media_id_from_url`（DB 行/线字段直接建身份）。is_video 非派生自 TreeNode（该结构无此字段，由 PlaybackService 层经 URLClassifier 填，D14-2）。
+- `tests/test_units.cpp`：D4 单测 3 例 → D14-1 5 例（`IdentityIsUrl`/`EmptyIsInvalid`/`SurvivesNodeDestruction`/`FromNodeCopiesFields`/`FromUrlFactory`），锁定逻辑身份语义。
+
+### 设计
+- **为什么逻辑身份而非指针**：你描述的真实数据流——每次解析后结构化缓存入 DB、播放记录/状态联动 H/F/远程——要求身份跨 DB（持久）+ 网络（线）存活。指针随节点/进程消亡，对 history/remote 无意义；逻辑身份（绝对源 URL）正是 DB/history/remote 当前的 key，统一之即消分裂。`RemoteStateSnapshot`(remote_protocol.h:31-33,46) 的 title/url/has_video/art_url **已是事实上的 Media**，收敛=显式化。
+- **为什么不在 media_from_node 派生 is_video**：TreeNode 无 is_video 字段；派生需 URLClassifier（net/），而 domain/ 不可依赖 net/（分层）。留给 D14-2 的 PlaybackService 层（该层本就计算 has_video）。
+- **为什么删 Media::url**：身份唯一源是 `MediaID::url()`；并存 `Media::url` 会双份、可漂移。消费者读 `m.id.url()`（`const string&`，零成本）。
+
+### 验收
+- ctest 44/44（+2 净增）、构建 0-warning（仅 test_units 重链——印证主二进制零改动）、pty 冒烟 exit 0 + clean endwin。
+- 无生产行为改动（src/include 对 `MediaID`/`Media`/`media_from_node` 零引用，grep 验证）。
+
+### 后续
+- **D14-2**：PlaybackService 持 canonical `now_playing_` Media、`PlaybackTrackChanged` 携带 Media、SubtitleService 订阅取 Media；播什么路径由 Media 派生（消除 4× is_streaming 复制）。
+
+---
+
 ## 新架构 D13 — 2026-08-10 — Provider 化审计固化 + ParserRegistry 契约测试（M2 启动 · 增量1）
 
 > M2（Provider 化 + Media 收敛）第一步。roadmap M2 写"各 parser 确认 Provider 化"——本增量做该审计并固化结论：feed 形态的解析器（rss/opml/youtube_channel）早已经 `IFeedParser`+`ParserRegistry` 自注册；bilibili/itunes/m3u/tiktok/transcript **刻意不经** `IFeedParser`（各自非 feed 形态：API/搜索/频道表/flat-playlist/字幕）。审计结论写进 `docs/ARCHITECTURE.md §3` + ADR；新增 `ParserRegistry` 派发契约测试锁定 reg/create 契约。

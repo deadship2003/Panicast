@@ -131,7 +131,13 @@
 ## 里程碑 M2 — Provider 化 + Media 收敛（每 parser 一小步）
 - [x] **D13 — Provider 化审计固化 + ParserRegistry 契约测试（M2 启动）** ✅ 2026-08-10。审计 roadmap 所列 7 parser 对 `IFeedParser`（`supports()` + `parse(ParseInput{data,url})→TreeNodePtr`）契约的真实形态：**feed 形态已 Provider 化**——RSSParser/OpmlParser/YouTubeChannelParser 经 `REGISTER_PARSER` 自注册、`app_run` 三处 `ParserRegistry::create()` 派发；**刻意不经 IFeedParser**（非 feed 形态）：BilibiliParser（WBI+SESSDATA 凭证 API）、ITunesSearch（搜索 API）、parse_m3u（IPTV 频道表加载器）、TikTok（yt-dlp flat-playlist）、transcript_parser（字幕→SubtitleParserRegistry）。结论写进 `ARCHITECTURE §3` + ADR；新增 `ParserRegistry` 契约测试（3 例，锁 reg/create/nullptr/单例机制，不锁注册清单）。→ **"确认 Provider 化"条款完成**：无缺口，design 已就位。
   - **验收**：ctest 42/42、构建 0-warning、pty 冒烟 exit 0 + clean endwin；无生产行为改动（+测试 +文档）。
-- [ ] **D14 — Media 域从 TreeNode 逐步收敛（M2 主线）**。D4 的 `MediaID`/`Media` adapter 让模块逐步传句柄而非裸 `TreeNodePtr`/URL。待选首个收敛起点（某个 service↔service 或 service↔playback 边界）。每个一进步、保持可运行。
+- **D14 — Media 域从 TreeNode 逐步收敛（M2 主线）**。问题定位：now-playing 身份当前分裂为三种表示——内存 `TreeNodePtr`、播放路径串（`MPVController::State::current_url`，Y23.9 起对缓存项是**原始本地路径**非 `file://`）、源 URL 串——三者从不统一；本地/流式判定 `url[0]=='/'||file://` 在 app_input/app_remote 复制 4 份。收敛 = 以**真实绝对源 URL**为唯一身份，统一 tree/DB/H/F/远程。每步绿、可回退。
+  - [x] **D14-1 — identity 模型重写** ✅ 2026-08-13。`domain/media.h`：`MediaID` 由指针身份改为**逻辑身份**（绝对源 URL，`operator==` 即 URL 相等；跨内存/DB/网络一致、跨节点销毁存活）；`Media{id,title,art_url,is_video}`（is_video 非派生自 TreeNode——该结构无此字段，由 PlaybackService 层经 URLClassifier 填，留 false）；`media_from_node`/`media_id_from_url`。单测 3→5。**零生产改动**（adapter 仅测试包含，grep 验证 src/include 零引用）。验收：ctest 44/44、0-warning、pty 冒烟 exit 0 + clean endwin。
+    - **验收**：ctest 44/44（+2 净增）、构建 0-warning（仅 test_units 重链）、pty 冒烟 exit 0 + clean endwin；无生产行为改动。
+  - [ ] **D14-2 — PlaybackService 持 canonical now-playing Media**。play_current 构建 `Media now_playing_`（含 is_video）并持有；`PlaybackTrackChanged` 携带 Media（替裸 url/title/has_video）；SubtitleService 订阅取 Media。播什么路径（缓存本地路径 / 源 URL）由 Media 派生，消除 4× is_streaming 复制。
+  - [ ] **D14-3 — 读侧收敛**。tree_renderer 高亮 / status_bar / info_panel / lyric_renderer 重取触发 / remote 快照 改读 canonical Media（经 DisplayContext 或 PlaybackService 访问器），替 `current_url` 直读 + 4× is_streaming。
+  - [ ] **D14-4 — 持久侧收敛**。player_state 存规范源 URL（非播放路径）；save_progress/history 以 MediaID 为键。先核 `app_run.cpp:563` 重启续播是否因存了原始本地路径而非源 URL 而失效（疑似潜在 bug，验证后定）。
+  - [ ] **D14-5 — Favourites LINK 收敛**。按 AUDIT §5.12 由 `shared_ptr` 跨树引用改 MediaID(URL) 解析重建，与 LINK 所有权债合流。工作量最大、放最后，必要时拆子阶段。
 
 ## 里程碑 M3 — 字幕/ASR
 - [ ] **Dn** — `SubtitleController` 中介者（修 READY/L-key 冲突）；ASR 作 SubtitleProducer。

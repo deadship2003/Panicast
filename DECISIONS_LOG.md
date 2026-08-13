@@ -1,4 +1,22 @@
 
+## D14-1 — MediaID 逻辑身份重写（M2 第 2 人日，D14 增量1 · identity 模型）
+
+**Context:** D14（Media 域从 TreeNode 收敛）的第一步是定 identity 模型。审计 now-playing 身份的真实载体：`MPVController::State::current_url`（`mpv_controller.cpp:1256` `state_.current_url = path`）——Y23.9 起给 mpv 传**原始本地路径**（非 file://），故缓存项的 current_url 是本地路径、`node->url` 是源 URL，二者不同形。该字符串身份被 15+ 处直读且无归一：持久化（`player_state_repo.cpp:40/67`、`app_run.cpp:485` save_progress）、显示（`tree_renderer.cpp:59` `url==current_url` 高亮、status_bar、info_panel、`lyric_renderer.cpp:15` 重取触发）、远程（`app_remote.cpp:140` `s.url=ps.current_url`）；本地/流式判定 `url[0]=='/'||file://` 在 `app_input.cpp:248/734/822`+`app_remote.cpp:525` **复制 4 份**。而 D4 的 `MediaID`（media.h）是**指针身份**（`TreeNodeWeakPtr`、`lock().get()==` 比较）——对持久化/跨会话/网络终端完全无效（指针随节点/进程消亡）。用户确认：身份以**真实绝对源 URL**为准。
+
+**Decision: adapter 首次接线前把 identity 从指针改为逻辑身份（绝对源 URL）。** ① `MediaID` backing 由 `TreeNodeWeakPtr` 改 `std::string url_`（绝对源 URL）；`operator==`/`!=` 比 URL；`url()`/`valid()` 访问器；删 `lock()`/`node_`。② `Media{id,title,art_url,is_video}`——删冗余 `Media::url`（身份唯一源是 `MediaID::url()`，并存会双份漂移）。③ `media_from_node` 复制 url→id / title / art_url；新增 `media_id_from_url`（DB 行/线字段直接建身份）。④ is_video **不**在 media_from_node 派生（TreeNode 无此字段；派生需 URLClassifier=net/，domain/ 不可依赖 net/）→ 留 false，由 D14-2 的 PlaybackService 层填。⑤ 单测 3→5 例锁逻辑身份语义。
+
+**Why 逻辑身份而非指针:** 用户描述的真实数据流（每次解析后结构化缓存入 DB、播放记录/状态联动 H/F/远程）要求身份跨 DB（持久）+ 网络（线）存活。指针随节点/进程消亡，对 history/remote 无意义；逻辑身份（绝对源 URL）正是 DB/history/remote 当前的 key——统一之即消三表示分裂。`RemoteStateSnapshot`(remote_protocol.h:31-33,46) 的 title/url/has_video/art_url **已是事实上的 Media**，收敛是显式化而非新增抽象。
+
+**Why 现在改 identity 而非边接线边改:** D4 的 adapter 生产零采用（grep 验证 src/include 对 `MediaID`/`Media`/`media_from_node` 零引用、仅 `tests/test_units.cpp:15` 包含）。在首次接线前纠正 identity 模型成本最低（只动 header + 测试）、零行为风险；接线后再改要回溯每个采用点。strangler 铁律不阻止"纠正未部署的 adapter"——那正是其预留的演进空间。
+
+**Why 不激进规范化 URL（小写 host/去 fragment/排序 query）:** 会改变现有 `node->url == current_url` 类比较的匹配语义、引入回归风险，且非 D14 目标。D14-1 身份 = 节点已携带的绝对源 URL、`operator==` 即精确串相等（与当前 url 比较语义一致、零行为变化）；规范化（如有需要）是独立关注点，按需后加。
+
+**Gotcha — is_video 不是 TreeNode 字段:** types.h:59-149 的 TreeNode 无 is_video（它在 PlaylistItem:156）。has_video 当前由 PlaybackService 层 `is_youtube||URLClassifier::is_video(url)` 派生。故 media_from_node 不填 is_video——domain/ 不能依赖 net/ 的 URLClassifier。
+
+**Acceptance:** ctest 44/44（+2 净增：`MediaID.IdentityIsUrl`/`EmptyIsInvalid`/`SurvivesNodeDestruction`/`Media.FromNodeCopiesFields`/`MediaID.FromUrlFactory`，替旧 3 例指针语义测试）、0-warning（仅 test_units 重链——主二进制零改动印证无生产接线）、pty 冒烟 exit 0 + clean endwin。src/include 对 `MediaID`/`Media`/`media_from_node` 零引用（grep 验证）。
+
+**Followups:** D14-2 PlaybackService 持 canonical now_playing Media + PlaybackTrackChanged 携 Media + SubtitleService 订阅取 Media；播什么路径（缓存本地路径/源 URL）由 Media 派生（消除 4× is_streaming 复制）。D14-3 读侧、D14-4 持久侧、D14-5 Favourites LINK 收敛依次。
+
 ## D13 — Provider 化审计固化 + ParserRegistry 契约测试（M2 第 1 人日，M2 启动）
 
 **Context:** roadmap M2 第一句"各 parser 确认 Provider 化（youtube/bilibili/itunes/rss/m3u/opml/tiktok）"读起来像"有 7 个 parser 待 Provider 化"。但 `IFeedParser` 契约（`feed_parser.h`）要求 `URLType supports()` + `TreeNodePtr parse(ParseInput{data,url})`——输入是"已抓取的 body"，输出是单个 feed 树。审计每个 parser 对此契约的真实形态，才能判断哪些该 Provider 化、哪些本就不该。

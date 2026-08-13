@@ -446,39 +446,58 @@ TEST(ProxyManager, PlatformBeatsDomain) {
     EXPECT_EQ(pm.resolveProxy("https://r1.googlevideo.com/v", "youtube").url, "yt");  // platform wins
 }
 
-// ─── Media / MediaID tests (D4: domain handle adapter over TreeNode) ──────────
-TEST(MediaID, IdentityEquality) {
-    auto n1 = std::make_shared<panicast::TreeNode>();
-    auto n2 = std::make_shared<panicast::TreeNode>();
-    panicast::MediaID a(n1), b(n1), c(n2);
-    EXPECT_EQ(a, b);   // same underlying node
-    EXPECT_NE(a, c);   // different nodes
+// ─── Media / MediaID tests (D14-1: logical identity = canonical absolute source URL) ──
+TEST(MediaID, IdentityIsUrl) {
+    panicast::MediaID a("https://example.com/feed/ep1.mp3");
+    panicast::MediaID b("https://example.com/feed/ep1.mp3");
+    panicast::MediaID c("https://example.com/feed/ep2.mp3");
+    EXPECT_EQ(a, b);   // same absolute URL → same media
+    EXPECT_NE(a, c);   // different URL → different media
+    EXPECT_EQ(a.url(), "https://example.com/feed/ep1.mp3");
     EXPECT_TRUE(a.valid());
-    EXPECT_TRUE(a.lock().get() == n1.get());
 }
 
-TEST(MediaID, ExpiresWithNode) {
+TEST(MediaID, EmptyIsInvalid) {
+    panicast::MediaID e;
+    EXPECT_FALSE(e.valid());
+    EXPECT_TRUE(e.url().empty());
+    EXPECT_EQ(e, panicast::MediaID{});  // two empty ids are equal
+}
+
+TEST(MediaID, SurvivesNodeDestruction) {
+    // Identity is logical (URL), not a pointer into the tree: it outlives the node.
     panicast::MediaID id;
+    const std::string url = "https://example.com/track";
     {
         auto n = std::make_shared<panicast::TreeNode>();
-        id = panicast::MediaID(n);
-        EXPECT_TRUE(id.valid());
+        n->url = url;
+        id = panicast::media_from_node(n).id;
     }
-    EXPECT_FALSE(id.valid());  // node destroyed → expired
+    EXPECT_TRUE(id.valid());   // node gone, identity intact
+    EXPECT_EQ(id.url(), url);
 }
 
-TEST(Media, FromNodeCopiesUrlTitle) {
+TEST(Media, FromNodeCopiesFields) {
     auto n = std::make_shared<panicast::TreeNode>();
     n->url = "https://example.com/track";
     n->title = "Track";
+    n->art_url = "https://example.com/cover.png";
     auto m = panicast::media_from_node(n);
-    EXPECT_EQ(m.url, "https://example.com/track");
+    EXPECT_EQ(m.id.url(), "https://example.com/track");
     EXPECT_EQ(m.title, "Track");
-    EXPECT_TRUE(m.id.valid());
+    EXPECT_EQ(m.art_url, "https://example.com/cover.png");
+    EXPECT_FALSE(m.is_video);  // not derived at the domain layer
 
     auto empty = panicast::media_from_node(nullptr);
     EXPECT_FALSE(empty.id.valid());
-    EXPECT_TRUE(empty.url.empty());
+    EXPECT_TRUE(empty.title.empty());
+    EXPECT_TRUE(empty.art_url.empty());
+}
+
+TEST(MediaID, FromUrlFactory) {
+    auto id = panicast::media_id_from_url("https://example.com/x");
+    EXPECT_EQ(id.url(), "https://example.com/x");
+    EXPECT_TRUE(id.valid());
 }
 
 // ─── ParserRegistry tests (D13: IFeedParser self-registering dispatch contract) ──

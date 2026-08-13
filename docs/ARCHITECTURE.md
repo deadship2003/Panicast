@@ -56,8 +56,9 @@ UI（`src/ui/`）是纯呈现层，依赖规则：
 
 ## 4. 领域模型
 
-- `TreeNode`（`include/panicast/core/types.h`）—— **事实上的 Media 对象**：订阅树/收藏/播放列表的统一载体，80+ 字段（类型/URL/缓存/字幕/账号/链接…）。
-- `TreeNodePtr = std::shared_ptr<TreeNode>` —— **事实上的 MediaID**，模块间传指针身份。
+- `TreeNode`（`include/panicast/core/types.h`）—— **事实上的 Media 对象**：订阅树/收藏/播放列表的统一载体，80+ 字段（类型/URL/缓存/字幕/账号/链接…）。D14 起为收敛目标（逐步以窄 `Media` 替代跨模块传整节点）。
+- `TreeNodePtr = std::shared_ptr<TreeNode>` —— **事实上的 MediaID**（运行期），模块间传指针身份；随节点/进程消亡，不跨 DB/网络。
+- `MediaID` / `Media`（`include/panicast/domain/media.h`，D4 建、**D14-1 重定 identity**）—— 真正的领域身份：`MediaID` = **逻辑身份（真实绝对源 URL）**，`operator==` 即 URL 相等（跨内存/DB/H/F/远程一致、跨节点销毁与进程重启存活）；`Media{id,title,art_url,is_video}` 为 now-playing 视图。D14-1 完成身份模型（仅测试），D14-2 起接线：PlaybackService 持 canonical now-playing、读侧/持久侧/Favourites 依次收敛到 `MediaID`，替代上述指针身份 + `current_url` 字符串身份的分裂。
 - 枚举：`NodeType`、`AppMode`（RADIO/PODCAST/FAVOURITE/HISTORY/ONLINE/ACCOUNT/BILIBILI/TIKTOK/IPTV）、`PlayMode`、`MediaType`（9 类显示分类）、`URLType`、`TranscriptStatus`、`AppState`。
 
 ## 5. 线程模型（三线程）
