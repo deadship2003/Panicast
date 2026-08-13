@@ -1,4 +1,18 @@
 
+## D22 — ui lifecycle 组 → ui_lifecycle.cpp（终端/信号簇 + init/cleanup/handle_resize + 3 文件局部全局连带搬）
+
+**Context:** D21 后 ui.cpp 剩 init/cleanup/handle_resize/draw 四块。任务预设 lifecycle 组引用文件局部全局需特殊处理——实查（grep）推翻：`init`/`cleanup`/`handle_resize` **只引用 extern/header 符号**（emoji 全局在 `core/terminal.h:35-36` extern）；3 个文件局部全局（anon-namespace `g_original_termios`/`g_termios_saved`、`static g_term_sig_count`）**仅**被终端/信号自由函数簇引用。
+
+**Decision:** 整组（终端/信号 6 自由函数 + 3 UI 成员方法）逐字节 verbatim 抽 → `src/ui/ui_lifecycle.cpp`。3 文件局部全局**连带搬**（D20 原则：随其唯一调用者簇搬，保持文件局部、零接口面变化）；5 个 ui.h-extern 全局的**定义**随簇迁此（单 TU 定义、声明留 header）。ui.cpp 638→263。
+
+**Why 整组搬而非只搬成员方法:** 终端/信号簇是文件局部全局的唯一归宿（anon/static 无法 extern 化，只能随簇搬），与 init/cleanup/handle_resize 同属"生命周期"——合为一文件达成 ui.cpp 的"生命周期 vs 渲染"干净切割（ui.cpp 仅剩 draw + 渲染辅助 263 行）。include 集与 ui.cpp **逐字一致** → 搬迁代码编译等价（同经 ui.h 传递包含），无需猜测依赖。
+
+**Why 编译等价成立:** 给新 TU 与源 TU 相同 include 集，则被搬代码的传递包含环境不变 → 必然 0-warning 编译（实测验证）。这是大块 verbatim 搬迁降险的关键手法。
+
+**切割点验证:** `draw` 起的剩余 ui.cpp 经 grep 确认**零引用**任何被搬符号（含 5 extern 全局、3 自由函数）→ 无悬空引用。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
 ## D21 — ui setter/toggle 组 → ui_toggles.cpp
 
 **Context:** D20 后回 ui.cpp 再抽一组。5 个视图态 setter/toggle 是纯成员写（+ EVENT_LOG/INI），无文件局部依赖。

@@ -7,8 +7,26 @@
 > **📦 待测试批次（pre-test）—— 2026-08-13 起**
 > 工作流切换为**分支化批量迭代**：`dev/m2` 分支承接 M2 迭代；`main` 冻结在 `d94ea88`（标签 `pretest/m2-batch-start`）作安全回退点。
 > 用户将在**全部 M2 迭代完成后统一测试** `dev/m2` 尖端，通过后 fast-forward 回 `main`；有问题在 `dev/m2` 上 revert/修，`main` 不动。
-> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp（mpv_controller.cpp 1379→1203）/ D19 mpv_controller 静态元数据组→mpv_metadata.cpp（mpv_controller.cpp 1203→1126）/ D20 mpv IPTV 检测组→mpv_iptv.cpp（含 log_has 连带搬 + 修 reset 伪 inline；mpv_controller.cpp 1126→1050）/ D21 ui setter/toggle 组→ui_toggles.cpp（ui.cpp 668→638）。
+> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp（mpv_controller.cpp 1379→1203）/ D19 mpv_controller 静态元数据组→mpv_metadata.cpp（mpv_controller.cpp 1203→1126）/ D20 mpv IPTV 检测组→mpv_iptv.cpp（含 log_has 连带搬 + 修 reset 伪 inline；mpv_controller.cpp 1126→1050）/ D21 ui setter/toggle 组→ui_toggles.cpp（ui.cpp 668→638）/ D22 ui lifecycle 组→ui_lifecycle.cpp（终端/信号簇 + init/cleanup/handle_resize + 3 文件局部全局连带搬；ui.cpp 638→263）。
 > 每步仍守铁律（0-warning + ctest 绿 + commit），仅不再逐步打断等测。
+
+---
+
+## 新架构 D22 — 2026-08-13 — god-object 拆分第六刀：ui lifecycle 组 → ui_lifecycle.cpp（M3 · 5 刀批次 3/5）
+
+> ui.cpp 第三抽（最大一刀）：**终端/信号生命周期簇**（`save_terminal_state`/`restore_terminal_state`/`restore_termios_async`/`tui_cleanup`/`signal_handler`/`setup_signal_handlers`）+ **ncurses 窗口成员生命周期**（`UI::init`/`UI::cleanup`/`UI::handle_resize`）→ 新 `src/ui/ui_lifecycle.cpp`，逐字节 verbatim。ui.cpp 638→263（仅剩 `draw` + 渲染辅助，达成"生命周期 vs 渲染"切割）。
+
+### 改动
+- 新文件 `src/ui/ui_lifecycle.cpp`：终端/信号簇 6 自由函数 + 3 UI 成员方法迁入；include 集与 ui.cpp **完全一致**（ui.h + `<atomic>/<cstdio>/<cstring>` + `<signal.h>/<termios.h>/<unistd.h>` + `<ncurses.h>`）→ 搬迁代码编译等价（同经 ui.h 传递包含）。
+- 3 文件局部全局**连带搬**（D20"helper 随调用者搬"原则）：anon-namespace `g_original_termios`/`g_termios_saved`（无链接，只能随簇搬）+ `static g_term_sig_count`。5 个 ui.h-`extern` 全局（`g_ncurses_initialized`/`g_original_lines`/`g_original_cols`/`g_exit_requested`/`g_crash_sig`）的**定义**随簇迁此（单 TU 定义，声明留 header）。
+- `src/ui/ui.cpp`：删原 20-393；namespace 开 → 直入 `void UI::draw(`。CMake 加源。header 不动。
+
+### 设计要点
+- 实查推翻任务预设：`init`/`cleanup`/`handle_resize` 经 grep 确认**只引用 extern/header 符号**（emoji 全局在 `core/terminal.h` extern），3 个文件局部全局**仅**被终端/信号自由函数簇用 → 整组随簇搬即可，零 extern 化、零接口面变化。
+- 切割点验证：`draw` 起的剩余 ui.cpp（263 行）**零引用**任何被搬符号（grep 确认）→ 干净切割。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
 
 ---
 
