@@ -321,4 +321,157 @@ void IniConfig::save() {
     }
 }
 
+
+// ── logic + static helpers: statusbar/play-mode/proxy/color/url/config-file (D30: moved out-of-line) ──
+StatusBarColorConfig IniConfig::get_statusbar_color_config() {
+    StatusBarColorConfig cfg;
+
+    std::string mode_str = get("statusbar_color", "mode", "rainbow");
+    if (mode_str == "random")
+        cfg.mode = StatusBarColorMode::RANDOM;
+    else if (mode_str == "time_brightness")
+        cfg.mode = StatusBarColorMode::TIME_BRIGHTNESS;
+    else if (mode_str == "fixed")
+        cfg.mode = StatusBarColorMode::FIXED;
+    else if (mode_str == "custom")
+        cfg.mode = StatusBarColorMode::CUSTOM;
+    else
+        cfg.mode = StatusBarColorMode::RAINBOW;
+
+    cfg.update_interval_ms = get_int("statusbar_color", "update_interval_ms", 100);
+    cfg.brightness_min = get_float("statusbar_color", "brightness_min", 0.5f);
+    cfg.brightness_max = get_float("statusbar_color", "brightness_max", 1.0f);
+    cfg.time_adjust = get_bool("statusbar_color", "time_adjust", true);
+    cfg.fixed_color = get("statusbar_color", "fixed_color", "cyan");
+    cfg.rainbow_speed = get_int("statusbar_color", "rainbow_speed", 1);
+    // Parse CUSTOM mode configuration
+    std::string colors_str = get("statusbar_color", "custom_colors", "");
+    if (!colors_str.empty()) {
+        std::stringstream ss(colors_str);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+            try {
+                cfg.custom_colors.push_back(std::stoi(token));
+            } catch (...) {
+            }
+        }
+    }
+    cfg.custom_speed = get_int("statusbar_color", "custom_speed", 2);
+    if (cfg.rainbow_speed < 1)
+        cfg.rainbow_speed = 1;
+    if (cfg.rainbow_speed > 10)
+        cfg.rainbow_speed = 10;
+
+    return cfg;
+}
+PlayMode IniConfig::get_play_mode() const {
+    std::string v = get("playback", "mode", "cycle");
+    std::transform(v.begin(), v.end(), v.begin(),
+                   [](unsigned char c) { return (char)std::tolower(c); });
+    if (v == "repeat" || v == "r")
+        return PlayMode::REPEAT;
+    if (v == "shuffle" || v == "s" || v == "random")
+        return PlayMode::SHUFFLE;
+    return PlayMode::CYCLE; // "cycle"/"c"/default
+}
+void IniConfig::set_play_mode(PlayMode m) {
+    const char *s = (m == PlayMode::REPEAT)    ? "repeat"
+                    : (m == PlayMode::SHUFFLE) ? "shuffle"
+                                               : "cycle";
+    set("playback", "mode", s);
+}
+std::string IniConfig::get_proxy() const {
+    return normalize_proxy(get("network", "proxy", ""));
+}
+std::string IniConfig::normalize_proxy(const std::string &input, bool *is_valid) {
+    if (is_valid)
+        *is_valid = true;
+    std::string s = input;
+    // Trim leading/trailing whitespace
+    s.erase(0, s.find_first_not_of(" \t\r\n"));
+    s.erase(s.find_last_not_of(" \t\r\n") + 1);
+    if (s.empty())
+        return ""; // proxy disabled
+    // Lowercase the scheme (before "://")
+    size_t pos = s.find("://");
+    if (pos == std::string::npos) {
+        if (is_valid)
+            *is_valid = false;
+        return s;
+    }
+    std::string scheme = s.substr(0, pos);
+    for (auto &c : scheme)
+        c = (char)std::tolower((unsigned char)c);
+    std::string rest = s.substr(pos + 3);
+    // socks:// → socks5h://
+    if (scheme == "socks")
+        scheme = "socks5h";
+    // Validate scheme whitelist
+    static const std::set<std::string> ok = {"http",    "https",  "socks4",
+                                             "socks4a", "socks5", "socks5h"};
+    if (!ok.count(scheme)) {
+        if (is_valid)
+            *is_valid = false;
+        return s;
+    }
+    // Validate host[:port], no path (no '/')
+    if (rest.empty() || rest.find('/') != std::string::npos) {
+        if (is_valid)
+            *is_valid = false;
+        return s;
+    }
+    return scheme + "://" + rest;
+}
+short IniConfig::resolve_color(const std::string &s, short fallback) {
+    std::string t = s;
+    std::transform(t.begin(), t.end(), t.begin(),
+                   [](unsigned char c) { return (char)std::tolower(c); });
+    t.erase(0, t.find_first_not_of(" \t"));
+    t.erase(t.find_last_not_of(" \t") + 1);
+    if (t.empty())
+        return fallback;
+    // D12-3a: raw ANSI/ncurses color indices (0-7) — decoupled from <ncurses.h> so this
+    //   config header need not pull ncurses (see docs/ARCHITECTURE.md §2.1). Values are
+    //   identical to ncurses COLOR_BLACK..COLOR_WHITE; -1 = default passthrough.
+    static const std::map<std::string, short> names = {
+        {"black", 0}, {"red", 1}, {"green", 2}, {"yellow", 3},
+        {"blue", 4},  {"magenta", 5}, {"cyan", 6}, {"white", 7}, {"default", -1}};
+    auto it = names.find(t);
+    if (it != names.end())
+        return it->second;
+    // Pure number (negative sign allowed)
+    bool numeric = !t.empty();
+    for (size_t i = 0; i < t.size(); ++i) {
+        char c = t[i];
+        bool ok = (c >= '0' && c <= '9') || (i == 0 && c == '-');
+        if (!ok) {
+            numeric = false;
+            break;
+        }
+    }
+    if (numeric) {
+        try {
+            int n = std::stoi(t);
+            if (n >= -1 && n <= 255)
+                return (short)n;
+        } catch (...) {
+        }
+    }
+    return fallback;
+}
+short IniConfig::get_node_color(const std::string &key, short fallback) const {
+    return resolve_color(get("colors", key), fallback);
+}
+bool IniConfig::is_url_safe(const std::string &url) const {
+    if (!get_reject_unsafe_url())
+        return true; // user explicitly disabled
+    // Only allow http/https protocols
+    return url.size() >= 8 &&
+           (url.compare(0, 8, "https://") == 0 || url.compare(0, 7, "http://") == 0);
+}
+std::string IniConfig::get_config_file() {
+    const char *home = std::getenv("HOME");
+    return home ? std::string(home) + CONFIG_DIR + "/config.ini" : "";
+}
+
 } // namespace panicast

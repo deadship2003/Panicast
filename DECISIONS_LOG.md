@@ -1,5 +1,17 @@
 
-## D29 — ini_config 核心存取簇（load/save/get_int/set）inline→cpp（4 方法，~115 行）
+## D30 — ini_config 逻辑方法 + static helper 组 inline→cpp（9 方法，~147 行）
+
+**Context:** D29 抽完核心存取簇后，剩余单行签名方法（3 static + 6 逻辑）仍是纯机械 verbatim 搬迁目标。static helper（normalize_proxy/resolve_color/get_config_file）此前刻意留 inline 因带逻辑，但 verbatim 迁移不改逻辑、仅改定义位置，编译安全（cpp `#include` header = 依赖超集）。
+
+**Decision:** D29 手法 + **static 剥离**：static 成员函数的 out-of-line 定义不重复 `static`（声明保留）。脚本 `re.sub(r"^static\s+","",nm)`。默认参数剥离复用 D29。多行签名访问器（get/get_float/get_bool/resolve_cookies_path）刻意留——续行重排收益低；raw-string `create_default` 留——逐行 dedent 有 corrupt 巨型 raw string 风险，须单独纯 verbatim 处理。ini_config.h 854→713。
+
+**关键点:** static 成员 out-of-line 定义的三个 C++ 规则一并验证：①不重复 `static`；②默认参数仅声明处（D29）；③`IniConfig::` 限定。inline→cpp 搬迁 static 方法至此手法完备。
+
+**D24-D30 阶段小结:** 71 个 ini_config 方法由 inline 迁 out-of-line；ini_config.h 1087→713（−374 行）。剩余 inline：get/get_float/get_bool/resolve_cookies_path（多行签名）、create_default（raw string）、`IniConfig(){}`（trivial ctor）——均为特例，非高性价比。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
+
 
 **Context:** D28 抽完所有简单 getter 后，剩 inline 多为带逻辑方法。但**任何 inline 方法整块迁对应 cpp 都是编译安全的**（cpp `#include` header = 依赖超集；即便 load-bearing 核心亦然），故核心存取簇仍属纯机械 verbatim 搬迁。选 load/save/get_int/set（单行签名、高价值 ~115 行）；get/get_float/get_bool（多行签名 + 续行对齐）留 inline（搬迁须重排续行，收益低）。
 

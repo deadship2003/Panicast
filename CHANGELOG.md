@@ -10,6 +10,21 @@
 
 ---
 
+## 新架构 D30 — 2026-08-14 — god-object 拆分第十四刀：ini_config 逻辑方法 + static helper 组 inline→cpp（M3 · main 主线）
+
+> ini_config.h 第七抽：**剩余单行签名方法**——3 个 static helper（`normalize_proxy`/`resolve_color`/`get_config_file`）+ 6 个逻辑方法（`get_statusbar_color_config`/`get_play_mode`/`set_play_mode`/`get_proxy`/`get_node_color`/`is_url_safe`，共 9 个、~147 行）整块 verbatim 迁 cpp。含嵌套 if/while/try-catch + `std::set`/`std::map`/`std::stringstream`/`std::transform`。多行签名访问器（`get`/`get_float`/`get_bool`/`resolve_cookies_path`）与 raw-string `create_default` 刻意留 inline。ini_config.h 854→713。
+
+### 改动
+- 声明/定义分离：header 留声明，`IniConfig::` 限定定义迁 cpp。体逐字节保留（去 4 空格、保相对嵌套）。
+- **static 方法**：定义处须去 `static` 关键字（声明保留）——`static std::string normalize_proxy(...)` → def `std::string IniConfig::normalize_proxy(...)`。脚本加 `re.sub(r"^static\s+","",nm)`。
+- **默认参数**：`normalize_proxy(bool *is_valid = nullptr)` 定义处剥 `= nullptr`（D29 既修）。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
+- **D24-D30 累计**：71 个 ini_config 方法由 inline 迁 out-of-line，ini_config.h 1087→713（−374 行，超三分之一出体）。剩 get/get_float/get_bool/resolve_cookies_path（多行签名）+ create_default（raw string）+ trivial ctor 留 inline。
+
+---
+
 ## 新架构 D29 — 2026-08-14 — god-object 拆分第十三刀：ini_config 核心存取簇（load/save/get_int/set）inline→cpp（M3 · main 主线）
 
 > ini_config.h 第六抽：**核心存取簇**——INI 文件 I/O + 泛型 int 存取 + 写回（`load`/`save`/`get_int`/`set`，4 个方法、约 115 行）整块 verbatim 迁 `src/config/ini_config.cpp`。这是 IniConfig 的 load-bearing 核心（启动 `load()` 读 INI、`set()` 写回调 `save()`），体含深嵌套（while/for/if/try-catch）。`get`/`get_float`/`get_bool`（多行签名 + 续行对齐）刻意留 inline。ini_config.h 966→854。
