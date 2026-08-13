@@ -1,4 +1,16 @@
 
+## D19 — god-object 拆分第三刀：mpv_controller 静态元数据组 → mpv_metadata.cpp（M3 · 拆 god-object）
+
+**Context:** D18 抽 wrapper 组后，mpv_controller.cpp 再抽一组干净 static 方法。
+
+**Decision:** 抽静态元数据/诊断组（`end_file_reason_str` / `mpv_error_str` / `set_cli_overrides`，原 36-109）入新 `src/playback/mpv_metadata.cpp`，逐字节 verbatim。mpv_controller.cpp 1203→1126。
+
+**Why 干净:** 3 方法皆 static、无实例状态、无文件局部 helper 依赖（纯 switch+fmt / 静态成员写+LOG），依赖全 header 可见。静态成员定义（`cli_*_override_`）留 mpv_controller.cpp（单 TU），声明在 header 供 mpv_commands（读）+ mpv_metadata（写）共用。
+
+**Why 到此为止（mpv_controller 干净机械抽尽）:** 剩余 IPTV 检测组（`classify_iptv_load_error_` 等）依赖文件局部 `static log_has`（搬它须连带搬 log_has，超纯机械）且与析构交织；initialize/event_loop/play_*/update_state 是缠绕核心。这些需设计决策，不再 quick cut。（D18 预测 IPTV 组为"下个安全候选"——D19 实查后修正：因 log_has 耦合不干净，归入"需设计"。）
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
 ## D18 — god-object 拆分第二刀：mpv_controller wrapper 组 → mpv_commands.cpp（M3 · 拆 god-object）
 
 **Context:** D17 立 ui.cpp 拆分轨道后，开第二个 god-object mpv_controller.cpp（1379 行）。ROADMAP M3 既定 split mpv_controller.cpp。

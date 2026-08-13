@@ -7,8 +7,28 @@
 > **📦 待测试批次（pre-test）—— 2026-08-13 起**
 > 工作流切换为**分支化批量迭代**：`dev/m2` 分支承接 M2 迭代；`main` 冻结在 `d94ea88`（标签 `pretest/m2-batch-start`）作安全回退点。
 > 用户将在**全部 M2 迭代完成后统一测试** `dev/m2` 尖端，通过后 fast-forward 回 `main`；有问题在 `dev/m2` 上 revert/修，`main` 不动。
-> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp（mpv_controller.cpp 1379→1203）。
+> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp（mpv_controller.cpp 1379→1203）/ D19 mpv_controller 静态元数据组→mpv_metadata.cpp（mpv_controller.cpp 1203→1126）。
 > 每步仍守铁律（0-warning + ctest 绿 + commit），仅不再逐步打断等测。
+
+---
+
+## 新架构 D19 — 2026-08-13 — god-object 拆分第三刀：mpv_controller 静态元数据组 → mpv_metadata.cpp（M3 · 拆 god-object）
+
+> mpv_controller.cpp 第三抽：静态元数据/诊断组（`end_file_reason_str` / `mpv_error_str` / `set_cli_overrides`，原 36-109）入新 `src/playback/mpv_metadata.cpp`，逐字节 verbatim。3 个 static 方法（纯字符串表 + 静态成员写），无文件局部依赖。**静态成员定义**（`cli_vo/vid/ao_override_`）留 mpv_controller.cpp（单 TU 定义，header 声明，跨 mpv_commands/metadata/controller 三文件共用）。mpv_controller.cpp 1203→1126。
+
+### 改动
+- 新文件 `src/playback/mpv_metadata.cpp`：3 static 方法迁入；include = mpv_controller.h + `<string>` + fmt + logger.h。
+- `src/playback/mpv_controller.cpp`：删 36-109（含前导注释）；静态成员定义 30-32 保留。
+- `CMakeLists.txt`：加 `src/playback/mpv_metadata.cpp`（与 D17/D18 同：新增 .cpp 须同步入 CMake 源，否则链接 undefined-reference）。
+- header 不动。
+
+### 设计
+- **为何干净**：3 方法皆 static、无实例状态、无文件局部 helper 依赖（end_file_reason_str/mpv_error_str 纯 switch + fmt::format；set_cli_overrides 写 header 声明的静态成员 + LOG）。与 D17/D18 同纪律：搬迁前核查依赖全 header 可见。
+- **静态成员定义留原文件**：`cli_*_override_` 的定义须在且仅在一个 TU；留 mpv_controller.cpp（与既有一致），声明在 header 供 mpv_commands.cpp（is_audio_only_mode 读）+ mpv_metadata.cpp（set_cli_overrides 写）+ mpv_controller.cpp 共用。
+- **mpv_controller 干净机械抽到此为止**：剩余 IPTV 检测组（classify_iptv_load_error_ 等）依赖文件局部 `static log_has`（仅它一处用——搬它须连带搬 log_has，超纯机械），且与析构交织；initialize/event_loop/play_*/update_state 是缠绕核心。这些留作"需设计"项，不再做 quick verbatim cut。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
 
 ---
 
