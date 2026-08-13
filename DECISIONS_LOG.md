@@ -1,4 +1,14 @@
 
+## D21 — ui setter/toggle 组 → ui_toggles.cpp
+
+**Context:** D20 后回 ui.cpp 再抽一组。5 个视图态 setter/toggle 是纯成员写（+ EVENT_LOG/INI），无文件局部依赖。
+
+**Decision:** 抽 → `src/ui/ui_toggles.cpp`，逐字节 verbatim。ui.cpp 668→638。
+
+**Why:** 与既有 ui_*.cpp 同 idiom；单方法体虽小（5×~5 行）但 cohesive（视图态开关），抽出后 ui.cpp 剩 init/cleanup/handle_resize/draw 四块核心，结构更清。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
 ## D20 — mpv IPTV 检测组 → mpv_iptv.cpp（含 log_has 连带搬 + 修 reset 伪 inline）
 
 **Context:** D19 后 mpv_controller.cpp 再抽 IPTV 诊断组。`log_has`(file-local static) 仅被 `classify_iptv_load_error_` 调用，故连带搬（不 extern、不改可见性）。

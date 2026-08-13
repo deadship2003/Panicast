@@ -301,6 +301,7 @@ add_executable(panicast
     src/ui/status_bar.cpp
     src/ui/info_panel.cpp
     src/ui/ui_help.cpp
+    src/ui/ui_toggles.cpp
     src/theme/colors.cpp
     src/theme/themes.cpp
     src/net/bilibili_api.cpp
