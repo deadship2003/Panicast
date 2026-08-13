@@ -1,4 +1,20 @@
 
+## D18 — god-object 拆分第二刀：mpv_controller wrapper 组 → mpv_commands.cpp（M3 · 拆 god-object）
+
+**Context:** D17 立 ui.cpp 拆分轨道后，开第二个 god-object mpv_controller.cpp（1379 行）。ROADMAP M3 既定 split mpv_controller.cpp。
+
+**Decision:** 抽 thin-wrapper 组（735-909，18 叶子方法：pause/volume/speed/loop/sub/osd/state-query/handle/callback/resume）入新 `src/playback/mpv_commands.cpp`，逐字节 verbatim；方法留成员、声明在 header、impl 落 sibling。mpv_controller.cpp 1379→1203，重核心（initialize/event_loop/play_*/IPTV 检测）留原文件。
+
+**Why 依赖搬迁前预核（与 D17 同纪律）:** wrapper 组用的私有成员/类型/常量——`ctx_/mtx_/cb_mtx_/state_/enqueue_cmd_/cli_*_override_/end_file_callback_/pending_resume_*`、`EndFileCallback/State`、`MAX_VOLUME/DEFAULT_SPEED/SPEED_STEP/MIN_SPEED/MAX_SPEED`（constants.h，**非匿名命名空间**——关键：mpv_controller.h:19 已 include constants.h，故任何含该 header 的 sibling 即得常量）、`enqueue_cmd_`（header 154 已声明）——**全 header 可见，无需动 header**。搬迁前 grep + 逐行读 735-909 复核，断言式脚本抽取。
+
+**Why wrapper 组作 playback 首刀（非 initialize/event_loop）:** 18 方法全是 `if(!ctx_)return`+单属性 set/get 的 leaf op，不涉事件循环/状态机控制流——最大**安全**可抽取组。initialize/event_loop/play_* 是缠绕核心（事件线程、VO 回退、resume、IPTV 时序），留最后。建立 `mpv_*.cpp` sibling 模式（与 ui_*.cpp 同 idiom）。
+
+**Why 纯机械 verbatim:** ctest（41）不覆盖 mpv 运行时；逐字节搬迁保行为零变化，依赖人工 pty 冒烟 + 末尾统一实测。
+
+**后续:** IPTV 检测组（128-194，cohesive 诊断）下个安全候选 → 再视情况碰核心。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。播放控制待统一实测。
+
 ## D17 — god-object 拆分首刀：draw_help → ui_help.cpp（M3 · 拆 god-object 启动）
 
 **Context:** ROADMAP M3 任务"拆 god-object：split app_run.cpp/ui.cpp/mpv_controller.cpp/ini_config.h"。剩余 hub 是缠绕的 run-loop/draw/mpv 生命周期核心——最难的拆分地带。用户指示"做里程碑级的拆！"，启动该轨道。

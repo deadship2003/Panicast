@@ -7,8 +7,30 @@
 > **📦 待测试批次（pre-test）—— 2026-08-13 起**
 > 工作流切换为**分支化批量迭代**：`dev/m2` 分支承接 M2 迭代；`main` 冻结在 `d94ea88`（标签 `pretest/m2-batch-start`）作安全回退点。
 > 用户将在**全部 M2 迭代完成后统一测试** `dev/m2` 尖端，通过后 fast-forward 回 `main`；有问题在 `dev/m2` 上 revert/修，`main` 不动。
-> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）。
+> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp（mpv_controller.cpp 1379→1203）。
 > 每步仍守铁律（0-warning + ctest 绿 + commit），仅不再逐步打断等测。
+
+---
+
+## 新架构 D18 — 2026-08-13 — god-object 拆分第二刀：mpv_controller wrapper 组 → mpv_commands.cpp（M3 · 拆 god-object）
+
+> 继 D17（ui.cpp 首刀）后，开第二个 god-object **mpv_controller.cpp**。抽其 thin-wrapper 组（735-909，18 个叶子方法：toggle_pause/set_pause/set_volume/adjust_speed/reset_speed/set_speed/set_loop_file/set_keep_open/sub_add/show_osd/is_video_window_open/is_audio_only_mode/has_active_subtitle/set_loop_playlist/get_state/get_handle/set_end_file_callback/set_resume_position）入新 `src/playback/mpv_commands.cpp`，逐字节 verbatim。建立 **playback/ 拆分模式**（继 ui_*.cpp 的 12+1 后，首建 `mpv_*.cpp` sibling 轨道）。重核心（initialize/event_loop/play_*/update_state/IPTV 检测）留 mpv_controller.cpp。mpv_controller.cpp 1379→1203。
+
+### 改动
+- 新文件 `src/playback/mpv_commands.cpp`：18 方法逐字节迁入；include = mpv_controller.h（已含 client.h/constants.h/mutex/string）+ `<cstring>`(strcmp) + `<string>`(to_string) + fmt + ini_config.h + logger.h。
+- `src/playback/mpv_controller.cpp`：删 735-909；接缝 play_list_from `}`→单空行→event_loop。
+- `CMakeLists.txt`：`src/playback/mpv_commands.cpp` 入 panicast 源（mpv_controller.cpp 后）。
+- `include/panicast/playback/mpv_controller.h`：**不动**（全声明保留）。
+
+### 设计
+- **依赖搬迁前 100% 核查**：wrapper 组用的符号——`ctx_/mtx_/cb_mtx_/state_/enqueue_cmd_/cli_vo_override_/cli_vid_override_/end_file_callback_/pending_resume_url_/pending_resume_pos_`（皆 header 私有成员）、`EndFileCallback/State`（header 公开类型）、`MAX_VOLUME/DEFAULT_SPEED/SPEED_STEP/MIN_SPEED/MAX_SPEED`（constants.h，**非匿名命名空间**——关键：mpv_controller.h:19 已 include constants.h，故任何含该 header 的 sibling 即得常量）、`enqueue_cmd_`（header 154 已声明）、`IniConfig/LOG/fmt/mpv_*`（外部）——**全 header 可见，无需动 header**。
+- **为何第二刀选 mpv wrapper 组**：① 它是 mpv_controller 内最大**安全**可抽取组（18 叶子方法，全是 `if(!ctx_) return` + 单属性 set/get 的 leaf op，不涉事件循环/状态机控制流）；② 建立 playback/ sibling 模式（与 ui_*.cpp 同 idiom：方法留成员、声明在 header、impl 落 sibling）；③ 依赖 D17 调研时即预核全 header 可见。
+- **纯机械 verbatim**：ctest（41）不覆盖 mpv 运行时；逐字节搬迁（脚本 + 边界断言）保行为零变化。
+- **后续**：mpv_controller.cpp 剩核心（initialize/stop/event_loop/play_*/update_state）+ IPTV 检测组（128-194：classify_iptv_load_error_/iptv_message_for_error_/set_iptv_context/reset_iptv_detection_，cohesive 诊断组，下个安全候选）；initialize/event_loop/play_* 是缠绕核心，留最后。
+
+### 验收
+- 0-warning（`-Wall -Wextra -Wpedantic`；仅编译 mpv_commands.cpp + mpv_controller.cpp + 链接）、ctest 41/41、pty 冒烟 exit 0 + clean endin。
+- 播放控制（Space 暂停 / -+ 音量 / [] 速 / \\ 复位速 / C 清列表）待统一实测（应逐字同行为）。
 
 ---
 
