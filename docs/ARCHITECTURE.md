@@ -22,7 +22,7 @@ src/<module>/*.cpp              实现
 | `config` | INI 配置（`ini_config.h`） |
 | `net` | 网络：HTTP（`network.cpp` 代理入口）、URL 分类、yt-dlp 运行、Google OAuth、Bilibili API、远程控制（server/session/ws/command_bus/protocol）、TikTok 区域 |
 | `parsers` | feed 解析器（`IFeedParser` + `ParserRegistry` 自注册：rss/opml/youtube_channel）+ 非feed解析器（bilibili API/itunes 搜索/m3u/tiktok/transcript） |
-| `playback` | libmpv 封装（`mpv_controller` 生命周期核心 + `mpv_commands` D18 控制 wrapper + `mpv_metadata` D19 静态诊断）、睡眠定时 |
+| `playback` | libmpv 封装（`mpv_controller` 生命周期核心 + `mpv_commands` D18 控制 wrapper + `mpv_metadata` D19 静态诊断 + `mpv_iptv` D20 IPTV 检测）、睡眠定时 |
 | `storage` | 持久化：database + 各 repo（history/tree/feed_cache/account/player_state/accounts/cache/youtube_cache）+ `persistence` 抽象 |
 | `subtitle` | 字幕：`subtitle_parser`（`ISubtitleParser` + Registry）、`subtitle_manager`、`transcription_engine`（ASR/whisper） |
 | `theme` | 颜色/主题/字符对 |

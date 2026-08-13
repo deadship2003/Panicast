@@ -287,6 +287,7 @@ add_executable(panicast
     src/playback/mpv_controller.cpp
     src/playback/mpv_commands.cpp
     src/playback/mpv_metadata.cpp
+    src/playback/mpv_iptv.cpp
     src/playback/sleep_timer.cpp
     src/ui/icons.cpp
     src/ui/art.cpp

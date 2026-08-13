@@ -7,8 +7,25 @@
 > **📦 待测试批次（pre-test）—— 2026-08-13 起**
 > 工作流切换为**分支化批量迭代**：`dev/m2` 分支承接 M2 迭代；`main` 冻结在 `d94ea88`（标签 `pretest/m2-batch-start`）作安全回退点。
 > 用户将在**全部 M2 迭代完成后统一测试** `dev/m2` 尖端，通过后 fast-forward 回 `main`；有问题在 `dev/m2` 上 revert/修，`main` 不动。
-> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp（mpv_controller.cpp 1379→1203）/ D19 mpv_controller 静态元数据组→mpv_metadata.cpp（mpv_controller.cpp 1203→1126）。
+> 本批次累积、待统一实测的变更：D14 Media 域收敛（D14-1..5 + 3b/4b）/ D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 god-object 拆分首刀 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp（mpv_controller.cpp 1379→1203）/ D19 mpv_controller 静态元数据组→mpv_metadata.cpp（mpv_controller.cpp 1203→1126）/ D20 mpv IPTV 检测组→mpv_iptv.cpp（含 log_has 连带搬 + 修 reset 伪 inline；mpv_controller.cpp 1126→1050）。
 > 每步仍守铁律（0-warning + ctest 绿 + commit），仅不再逐步打断等测。
+
+---
+
+## 新架构 D20 — 2026-08-13 — god-object 拆分第四刀：mpv IPTV 检测组 → mpv_iptv.cpp（M3 · 拆 god-object，5 刀批次 1/5）
+
+> mpv_controller.cpp 第四抽：IPTV 检测组（`log_has` + `classify_iptv_load_error_`/`iptv_message_for_error_`/`set_iptv_context`/`reset_iptv_detection_`）→ 新 `src/playback/mpv_iptv.cpp`，逐字节 verbatim。`log_has` 是文件局部 `static` 且仅被 `classify` 调用 → **连带搬**（仍是新 TU 的 static，零接口面变化）。mpv_controller.cpp 1126→1050。
+
+### 改动
+- 新文件 `src/playback/mpv_iptv.cpp`：log_has + 4 方法迁入；include = mpv_controller.h + `<cctype>`(tolower) + `<string>`。
+- `src/playback/mpv_controller.cpp`：删原 34-108；静态成员定义保留。
+- `CMakeLists.txt`：加 `src/playback/mpv_iptv.cpp`。header 不动。
+
+### 搬迁暴露并修正的既有 bug
+- `reset_iptv_detection_`：header 声明**无 inline**（mpv_controller.h:210），但 cpp 定义带 `inline`。原本能编译只因定义 + 所有调用者（play/play_list/play_list_from）同处一 TU；搬到 sibling TU 后调用者找不到 inline 定义 → undefined reference。修正：定义去 `inline` 与声明一致。零行为变化（纯链接修正）。**教训：搬迁是暴露"声明/定义不一致"类隐性 bug 的探针。**
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin（中途一次 undefined-reference，去 inline 即解）。
 
 ---
 

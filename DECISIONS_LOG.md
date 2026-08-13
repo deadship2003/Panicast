@@ -1,4 +1,16 @@
 
+## D20 — mpv IPTV 检测组 → mpv_iptv.cpp（含 log_has 连带搬 + 修 reset 伪 inline）
+
+**Context:** D19 后 mpv_controller.cpp 再抽 IPTV 诊断组。`log_has`(file-local static) 仅被 `classify_iptv_load_error_` 调用，故连带搬（不 extern、不改可见性）。
+
+**Decision:** 抽 log_has + 4 方法 → `src/playback/mpv_iptv.cpp`，逐字节 verbatim。mpv_controller.cpp 1126→1050。
+
+**搬迁暴露的既有 bug（重要）:** `reset_iptv_detection_` header 声明无 inline、cpp 定义带 `inline`。同 TU 时偶然能编；跨 TU 后 undefined reference。修正：定义去 inline 与声明对齐。**教训——搬迁是暴露"声明/定义不一致"类隐性 bug 的探针**；这类修正是机械的（让定义匹配既有声明），不属行为变更。
+
+**Why 连带搬 log_has 而非 extern:** log_has 是 static、单调用者，连带搬保持其文件局部性、零接口面变化（最简）。若日后多 TU 需它再 extern 化。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
 ## D19 — god-object 拆分第三刀：mpv_controller 静态元数据组 → mpv_metadata.cpp（M3 · 拆 god-object）
 
 **Context:** D18 抽 wrapper 组后，mpv_controller.cpp 再抽一组干净 static 方法。
