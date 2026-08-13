@@ -10,6 +10,15 @@
 
 ---
 
+## 新架构 D26 — 2026-08-14 — god-object 拆分第十刀：ini_config cookies/IPTV/remote getter 组 inline→cpp（M3 · main 主线）
+
+> ini_config.h 第三抽（D24/D25 手法复用）：**cookies + IPTV + remote-control getter 组**（`get_bilibili/tiktok_cookies_file` + `get_iptv_*`(5) + `get_remote_*`(6)，共 14 个简单 getter）声明/定义分离——声明 + 文档注释留 header，`IniConfig::` 限定定义迁 ini_config.cpp。get_proxy（含路径解析逻辑）及 color 组刻意留 inline。ini_config.h 1024→996。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
+
+---
+
 ## 新架构 D25 — 2026-08-14 — god-object 拆分第九刀：ini_config YouTube getter 组 inline→cpp（M3 · main 主线）
 
 > ini_config.h 第二抽（D24 手法复用）：**YouTube-config getter 组**（`get_youtube_cookies_file`…`get_youtube_sub_auto`，9 个简单 getter）从 header 内联体改为声明/定义分离——声明 + 文档注释留 header，`IniConfig::` 限定定义迁 `src/config/ini_config.cpp`。ini_config.h 1043→1024。

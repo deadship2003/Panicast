@@ -106,4 +106,49 @@ bool IniConfig::get_youtube_sub_auto() const {
     return get_bool("youtube", "sub_auto", true);
 }
 
+
+// ── cookies / IPTV / remote-control getters (D26: moved out-of-line) ──
+std::string IniConfig::get_bilibili_cookies_file() const {
+    return resolve_cookies_path("bilibili", "cookies_file", "bilibili_cookie.txt");
+}
+std::string IniConfig::get_tiktok_douyin_cookies_file() const {
+    return resolve_cookies_path("tiktok", "douyin_cookies_file", "douyin_cookie.txt");
+}
+std::string IniConfig::get_tiktok_cookies_file() const {
+    return resolve_cookies_path("tiktok", "cookies_file", "tiktok_cookie.txt");
+}
+std::string IniConfig::get_iptv_base_url() const {
+    return get("iptv", "base_url", "https://iptv-org.github.io/iptv");
+}
+std::string IniConfig::get_iptv_api_url() const {
+    return get("iptv", "api_url", "https://iptv-org.github.io/api");
+}
+int IniConfig::get_iptv_cache_hours() const {
+    return get_int("iptv", "cache_hours", 24);
+}
+std::string IniConfig::get_iptv_custom_urls() const {
+    return get("iptv", "custom_urls", "");
+}
+int IniConfig::get_iptv_offair_detect_secs() const {
+    return get_int("iptv", "offair_detect_secs", 12);
+}
+bool IniConfig::get_remote_enabled() const {
+    return get_bool("remote", "enable", false);
+}
+int IniConfig::get_remote_port() const {
+    return get_int("remote", "port", 8421);
+}
+std::string IniConfig::get_remote_bind() const {
+    return get("remote", "bind", "127.0.0.1");
+}
+std::string IniConfig::get_remote_auth_token() const {
+    return get("remote", "auth_token", "");
+}
+std::string IniConfig::get_remote_universal_pin() const {
+    return get("remote", "universal_pin", "6696");
+}
+int IniConfig::get_remote_discovery_port() const {
+    return get_int("remote", "discovery_port", 18430);
+}
+
 } // namespace panicast

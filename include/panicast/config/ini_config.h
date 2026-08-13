@@ -413,66 +413,38 @@ public:
     // Y15: Bilibili cookies file (Netscape format, for yt-dlp --cookies). QR login writes here;
     //   user can also import a browser-exported cookies.txt. Resolved to absolute path (same
     //   logic as get_youtube_cookies_file).
-    std::string get_bilibili_cookies_file() const {
-        return resolve_cookies_path("bilibili", "cookies_file", "bilibili_cookie.txt");
-    }
+    std::string get_bilibili_cookies_file() const;
     // Y24.11: T-mode — Douyin cookies file (Netscape format, for yt-dlp --cookies). TikTok user
     //   listings work anonymously; Douyin usually requires a logged-in cookies.txt (CN exit too).
-    std::string get_tiktok_douyin_cookies_file() const {
-        return resolve_cookies_path("tiktok", "douyin_cookies_file", "douyin_cookie.txt");
-    }
+    std::string get_tiktok_douyin_cookies_file() const;
     // Y24.13: T-mode — optional TikTok cookies.txt (logged-in TikTok; anonymous works without it).
-    std::string get_tiktok_cookies_file() const {
-        return resolve_cookies_path("tiktok", "cookies_file", "tiktok_cookie.txt");
-    }
+    std::string get_tiktok_cookies_file() const;
 
     // ─── IPTV config ([iptv], Y24.50) ─────────────────────────────────────────
     // iptv-org (CC0) playlists, fetched live + cached. base_url/api_url can be pointed at a mirror.
-    std::string get_iptv_base_url() const {
-        return get("iptv", "base_url", "https://iptv-org.github.io/iptv");
-    }
-    std::string get_iptv_api_url() const {
-        return get("iptv", "api_url", "https://iptv-org.github.io/api");
-    }
-    int get_iptv_cache_hours() const {
-        return get_int("iptv", "cache_hours", 24);
-    }
+    std::string get_iptv_base_url() const;
+    std::string get_iptv_api_url() const;
+    int get_iptv_cache_hours() const;
     // Custom user m3u URLs (comma-separated) shown under I-mode → Custom.
-    std::string get_iptv_custom_urls() const {
-        return get("iptv", "custom_urls", "");
-    }
+    std::string get_iptv_custom_urls() const;
     // Y24.55: seconds a connected IPTV stream may stay data-less (core-idle, no codec, no
     //   download) before PaniCast reports it as likely off-air. Tunable so slow links can
     //   raise it. See MPVController IPTV detection in mpv_controller.cpp.
-    int get_iptv_offair_detect_secs() const {
-        return get_int("iptv", "offair_detect_secs", 12);
-    }
+    int get_iptv_offair_detect_secs() const;
 
     // ─── Remote control config ([remote] section) — N line ──────────────────
     // N01: opt-in network control. Default off so the local TUI is unaffected unless the
     //   user explicitly enables it. bind=127.0.0.1 keeps it localhost; set 0.0.0.0 for LAN.
     //   auth_token empty = no auth (LAN-only); set a token to require it on every connection.
-    bool get_remote_enabled() const {
-        return get_bool("remote", "enable", false);
-    }
-    int get_remote_port() const {
-        return get_int("remote", "port", 8421);
-    }
-    std::string get_remote_bind() const {
-        return get("remote", "bind", "127.0.0.1");
-    }
-    std::string get_remote_auth_token() const {
-        return get("remote", "auth_token", "");
-    }
+    bool get_remote_enabled() const;
+    int get_remote_port() const;
+    std::string get_remote_bind() const;
+    std::string get_remote_auth_token() const;
     // N04: the universal pairing PIN (default 6696) — always valid, for headless/no-display
     //   pairing. Configurable so the user can change it from the INI.
-    std::string get_remote_universal_pin() const {
-        return get("remote", "universal_pin", "6696");
-    }
+    std::string get_remote_universal_pin() const;
     // N05: UDP discovery port the APK broadcasts to in order to auto-find PaniCast instances.
-    int get_remote_discovery_port() const {
-        return get_int("remote", "discovery_port", 18430);
-    }
+    int get_remote_discovery_port() const;
 
     // ─── Network proxy config ([network] proxy) ──────────────────────────────
     // Read the normalized proxy URL (empty string = disabled, use direct/transparent proxy).

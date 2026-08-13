@@ -1,4 +1,14 @@
 
+## D26 — ini_config cookies/IPTV/remote getter 组 inline→cpp（14 个声明/定义分离）
+
+**Context:** D24/D25 手法持续验证。继续抽 cookies(bilibili/tiktok) + IPTV + remote-control 三个相邻简单 getter 组（14 个，连续 416–475 行）。
+
+**Decision:** 一次抽 14 个 → ini_config.cpp out-of-line。脚本泛化 name_re 为多前缀 `get_(bilibili|tiktok|iptv|remote)_\w+`。get_proxy（路径解析 if/else）与 color 组**刻意留 inline**（结构稍复杂，留后续单独评估）。ini_config.h 1024→996。
+
+**Why 一次抽 14 个（跨 3 组）:** 同性质（全单 return/单层体、无嵌套大括号）且相邻 → 脚本一次扫描、每方法断言闭合，比拆三刀高效；仍是一增量（一次 build+test+commit）。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
 ## D25 — ini_config YouTube getter 组 inline→cpp（9 个 get_youtube_* 声明/定义分离）
 
 **Context:** D24 手法验证可行（mpv getter 组）。继续抽 ini_config.h 下一 cohesive 簇——YouTube getter 组（9 个）。此刀起工作流变更为 **main 主线**（dev/m2 批次已 ff-merge 入 main）。
