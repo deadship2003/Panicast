@@ -10,6 +10,20 @@
 
 ---
 
+## 新架构 D31 — 2026-08-14 — god-object 拆分第十五刀：ini_config create_default（raw-string 配置模板）inline→cpp（M3 · main 主线）
+
+> ini_config.h 第八抽：**create_default**——自动生成的默认配置模板（~408 行 raw string `R"(...)"`）整块 verbatim 迁 cpp。这是 header 最后一大块。raw-string 模板内容全在 0 列（无前导空格行），逐行 `b[4:]` 安全：0 列行走 `else` 分支原样保留、仅代码行去缩进。ini_config.h 713→304。
+
+### 改动
+- 声明/定义分离：header 留 `void create_default(const std::string &path);`，定义迁 cpp。体 **byte 等价**（旧体 vs 新体归一化 diff 空，408 行 raw-string 内容逐字保留）。
+- **运行时验证**（pty 测不出，因仅在 config.ini 缺失时触发）：临时 HOME（无 config.ini）跑 binary → exit 124（timeout 杀、未崩）+ 生成 402 行 config.ini + 模板首部正确 → create_default 功能正常。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin、create_default 运行时实测。
+- **D24-D31 累计**：72 个 ini_config 方法由 inline 迁 out-of-line，ini_config.h **1087→304（−72%）**。god-header 驯服为纯声明头；剩余仅 get/get_float/get_bool/resolve_cookies_path（多行签名简单访问器，留 inline 是合理设计）+ trivial ctor。
+
+---
+
 ## 新架构 D30 — 2026-08-14 — god-object 拆分第十四刀：ini_config 逻辑方法 + static helper 组 inline→cpp（M3 · main 主线）
 
 > ini_config.h 第七抽：**剩余单行签名方法**——3 个 static helper（`normalize_proxy`/`resolve_color`/`get_config_file`）+ 6 个逻辑方法（`get_statusbar_color_config`/`get_play_mode`/`set_play_mode`/`get_proxy`/`get_node_color`/`is_url_safe`，共 9 个、~147 行）整块 verbatim 迁 cpp。含嵌套 if/while/try-catch + `std::set`/`std::map`/`std::stringstream`/`std::transform`。多行签名访问器（`get`/`get_float`/`get_bool`/`resolve_cookies_path`）与 raw-string `create_default` 刻意留 inline。ini_config.h 854→713。

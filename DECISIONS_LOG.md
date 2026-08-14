@@ -1,5 +1,19 @@
 
-## D30 — ini_config 逻辑方法 + static helper 组 inline→cpp（9 方法，~147 行）
+## D31 — ini_config create_default（raw-string 配置模板）inline→cpp（~408 行体）
+
+**Context:** ini_config.h 最后一大块是 create_default——自动生成的默认配置模板，体为巨型 raw string `R"(...)"`。D30 脚本的逐行 `b[4:]` dedent 对含 raw string 的体有 corrupt 风险：若 raw-string 内容行有 ≥4 前导空格，会被误去缩进而损坏字符串。
+
+**Decision:** 先排查——`awk` 验证 create_default 体内 raw-string 内容全在 0 列（无前导空格行，唯一前导空格行是代码 `}`）。故逐行 `b[4:]` 安全：0 列行走 `else: block+=b` 原样保留，仅代码行（≥4 空格）去缩进。D30 手法直接复用，无新逻辑。ini_config.h 713→304。
+
+**关键验证（raw string 搬迁必做）:**
+1. **byte 等价**：旧体（git HEAD header）抽 create_default 体去 4 空格 vs 新 cpp 体，归一化 diff 空（408 行）——raw-string 内容逐字保留。
+2. **运行时**（pty 测不出，create_default 仅 config.ini 缺失时触发）：临时 HOME 跑 binary → 生成 402 行 config.ini + 未崩 → 功能正常。
+
+**D24-D31 收官小结:** 72 个 ini_config 方法由 inline 迁 out-of-line；ini_config.h 1087→304（−72%）。god-header 驯服为纯声明头。剩余 inline：get/get_float/get_bool/resolve_cookies_path（多行签名简单泛型访问器，留 inline=合理设计：inline 访问器可内联优化、且这些是全文高频调用的底层访问器）+ `IniConfig(){}` trivial ctor。**ini_config 机械搬迁到此真正收尾。**
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin、create_default 运行时实测生成配置。
+
+
 
 **Context:** D29 抽完核心存取簇后，剩余单行签名方法（3 static + 6 逻辑）仍是纯机械 verbatim 搬迁目标。static helper（normalize_proxy/resolve_color/get_config_file）此前刻意留 inline 因带逻辑，但 verbatim 迁移不改逻辑、仅改定义位置，编译安全（cpp `#include` header = 依赖超集）。
 
