@@ -27,7 +27,7 @@ src/<module>/*.cpp              实现
 | `subtitle` | 字幕：`subtitle_parser`（`ISubtitleParser` + Registry）、`subtitle_manager`、`transcription_engine`（ASR/whisper） |
 | `theme` | 颜色/主题/字符对 |
 | `ui` | ncurses 渲染：ui（D22 后仅 `draw` + 渲染辅助，原 638→263；lifecycle 终端/信号+init/cleanup/handle_resize 抽至 `ui_lifecycle`）/ui_help（D17 抽自 ui.cpp 的 draw_help）/ui_toggles（D21 视图态 setter/toggle）/popups/lyric_renderer/tree_renderer/status_bar/info_panel/layout/border/icons/art/qr |
-| `app` | 应用层：`app_run`（主循环：D35 抽 startup/shutdown bookend、D37 抽 tree-locked 显示构建 phase、D38 引入 FrameCtx + 抽 prepare_frame()（Method Object）、D39 抽 draw_frame(FrameCtx&)，run() loop 收敛为 flat 骨架：信号/定时退出检查→drain→prepare_frame→视图滚动→draw_frame→input→watchdog）、`app_persistence`（D23）、`app_feeds`（D32）、`app_flatten`（D33）、`app_input`（键派发）、`app_playback/download/search/subscriptions/navigation/...`、modes/ |
+| `app` | 应用层：`app_run`（主循环：D35 抽 startup/shutdown bookend、D37 抽 tree-locked 显示构建 phase、D38 引入 FrameCtx + 抽 prepare_frame()（Method Object）、D39 抽 draw_frame(FrameCtx&)，run() loop 收敛为 flat 骨架：信号/定时退出检查→drain→prepare_frame→视图滚动→draw_frame→input→watchdog）、`app_persistence`（D23）、`app_feeds`（D32）、`app_flatten`（D33）、`app_input`（键派发）、`download_service`（D43 抽下载**执行引擎**：pending 队列 + pump/start_one + yt-dlp 核心 + curl 路径 + 校验簇；App 仅留 download_node 薄编排器）、`app_playback/download/search/subscriptions/navigation/...`、modes/ |
 
 入口：`src/main.cpp` → `App::run()`（`src/app/app_run.cpp`）。
 
@@ -78,7 +78,7 @@ UI（`src/ui/`）是纯呈现层，依赖规则：
 
 ## 6. 已知技术债（重构输入，详见 AUDIT_REPORT）
 
-- **上帝对象/文件**：`App`（`app.h` 690 行声明）、`app_run.cpp`(582，run() loop 已收敛为 flat 编排骨架：D35 startup/shutdown bookend、D37 tree-locked 显示构建、D38 FrameCtx+prepare_frame（Method Object）、D39 draw_frame、D40 check_exit_requests/drain_frame_events；仅剩 resize/scroll/input/watchdog 小内联段)、`mpv_controller.cpp`(918，D18-D20+D34 机械抽 wrapper/metadata/iptv/单条播放；D36 设计层抽 event_loop codec-info 块、D41 抽 END_FILE 分支 handle_end_file_/handle_playback_error_，event_loop 回归纯派发骨架；剩 update_state IPTV 块等小目标按需)、`app_input.cpp`(882，硬编码 `switch(ch)`；D7 迁无状态键 play/pause/volume/nav、D42 迁 mode-switch 键簇 R/P/F/H/O/Y/B/I → SwitchModeAction，复杂有状态流 play/搜索/下载/标记留 switch)。~~`ini_config.h`~~（原 1087 行 god-header，D24-D31 已迁 72 个方法出体，现 304 行纯声明头，**基本驯服**）。
+- **上帝对象/文件**：`App`（`app.h` 553 行声明；D43 抽下载执行引擎 → `DownloadService`：pending_downloads_/start_one/ytdlp/pump + 校验簇 capture_exec/probe/verify 离 App，690→553；剩 pool_/remote_/frontend_/player 等成员簇 + 余下 god-object 方法待续抽）、`app_run.cpp`(589，run() loop 已收敛为 flat 编排骨架：D35 startup/shutdown bookend、D37 tree-locked 显示构建、D38 FrameCtx+prepare_frame（Method Object）、D39 draw_frame、D40 check_exit_requests/drain_frame_events；仅剩 resize/scroll/input/watchdog 小内联段)、`mpv_controller.cpp`(918，D18-D20+D34 机械抽 wrapper/metadata/iptv/单条播放；D36 设计层抽 event_loop codec-info 块、D41 抽 END_FILE 分支 handle_end_file_/handle_playback_error_，event_loop 回归纯派发骨架；剩 update_state IPTV 块等小目标按需)、`app_input.cpp`(882，硬编码 `switch(ch)`；D7 迁无状态键 play/pause/volume/nav、D42 迁 mode-switch 键簇 R/P/F/H/O/Y/B/I → SwitchModeAction，复杂有状态流 play/搜索/下载/标记留 switch)。~~`ini_config.h`~~（原 1087 行 god-header，D24-D31 已迁 72 个方法出体，现 304 行纯声明头，**基本驯服**）。
 - **竞态**：`pending_select_` + 跨线程裸回调（P1-4 向量竞态、P1-5 两锁一树、P1-8 `~App` 缺失致 UAF）。
 - **SQL 卫生**：多处忽略 `exec_sql` 返回、Bilibili 一处 `fmt::format` 拼接（注入面）、`atoll` 解 TEXT 时间戳恒为 0、`StmtRAII` 预编译缓存造好但零使用。
 - **热键硬编码**：`app_input.cpp` `handle_input` 的 `switch(ch)`，不可配置（`ini_config.h` 注释自承）。

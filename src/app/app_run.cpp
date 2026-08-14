@@ -213,11 +213,11 @@ App::FrameCtx App::prepare_frame() {
     f.downloads = ProgressManager::instance().get_all();
     // Free slots (completed entries just cleared by get_all) → promote pending downloads,
     //   capping active+visible entries at MAX_CONCURRENT_DOWNLOADS.
-    pump_download_queue(f.downloads.size());
+    download_.pump(f.downloads.size());
     // Collapsed summary for queued items (keeps the INFO panel from being overrun).
-    if (!pending_downloads_.empty()) {
+    if (!download_.pending_downloads().empty()) {
         DownloadProgress syn;
-        syn.title = fmt::format("··· +{} pending download", pending_downloads_.size());
+        syn.title = fmt::format("··· +{} pending download", download_.pending_downloads().size());
         syn.active = false;
         syn.complete = false;
         syn.failed = false;

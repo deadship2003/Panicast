@@ -10,6 +10,28 @@
 
 ---
 
+## 新架构 D43 — 2026-08-14 — app.h 声明 god-object → DownloadService（#73 · main 主线）
+
+> App 的下载**执行引擎**抽成第四个 Application Service（PlaybackService/LibraryService/SubtitleService 之后）：`DownloadService`（download_service.h/.cpp）持有 pending 队列 + slot 节流（pump/start_one_download）+ 共享 yt-dlp 核心（ytdlp_download，Y24.49）+ curl 路径（retry/resume/416/range 处理）+ 下载校验簇（capture_exec/probe_media_duration/verify_downloaded_file/VerifyResult）。App 仅留 `download_node`——薄编排器（收集 mark → `download_.enqueue/pump` → clear marks → save_cache）。
+>
+> **边界裁定（option B，匹配已立 Service 模式）**：Service 持具体协作者引用（library_/pool_/subtitle_），**不**持 `App&` 反向引用。`download_node` 依赖 App 共享的 mark 方法（collect_playable_marked_current/clear_marks_current，导航/input/订阅也用）→ mark 方法留 App、编排留 App、执行移 Service。下载校验簇是纯函数（无成员态）、仅下载引擎消费 → 作 download_service.cpp 匿名 namespace 文件局部自由函数（不进 class 接口）。`capture_exec` 之前是 App static 内联、仅 probe_media_duration 调，随其唯一消费者一起迁出 app.h。
+>
+> **体量**：app.h **690→553**（抽走 pending_downloads_ 成员 + start_one_download/ytdlp_download/pump_download_queue 3 声明 + capture_exec/probe_media_duration/VerifyResult/verify_downloaded_file 静态簇 + environ extern + 3 调用点改写）。app_download.cpp **468→44**（仅留 download_node）。新 download_service.cpp **617 行**（执行引擎 + 校验簇自由函数）+ download_service.h **71 行**。body 逐字搬迁（`App::`→`DownloadService::`，成员名同 library_/pool_/subtitle_/pending_downloads_）→ 行为等价。
+>
+> **风险声明**：下载路径不经 pty 冒烟（无网络），由用户末尾批次端测验收（"用户末尾统一测"）。本步为机械搬迁 + 0-warning + ctest 41/41 + 冒烟 exit0/clean endin；下载行为正确性以用户端测为准。
+
+### 改动
+- 新 `include/panicast/app/download_service.h`（71 行）：`class DownloadService`，ctor 持 library_/pool_/subtitle_ 引用；公有 enqueue/pump/pending_downloads()；私有 start_one_download/ytdlp_download。
+- 新 `src/app/download_service.cpp`（617 行）：4 方法逐字搬迁自 App；匿名 namespace 放 capture_exec/probe_media_duration/VerifyResult/verify_downloaded_file（纯函数，文件局部）。
+- `app.h`：删 3 方法声明 + 静态校验簇 + pending_downloads_ 成员 + environ extern；加 `DownloadService download_{library_, pool_, subtitle_};` 成员 + include。690→553。
+- `app_download.cpp`：仅留 download_node，改用 `download_.enqueue/pump`。468→44。
+- `app_run.cpp` prepare_frame：`pump_download_queue(...)`→`download_.pump(...)`、`pending_downloads_`→`download_.pending_downloads()`（3 处）。
+- `CMakeLists.txt`：显式源表加 `src/app/download_service.cpp`。
+
+**验收**：0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。下载行为待用户端测。
+
+---
+
 ## 新架构 D42 — 2026-08-14 — app_input mode-switch 键簇 → SwitchModeAction（Keymap/Action 迁移 · #71 · main 主线）
 
 > `handle_input` 的 `switch(ch)` 里 8 个同质 mode-switch 键迁到 Keymap/Action（D7 续作）：R/P/F/H → `switch_mode(RADIO/PODCAST/FAVOURITE/HISTORY)`（无提示）；O/Y/B/I → `switch_mode(ONLINE/ACCOUNT/BILIBILI/IPTV)` + 各自一行 EVENT_LOG 提示。

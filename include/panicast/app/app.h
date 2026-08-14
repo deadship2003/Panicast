@@ -47,8 +47,6 @@
 #include <fmt/core.h>
 #include <fmt/chrono.h>
 
-extern char **environ; // Required by posix_spawnp (capture_exec / ffprobe verification)
-
 #include "panicast/core/types.h"
 #include "panicast/core/paths.h"
 #include "panicast/core/constants.h"
@@ -82,6 +80,7 @@ extern char **environ; // Required by posix_spawnp (capture_exec / ffprobe verif
 #include "panicast/app/subtitle_service.h" // D10-1: subtitles/ASR Application Service (owns SubtitleManager + TranscriptionEngine)
 #include "panicast/app/search_service.h"   // D10-2: in-tree search Application Service (owns search state)
 #include "panicast/app/library_service.h"  // D10-4: library Application Service (owns per-mode tree data model)
+#include "panicast/app/download_service.h" // D43: download Application Service (owns download execution engine)
 #include "panicast/ui/border.h"
 #include "panicast/ui/ui.h"
 #include "panicast/theme/colors.h"
@@ -172,10 +171,8 @@ private:
     std::mutex remote_state_mtx_;
     RemoteStateSnapshot remote_state_cache_;
     void update_remote_state_cache();
-    // Pending download queue (main-thread-only): when all MAX_CONCURRENT_DOWNLOADS slots are
-    //   occupied (active + within their completion display window), further items wait here and
-    //   are promoted as slots free. Keeps the download list capped and the INFO panel uncluttered.
-    std::deque<TreeNodePtr> pending_downloads_;
+    // (D43) pending_downloads_ moved to DownloadService (download_ below). prepare_frame reads it
+    //   via download_.pending_downloads().
     // D10-2: in-tree search state (search_query/matches/idx/total) moved into SearchService.
     //   app_search.cpp reads/writes via search_. accessors; the search METHODS stay here for now
     //   (they reach library_.tree_mutex()/display_list()/selected_idx() via accessors — D11-2 made
@@ -215,16 +212,11 @@ private:
     void play_episode(TreeNodePtr node);
 
     // ── app_download.cpp ───────────────────────────────────────────────────────
+    // D43: the download EXECUTION engine (start_one_download / ytdlp_download / pump + the verify
+    //   helpers capture_exec/probe_media_duration/verify_downloaded_file + pending_downloads_)
+    //   moved to DownloadService (download_service.h/.cpp). App keeps download_node — the thin
+    //   orchestrator (gather marks → download_.enqueue/pump → clear marks → save_cache).
     void download_node(int marked_count);
-    bool start_one_download(TreeNodePtr n);
-    // Y24.49: shared yt-dlp download core (run + progress parse + verify + cache). Used by the
-    //   YouTube and Bilibili/TikTok/Douyin video download branches (DRY). `site_args` is the
-    //   site-specific prefix (cookies / player_client / js_runtime); the helper appends the common
-    //   -f / -o / --progress / url args.
-    void ytdlp_download(const std::string &url, const std::vector<std::string> &site_args,
-                        const std::string &dir, const std::string &base_name,
-                        const std::string &title, const std::string &dl_id, TreeNodePtr n);
-    void pump_download_queue(size_t current_slot_count);
 
     // ── app_search.cpp ─────────────────────────────────────────────────────────
     void perform_online_search();
@@ -413,6 +405,10 @@ private:
     //   via attach() (App passes the accessors at the call site). D10-2/3 will move the subtitle
     //   input onto the bus and make the service event-driven.
     SubtitleService subtitle_;
+    // D43: download execution engine (owns pending_downloads_/start_one/ytdlp/pump + verify helpers).
+    //   App keeps download_node as the orchestrator (enqueue/pump here). Declared after
+    //   library_/pool_/subtitle_ so its ref ctor {library_, pool_, subtitle_} sees them initialized.
+    DownloadService download_{library_, pool_, subtitle_};
     // Y23.9/D9-3: BUFFERING state (playback_pending_(_start_) + the 30s timeout / has_media logic)
     //   moved into PlaybackService (advance_buffering). App owns NO playback-state member now.
     void perform_youtube_search(const std::string &preset = "");
@@ -498,139 +494,6 @@ private:
             list.push_back(node);
         for (auto &child : node->children)
             collect_marked(child, list);
-    }
-
-    // ── Download verification helpers (static) ─────────────────────────────────
-    // capture_exec: run an executable and capture stdout (posix_spawn + pipe, no shell → no
-    //   command injection even if the file path contains metacharacters).
-    static std::string capture_exec(const std::string &exe, const std::vector<std::string> &args) {
-        int out_pipe[2];
-        if (pipe(out_pipe) != 0)
-            return "";
-        posix_spawn_file_actions_t actions;
-        if (posix_spawn_file_actions_init(&actions) != 0) {
-            close(out_pipe[0]);
-            close(out_pipe[1]);
-            return "";
-        }
-        posix_spawn_file_actions_adddup2(&actions, out_pipe[1], STDOUT_FILENO);
-        posix_spawn_file_actions_addclose(&actions, out_pipe[0]);
-        posix_spawn_file_actions_addclose(&actions, out_pipe[1]);
-        posix_spawn_file_actions_addclose(&actions, STDERR_FILENO); // discard stderr
-
-        std::vector<std::string> storage;
-        storage.reserve(args.size() + 1);
-        storage.push_back(exe);
-        for (const auto &a : args)
-            storage.push_back(a);
-        std::vector<char *> argv;
-        argv.reserve(storage.size() + 1);
-        for (auto &s : storage)
-            argv.push_back(s.data());
-        argv.push_back(nullptr);
-
-        pid_t pid;
-        int rc = posix_spawnp(&pid, exe.c_str(), &actions, nullptr, argv.data(), environ);
-        posix_spawn_file_actions_destroy(&actions);
-        close(out_pipe[1]);
-        if (rc != 0) {
-            close(out_pipe[0]);
-            return "";
-        }
-
-        std::string out;
-        char buf[4096];
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-        while (true) {
-            struct pollfd pfd;
-            pfd.fd = out_pipe[0];
-            pfd.events = POLLIN;
-            pfd.revents = 0;
-            int pr = poll(&pfd, 1, 1000);
-            if (pr < 0) {
-                if (errno == EINTR)
-                    continue;
-                break;
-            }
-            if (pr == 0) {
-                if (std::chrono::steady_clock::now() >= deadline) {
-                    kill(pid, SIGTERM);
-                    break;
-                }
-                continue;
-            }
-            if (pfd.revents & (POLLIN | POLLHUP | POLLERR)) {
-                ssize_t n = read(out_pipe[0], buf, sizeof(buf));
-                if (n > 0)
-                    out.append(buf, static_cast<size_t>(n));
-                else if (n == 0)
-                    break;
-                else if (errno != EINTR)
-                    break;
-            }
-        }
-        close(out_pipe[0]);
-        int status = 0;
-        waitpid(pid, &status, 0);
-        return out;
-    }
-
-    // Probe a media file's duration (seconds) via ffprobe; -1.0 if ffprobe missing / not media.
-    static double probe_media_duration(const std::string &filepath) {
-        std::string ffprobe = Utils::which_binary("ffprobe");
-        if (ffprobe.empty())
-            return -1.0;
-        std::string out =
-            capture_exec(ffprobe, {"-v", "error", "-show_entries", "format=duration", "-of",
-                                   "default=noprint_wrappers=1:nokey=1", filepath});
-        while (!out.empty()) {
-            char c = out.back();
-            if (c == '\n' || c == '\r' || c == ' ' || c == '\t')
-                out.pop_back();
-            else
-                break;
-        }
-        if (out.empty() || out == "N/A")
-            return -1.0;
-        try {
-            double d = std::stod(out);
-            return d > 0 ? d : -1.0;
-        } catch (...) {
-            return -1.0;
-        }
-    }
-
-    struct VerifyResult {
-        bool ok;
-        std::string reason;
-    };
-    // Verify a downloaded file matches the episode info before counting as success:
-    //   exists + regular + non-trivial size; and, if ffprobe is available, that the file is
-    //   readable media whose duration matches the episode (catches truncation / wrong-file /
-    //   "already downloaded a stale partial" cases that exit 0 but produce no valid file).
-    //   If ffprobe is not installed, fall back to a size-only check (don't penalize environments
-    //   without ffmpeg — yt-dlp itself needs ffmpeg for merging, so it is usually present).
-    static VerifyResult verify_downloaded_file(const std::string &filepath, int expected_duration) {
-        std::error_code ec;
-        if (!fs::exists(filepath, ec) || !fs::is_regular_file(filepath, ec))
-            return {false, "file missing"};
-        auto sz = fs::file_size(filepath, ec);
-        if (ec || sz < 1024)
-            return {false, "file empty/too small"};
-        std::string ffprobe = Utils::which_binary("ffprobe");
-        if (ffprobe.empty())
-            return {true, "size-only (ffprobe not installed)"};
-        double dur = probe_media_duration(filepath);
-        if (dur <= 0)
-            return {false, "not a valid media file"};
-        if (expected_duration > 0) {
-            // Tolerance: max(5s, 15%) — catches truncation and "wrong file saved" cases.
-            double tol = std::max(5.0, expected_duration * 0.15);
-            if (std::fabs(dur - expected_duration) > tol)
-                return {false,
-                        fmt::format("duration {:.0f}s != expected {}s", dur, expected_duration)};
-        }
-        return {true, ""};
     }
 
     // ─── Local folder support (added via A in F mode) ───────────────────────────

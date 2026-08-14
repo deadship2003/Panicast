@@ -1,4 +1,23 @@
 
+## D43 — app.h 声明 god-object → DownloadService（#73）
+
+**Context:** #73 = 拆 App god-object（app.h 690 行声明）。已抽 3 个 Application Service（PlaybackService D8/LibraryService D10-4/SubtitleService D10-1）。下载簇是自包含的执行单元（library_/pool_/subtitle_ + 单例，无 mode/frontend/running/player 回读），适合抽第四个 Service。但 download_node 依赖 App 共享 mark 方法。
+
+**Decision:** 抽 `DownloadService` 持下载**执行引擎**（pending_downloads_/start_one/ytdlp/pump + 校验簇）。App 留 `download_node` 薄编排器。option B 边界（持协作者引用、不持 App& 反引），匹配已立 Service 模式。
+
+**关键点:**
+- 执行 vs 编排分离：download_node（gather marks → enqueue/pump → clear → save_cache）属 App 编排（用 App mark 方法）；start_one/ytdlp/pump 属执行，移 Service。mark 方法（collect_playable_marked_current/clear_marks_current）导航/input/订阅也用 → 留 App。
+- 校验簇作文件局部自由函数：capture_exec/probe_media_duration/verify_downloaded_file/VerifyResult 是纯函数（无成员态）、仅下载引擎消费 → 不进 class 接口，放 download_service.cpp 匿名 namespace。capture_exec 之前 App static 内联、仅 probe 调，随唯一消费者迁出。
+- 持引用不持 App&：DownloadService(library_, pool_, subtitle_) 反引会造 Service↔App 环依赖（气味），同已立 Service 一律持窄引用。
+- body 逐字搬迁：`App::`→`DownloadService::`，成员名同（library_/pool_/subtitle_/pending_downloads_）→ 行为等价。lambda 捕 `[this,...]` 中 this 现=DownloadService，调 ytdlp_download/verify_downloaded_file 解析正确（成员 / 文件局部自由函数）。
+- 风险与限：下载路径不经冒烟（无网络）；机械搬迁 + 编译/ctest/冒烟门绿，下载行为正确性以用户端测为准（"用户末尾统一测"）。
+
+**Verification:** 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin（prepare_frame 经 download_.pump()/pending_downloads() 路径；download_node 经 enqueue/pump 路径）。
+
+**Followups:** app.h 仍 553 行（pool_/remote_/frontend_/player 等其他成员簇 + 余下 god-object 方法）；后续按簇继续抽（候选：mode/frontend 持有、persistence 簇）。capture_exec 为通用 exec+capture 工具，若他处复用可晋 core/utils。
+
+---
+
 ## D42 — app_input mode-switch 键簇 → SwitchModeAction（Keymap/Action 迁移 · #71）
 
 **Context:** D6/D7 立 Keymap/Action（key→Action→EventBus publish）+ 迁 6 个无状态键（play/pause/volume/nav）。#71 续作：handle_input 的 switch(ch) 仍有 30+ case。评估哪些键簇适合迁 Action。
