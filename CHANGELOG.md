@@ -10,6 +10,19 @@
 
 ---
 
+## 新架构 D48 — 2026-08-14 — play_list/play_list_from → mpv_play.cpp（#77 · god-object 抽取收官 · main 主线）
+
+> `play_list()`（m3u 临时文件 + keep-open + loadlist）与 `play_list_from()`（同上 + playlist-pos 起始）两块列表播放派发，从 mpv_controller.cpp 迁入既有 `mpv_play.cpp`（与 play_audio/play_video/play 同处——统一「播放派发」关注点 TU）。**play_\* 簇收官**：D34 先迁单条播放（play_audio/play_video/play），D48 补列表派发，至此 mpv 所有 play_* 派发聚于 mpv_play.cpp。两函数体逐字搬迁、行为等价（仅物理位移，声明仍留 mpv_controller.h）。mpv_controller.cpp 790→687（D46+D47+D48 累计 918→687，−231）。
+
+### 改动
+- `mpv_play.cpp`：+ play_list / play_list_from（逐字搬迁；既有 include 已含 fstream/safe_tmp/logger/fmt，无新增依赖）。
+- `mpv_controller.cpp`：删两函数定义（play_list/play_list_from 调用点均在 App/Service 层，不在本 TU 内）。
+
+**验收**：0-warning、ctest 46/46、pty 冒烟 exit 0 + clean endin。播放行为待用户端测。
+**#77 god-object 剩余簇评估完成**：D46（IPTV 诊断）+ D47（[mpv] 选项）+ D48（play_list 簇）三块具内聚性的 ROADMAP 候选已抽尽；initialize()/update_state() 主体为单一关注点（setup/polling），再抽即过度分解。
+
+---
+
 ## 新架构 D47 — 2026-08-14 — initialize() [mpv] 选项簇 → mpv_init.cpp（#77 · god-object 抽取 · main 主线）
 
 > `initialize()`（202 行，文件最大函数）的 [mpv] 选项应用块（vo/vid/ao/ytdl-format/keep-open/subtitle/slang/audio-display/proxy/tls/cache/user-agent，~85 行）抽成 `apply_mpv_options_()`，迁入**新** `mpv_init.cpp`（init 关注点的兄弟 TU，匹配 D18-D20/D34/D36 的成员组拆分模式——声明留 mpv_controller.h、实现落兄弟 .cpp）。单一关注点「应用用户可配 mpv 选项」；CLI override 优先于 INI；无早返回、调用一次于 mpv_initialize 前，行为与原内联块逐字等价。initialize() 收敛为可读序列：create → 探测 yt-dlp → 固定行为 flag → apply_mpv_options_() → initialize → post-init → 启线程。mpv_controller.cpp 873→790（D46+D47 累计 918→790）。

@@ -1,4 +1,21 @@
 
+## D48 — play_list/play_list_from → mpv_play.cpp（#77 · god-object 抽取收官）
+
+**Context:** #77 续。mpv_controller.cpp 的 play_* 派发簇：D34 已迁单条播放（play_audio/play_video/play）入 mpv_play.cpp；剩 play_list（m3u 临时文件 + keep-open + loadlist）与 play_list_from（+playlist-pos 起始）两块列表派发仍留 mpv_controller.cpp。ROADMAP 既标「play_* core」为候选。
+
+**Decision:** 将 play_list/play_list_from 逐字迁入既有 mpv_play.cpp（播放派发关注点 TU）。
+
+**关键点:**
+- 归宿 mpv_play.cpp 非 mpv_controller.cpp：与 play_audio/play_video/play 同属「派发到 mpv」关注点 → play_* 簇聚一处。物理位移、行为逐字等价（仅 .cpp 改变，声明仍留 mpv_controller.h）。
+- 无新依赖：mpv_play.cpp 既有 include 已含 `<fstream>`（std::ofstream）、safe_tmp（SafeTmpFile）、logger（LOG）、fmt；int64_t 经 mpv_controller.h→client.h 可用。两函数均不在 mpv_controller.cpp 内被调用（调用点在 App/PlaybackService 层），故删除零回归。
+- 收官边界：initialize()/update_state() 主体为单一关注点（setup/polling 骨架），已非「成员组」可抽——再拆即过度分解。#77 mpv god-object 抽取就此告一段落。
+
+**Verification:** 0-warning、ctest 46/46、pty 冒烟 exit 0 + clean endin。播放行为待用户端测。
+
+**Followups:** mpv_controller.cpp 790→687（D46+D47+D48 累计 918→687，−231）。app.h 553 行仍待续（其他成员簇，独立任务）。
+
+---
+
 ## D47 — initialize() [mpv] 选项簇 → mpv_init.cpp（#77 · god-object 抽取）
 
 **Context:** #77 续。initialize() 202 行是文件最大函数；其 [mpv] 选项应用块（~85 行）是离散关注点「应用用户可配选项」，ROADMAP 既标 initialize 为目标。
