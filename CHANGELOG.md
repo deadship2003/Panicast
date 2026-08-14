@@ -10,6 +10,25 @@
 
 ---
 
+## 新架构 D41 — 2026-08-14 — event_loop END_FILE 分支分解 → handle_end_file_() + handle_playback_error_()（M3 · #72 完成 · main 主线）
+
+> `mpv_controller.cpp` 的 `event_loop()` 里 `MPV_EVENT_END_FILE` 分支原本内联 ~80 行（取 ef→reason/error_code→LOG→reason 派发→reason==4 错误路径[VO 回退+IPTV 消息]→锁外 callback），是 event_loop 最大内联块；reason==4 子块独占 ~48 行。分两刀 Extract Method：
+> 1. **END_FILE 分支整体** → `void handle_end_file_(mpv_event_end_file *ef)`。调用方保留 null-data 守卫传 `event->data`；块输入仅 ef（reason/error_code 内部派生），余皆成员，纯副作用 → 1 参干净抽出。dedent 12。
+> 2. **reason==4 错误路径** → `void handle_playback_error_(int error_code)`（人可读消息 + -15 VO_INIT_FAILED audio-only 回退 + IPTV 上下文消息）。handle_end_file_ 的 reason 派发收敛为 switch 样；dedent 4。
+>
+> 抽出后 event_loop 的 END_FILE 分支仅 6 行（null 守卫 + 一次调用），event_loop 回归纯派发骨架。续 D36（codec 块）：event_loop 两大内联块（codec-info + END_FILE）均已 Extract Method。行为等价（纯块搬迁，cb_mtx_ 锁语义不变——仅持于读 callback/vo_fallback 决策、callback 调用在锁外）。
+
+### 改动
+- `mpv_controller.h`：加 `void handle_end_file_(mpv_event_end_file *ef);` + `void handle_playback_error_(int error_code);` 私有声明。
+- `mpv_controller.cpp`：event_loop 的 END_FILE 分支体 → null 守卫 + `handle_end_file_(...)`；新方法内 `else if(reason==4)` 体 → `handle_playback_error_(error_code);`。两方法定义插在 update_state 前。
+
+### 验收
+- 编译 0-warning（`-Wall -Wextra -Wpedantic`）。
+- ctest 41/41 绿。
+- pty 冒烟：exit 0 + altbuf 进 + clean endin `\x1b[?1049l` + quit 对话框渲染。
+
+---
+
 ## 新架构 D40 — 2026-08-14 — 设计层第六刀：run() loop 抽 exit-check + drain → check_exit_requests()/drain_frame_events()（M3 · #70 收尾 · main 主线）
 
 > run() 帧循环顶部两块注释密集的内联 phase 抽出，loop 彻底收敛为 flat 编排：

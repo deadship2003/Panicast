@@ -531,81 +531,7 @@ void MPVController::event_loop() {
             if (!event->data) {
                 LOG("[MPV] End file event with null data");
             } else {
-                mpv_event_end_file *ef =
-                    (mpv_event_end_file *)event->data; // data already null-checked
-                int reason = static_cast<int>(ef->reason);
-                int error_code = static_cast<int>(ef->error);
-                // Y24.8: human-readable reason/error (was raw "reason: X, error: Y").
-                //   mpv end-file reasons: 0=EOF, 2=stop, 3=quit, 4=error, 5=redirect.
-                LOG(fmt::format("[MPV] End file: {}{}", end_file_reason_str(reason),
-                                reason == 4 ? fmt::format(" — {}", mpv_error_str(error_code))
-                                            : ""));
-                if (reason == 0) {
-                    EVENT_LOG("MPV: Track ended");
-                } else if (reason == 4) {
-                    // Y24.8: translate the mpv error code to a human message + hint.
-                    std::string err_msg = mpv_error_str(error_code);
-                    LOG(fmt::format("[MPV] Playback error: {}", err_msg));
-                    EVENT_LOG(fmt::format("MPV: {}", err_msg));
-
-                    // -15 VO_INIT_FAILED → fall back to audio-only (vo=null + vid=no) + retry same URL once.
-                    //   GPU-less / stale-DISPLAY hosts (SSH) hit this.
-                    std::string load_url;
-                    bool do_vo_fallback = false;
-                    {
-                        std::lock_guard<std::mutex> lock(cb_mtx_);
-                        load_url = last_load_url_;
-                        if (error_code == -15 && !vo_fallback_done_ && !load_url.empty()) {
-                            do_vo_fallback = true;
-                            vo_fallback_done_ = true;
-                        }
-                    }
-                    if (do_vo_fallback) {
-                        LOG("[MPV] VO init failed, falling back to audio-only");
-                        EVENT_LOG("MPV: VO init failed, falling back to audio-only");
-                        mpv_set_property_string(ctx_, "vo", "null");
-                        mpv_set_property_string(ctx_, "vid", "no");
-                        mpv_set_property_string(ctx_, "ytdl-format", "bestaudio/best");
-                        const char *retry_cmd[] = {"loadfile", load_url.c_str(), "replace",
-                                                   nullptr};
-                        int rc = mpv_command(ctx_, retry_cmd);
-                        LOG(fmt::format("[MPV] VO-fallback retry loadfile result: {} ({})", rc,
-                                        load_url));
-                    }
-                    // -14 AO_INIT_FAILED: no code-side fallback (can't play sound without an AO).
-                    //   The human-readable message above tells the user to check [mpv] ao / PulseAudio / WSLg.
-
-                    // Y24.55: IPTV context message — emitted AFTER the MPV: behavior message(s) above
-                    //   so the same event prints both in time order (MPV: cause → IPTV: explanation).
-                    //   Both reach the on-screen LOG area and panicast.log via EVENT_LOG. Only when the
-                    //   app flagged this load as IPTV context. -13 is sub-classified via last_log_text_.
-                    if (iptv_context_.load()) {
-                        // Y24.55: if playback had actually started (PLAYBACK_RESTART fired), this
-                        //   END_FILE r=4 is a mid-playback drop (#12) regardless of error code;
-                        //   otherwise it's a load/init failure (#1-4/#6/#8/#9/#10) by error code.
-                        std::string iptv_msg = had_playback_started_
-                                                   ? "IPTV: stream dropped mid-playback — source "
-                                                     "interrupted; switch channel or retry"
-                                                   : iptv_message_for_error_(error_code);
-                        if (!iptv_msg.empty())
-                            EVENT_LOG(iptv_msg);
-                    }
-                } else if (reason == 2) {
-                    EVENT_LOG("MPV: Stopped");
-                } else if (reason == 3) {
-                    EVENT_LOG("MPV: Quitting");
-                } else if (reason == 5) {
-                    EVENT_LOG("MPV: Redirected");
-                }
-
-                // Call end-file callback (call outside lock to avoid executing user callback while holding lock)
-                EndFileCallback cb;
-                {
-                    std::lock_guard<std::mutex> lock(cb_mtx_);
-                    cb = end_file_callback_;
-                }
-                if (cb)
-                    cb(reason);
+                handle_end_file_((mpv_event_end_file *)event->data);
             }
         } else if (event->event_id == MPV_EVENT_SEEK) {
             LOG("[MPV] Seek event");
@@ -686,6 +612,94 @@ void MPVController::log_track_codec_info_() {
     }
 }
 
+
+// D41: END_FILE event handler (Extract Method from event_loop). Dispatches on mpv's
+//   end-file reason (0=EOF, 2=stop, 3=quit, 4=error, 5=redirect): logs a human-readable
+//   message, runs the reason=4 error path (VO-init-failed audio-only fallback + IPTV
+//   context message), then invokes the end-file callback outside the callback mutex.
+void MPVController::handle_end_file_(mpv_event_end_file *ef) {
+    int reason = static_cast<int>(ef->reason);
+    int error_code = static_cast<int>(ef->error);
+    // Y24.8: human-readable reason/error (was raw "reason: X, error: Y").
+    //   mpv end-file reasons: 0=EOF, 2=stop, 3=quit, 4=error, 5=redirect.
+    LOG(fmt::format("[MPV] End file: {}{}", end_file_reason_str(reason),
+                    reason == 4 ? fmt::format(" — {}", mpv_error_str(error_code))
+                                : ""));
+    if (reason == 0) {
+        EVENT_LOG("MPV: Track ended");
+    } else if (reason == 4) {
+        handle_playback_error_(error_code);
+    } else if (reason == 2) {
+        EVENT_LOG("MPV: Stopped");
+    } else if (reason == 3) {
+        EVENT_LOG("MPV: Quitting");
+    } else if (reason == 5) {
+        EVENT_LOG("MPV: Redirected");
+    }
+
+    // Call end-file callback (call outside lock to avoid executing user callback while holding lock)
+    EndFileCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(cb_mtx_);
+        cb = end_file_callback_;
+    }
+    if (cb)
+        cb(reason);
+}
+
+// D41: END_FILE reason=4 (playback error) path (Extract Method from handle_end_file_).
+//   Translates the mpv error to a human message, runs the -15 VO_INIT_FAILED audio-only
+//   fallback (vo=null + vid=no + retry same URL once — GPU-less/SSH hosts), and emits the
+//   IPTV context message (mid-playback drop vs load-failure, by had_playback_started_).
+void MPVController::handle_playback_error_(int error_code) {
+    // Y24.8: translate the mpv error code to a human message + hint.
+    std::string err_msg = mpv_error_str(error_code);
+    LOG(fmt::format("[MPV] Playback error: {}", err_msg));
+    EVENT_LOG(fmt::format("MPV: {}", err_msg));
+
+    // -15 VO_INIT_FAILED → fall back to audio-only (vo=null + vid=no) + retry same URL once.
+    //   GPU-less / stale-DISPLAY hosts (SSH) hit this.
+    std::string load_url;
+    bool do_vo_fallback = false;
+    {
+        std::lock_guard<std::mutex> lock(cb_mtx_);
+        load_url = last_load_url_;
+        if (error_code == -15 && !vo_fallback_done_ && !load_url.empty()) {
+            do_vo_fallback = true;
+            vo_fallback_done_ = true;
+        }
+    }
+    if (do_vo_fallback) {
+        LOG("[MPV] VO init failed, falling back to audio-only");
+        EVENT_LOG("MPV: VO init failed, falling back to audio-only");
+        mpv_set_property_string(ctx_, "vo", "null");
+        mpv_set_property_string(ctx_, "vid", "no");
+        mpv_set_property_string(ctx_, "ytdl-format", "bestaudio/best");
+        const char *retry_cmd[] = {"loadfile", load_url.c_str(), "replace",
+                                   nullptr};
+        int rc = mpv_command(ctx_, retry_cmd);
+        LOG(fmt::format("[MPV] VO-fallback retry loadfile result: {} ({})", rc,
+                        load_url));
+    }
+    // -14 AO_INIT_FAILED: no code-side fallback (can't play sound without an AO).
+    //   The human-readable message above tells the user to check [mpv] ao / PulseAudio / WSLg.
+
+    // Y24.55: IPTV context message — emitted AFTER the MPV: behavior message(s) above
+    //   so the same event prints both in time order (MPV: cause → IPTV: explanation).
+    //   Both reach the on-screen LOG area and panicast.log via EVENT_LOG. Only when the
+    //   app flagged this load as IPTV context. -13 is sub-classified via last_log_text_.
+    if (iptv_context_.load()) {
+        // Y24.55: if playback had actually started (PLAYBACK_RESTART fired), this
+        //   END_FILE r=4 is a mid-playback drop (#12) regardless of error code;
+        //   otherwise it's a load/init failure (#1-4/#6/#8/#9/#10) by error code.
+        std::string iptv_msg = had_playback_started_
+                                   ? "IPTV: stream dropped mid-playback — source "
+                                     "interrupted; switch channel or retry"
+                                   : iptv_message_for_error_(error_code);
+        if (!iptv_msg.empty())
+            EVENT_LOG(iptv_msg);
+    }
+}
 
 void MPVController::update_state() {
     // Null pointer check to prevent segfault

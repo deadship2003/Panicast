@@ -213,6 +213,10 @@ private:
     void update_state();
     // D36: Extract Method — log codec/bitrate/hwdec once per track (PLAYBACK_RESTART, decoder ready).
     void log_track_codec_info_();
+    // D41: Extract Method — END_FILE event handler (reason dispatch + VO-fallback + IPTV msg + callback).
+    void handle_end_file_(mpv_event_end_file *ef);
+    // D41: Extract Method — END_FILE reason=4 error path (human msg + VO-fallback + IPTV msg).
+    void handle_playback_error_(int error_code);
 };
 
 } // namespace panicast

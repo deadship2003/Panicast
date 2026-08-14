@@ -1,4 +1,21 @@
 
+## D41 — event_loop END_FILE 分支分解 → handle_end_file_() + handle_playback_error_()（#72 完成）
+
+**Context:** D36 抽完 event_loop 的 codec-info 块后，event_loop 另一大内联块——MPV_EVENT_END_FILE 分支（~80 行，含 reason==4 错误路径 ~48 行）仍内联。这是 mpv_controller.cpp 设计层分解的剩余目标（#72）。
+
+**Decision:** 分两刀 Extract Method。① END_FILE 分支整体 → `handle_end_file_(mpv_event_end_file *ef)`（1 参，调用方保留 null-data 守卫）；② reason==4 错误路径 → `handle_playback_error_(int error_code)`（从 handle_end_file_ 内抽出）。两块皆输入单一（ef / error_code）、余皆成员、纯副作用。
+
+**关键点:**
+- reason/error_code 在块内从 ef 派生（非外层局部）→ ef 作唯一参数，零外层局部缠绕，干净切点（同 D36 codec 块的判据）。
+- handle_end_file_ 抽出后 reason 派发成 switch 样结构，reason==4 再抽 handle_playback_error_ 使两者各 ~30/47 行、单一职责。event_loop 的 END_FILE 分支缩为 6 行（null 守卫 + 一次调用）。
+- 锁语义不变：cb_mtx_ 仅持于读 end_file_callback_/last_load_url_/vo_fallback_done_（短临界区），callback 调用与 vo-fallback 命令在锁外——与原内联 1:1。
+- 抽取脚本须正确处理块的尾花括号：reason==4 体的内层 if(iptv_context_) 闭合 `}` 属于体本身，须随体迁入新方法（脚本初版误排除致缺一 `}`，已修）。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
+**收尾:** #72 完成。mpv_controller.cpp 设计层分解告一段落（D36 codec + D41 END_FILE；剩 update_state IPTV 块等小目标按需）。下一个大目标：#71 app_input Keymap/Action 迁移，或 #73 app.h Service 抽取。
+
+
 ## D40 — run() loop 抽 exit-check + drain → check_exit_requests()/drain_frame_events()（设计层第六刀 · #70 收尾）
 
 **Context:** D35-D39 抽完 run() loop 的 startup/shutdown bookend、tree-locked 显示构建、prepare 半（Method Object）、draw 半后，loop 顶部仍剩两块注释密集的内联 phase——exit-check（CTRL+C/终止信号/睡眠定时，~28 行）与 drain（remote/playback/state 三排空，~13 行）。评估收尾抽取。
