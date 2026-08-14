@@ -1,4 +1,19 @@
 
+## D34 — mpv_controller 单条播放簇 → mpv_play.cpp（3 方法、~153 行 verbatim 搬迁）
+
+**Context:** D18/D19/D20 已从 mpv_controller.cpp 抽 wrapper(mpv_commands)/metadata(mpv_metadata)/iptv(mpv_iptv) 三组，剩 1050 行。评估剩余方法的机械可搬性。
+
+**Decision:** 抽单条播放簇 play_audio/play_video/play（326-477，~153 行）。理据：
+1. **cohesive**：3 方法都是单条播放派发（URL→mpv 命令：play_audio 走 audio-only、play_video 走 video+可选 audio_file、play 按 URLType 分派到 audio/video），与播放列表（play_list/play_list_from）是 separate cohesion。
+2. **整文件无文件局部 helper**、3 方法连续成块、依赖全 mpv_controller.h 可见 → 同 D18/D19/D20 的 .cpp→.cpp verbatim 搬迁（同 include 集 = 编译等价，无签名改动 → 调用点零触及）。
+3. 不碰 event_loop(254)/update_state(214)——大型单方法，同 app_run run()，需设计性分解（抽 sub-loop），非 verbatim 目标。
+
+**关键点:** mpv_controller 的机械缝与 app_run 同构——cohesive 方法簇可机械搬，大型单方法需设计分解。D18-D20+D34 已抽 4 组 sibling（mpv_commands/metadata/iptv/play），mpv_controller.cpp 1379→897（−35%）。剩 initialize/stop(生命周期)/event_loop/update_state(待设计)/play_list*(播放列表)。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。mpv_controller.cpp 1050→897。
+
+
+
 ## D33 — app_run tree-flatten 组 → app_flatten.cpp（4 方法、~52 行 verbatim 搬迁）
 
 **Context:** D32 抽完 feed 簇后，app_run.cpp 剩 run()（~470 行主循环）+ ctor/dtor + flatten 簇（flatten/flatten_items/items_for_mode/cur_items，~52 行）。评估 flatten 簇是否可机械搬、run() 是否可搬。

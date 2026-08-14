@@ -10,6 +10,21 @@
 
 ---
 
+## 新架构 D34 — 2026-08-14 — god-object 拆分第十八刀：mpv_controller 单条播放簇 → mpv_play.cpp（M3 · main 主线）
+
+> mpv_controller.cpp（D18/D19/D20 已抽 wrapper/metadata/iptv 后剩 1050 行）继续减肥：**单条播放派发簇** play_audio/play_video/play（3 方法、~153 行，URL→mpv 命令派发）verbatim 迁 mpv_play.cpp。整文件无文件局部 helper、3 方法连续成块、依赖全 mpv_controller.h 可见（mpv client API、URLType、ytdlp_runner、ini_config、accounts）→ 同 D18/D19/D20 的 .cpp→.cpp verbatim 搬迁（同 include 集 = 编译等价，无签名改动 → 调用点零触及）。play_list/play_list_from（播放列表关注点，separate cohesion）留 mpv_controller。
+>
+> mpv_controller.cpp 1050→897（D18-D20+D34 累计 1379→897，−35%）。剩 initialize/stop（生命周期）、event_loop(254)/update_state(214)（大型单方法，需设计分解=设计任务）、cmd_loop_/enqueue_cmd_/play_list*。
+
+### 改动
+- 新 `src/playback/mpv_play.cpp`：play_audio/play_video/play verbatim 迁入，裹 `namespace panicast{}`，同 mpv_controller.cpp 的 include 集（编译等价超集）。
+- CMakeLists.txt:291 接入。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
+
+---
+
 ## 新架构 D33 — 2026-08-14 — god-object 拆分第十七刀：app_run tree-flatten 组 → app_flatten.cpp（M3 · main 主线）
 
 > app_run.cpp **最后一簇机械可搬组**：flatten/flatten_items/items_for_mode/cur_items（4 方法、~52 行）——纯树→显示列表扁平化 + 按模式取项，cohesive（显示列表构造，与主循环不同关注点）。依赖全 app.h 可见（`library_`/LibraryService、TreeNode/NodeType/AppMode、OnlineState），无文件局部 helper → 与 D20/D23/D32 同构的 .cpp→.cpp verbatim 搬迁（同 include 集 = 编译等价）。顺手清掉 run() 与 flatten 间那段 orphan 注释（`// D11-3c: load_radio_root relocated...`——该方法早已不存在，死文档）。
