@@ -342,6 +342,18 @@ TEST(ProxyManager, PlatformBeatsDomain) {
     EXPECT_EQ(pm.resolveProxy("https://r1.googlevideo.com/v", "youtube").url, "yt");  // platform wins
 }
 
+TEST(ProxyManager, DomainRuleForcesDirectOverGlobal) {
+    // D45: a domain rule with an empty proxy (direct) overrides the global proxy — the
+    //   bilibili→direct seed relies on this (CN-domestic site must stay direct under a proxy).
+    panicast::ProxyManager pm;
+    pm.setGlobalSource([] { return panicast::ProxyConfig{"socks5h://global:1080"}; });
+    pm.setDomain("*.bilibili.com", panicast::ProxyConfig{""});  // empty url = direct
+    EXPECT_FALSE(pm.resolveProxy("https://www.bilibili.com/video/x").enabled());  // direct
+    EXPECT_FALSE(pm.resolveProxy("https://api.bilibili.com/x").enabled());        // direct
+    EXPECT_EQ(pm.resolveProxy("https://youtube.com/watch?v=x").url,
+              "socks5h://global:1080");  // non-bilibili still uses global
+}
+
 // ─── Media / MediaID tests (D14-1: logical identity = canonical absolute source URL) ──
 TEST(MediaID, IdentityIsUrl) {
     panicast::MediaID a("https://example.com/feed/ep1.mp3");

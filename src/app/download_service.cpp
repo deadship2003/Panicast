@@ -289,7 +289,8 @@ void DownloadService::ytdlp_download(const std::string &url, const std::vector<s
                 ProgressManager::instance().update(dl_id, 100, "Already exists", "", 0, 0, 0);
             }
         },
-        3600 // Y24.49: generous timeout for long video downloads (was default 600s)
+        3600, // Y24.49: generous timeout for long video downloads (was default 600s)
+        url   // D45: source_url — let Connectivity domain rules match the download host
     );
     // yt-dlp exit code alone is unreliable: it can exit 0 yet produce no/invalid file. Verify
     //   the actual output file matches the episode info before counting as success.

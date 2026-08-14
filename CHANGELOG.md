@@ -10,6 +10,27 @@
 
 ---
 
+## 新架构 D45 — 2026-08-14 — yt-dlp 代理 URL 感知 + bilibili 直连种子规则（#75 · Connectivity 收尾 · main 主线）
+
+> D2 立了 `IProxyManager` 规则链（platform→domain→global→direct）+ D3 让所有 curl 经 `apply_network_proxy(url,platform)`，但**两处缺口**留到 #75：① yt-dlp 路径 `resolveProxy("")` 传空 URL → 域名规则永不命中（D3 自承「yt-dlp 的 url/platform 感知路由为后续精化项」）；② 无任何生产期种子规则（注释里的 youtube/bilibili/googlevideo 只是示例）。
+>
+> **① yt-dlp URL 感知**：`YtdlpRunner::run()` 加可选 `source_url` 形参，内部 `resolveProxy(source_url)`（替 `resolveProxy("")`）。6 个调用点（download / tiktok×2 / playback×2 / channel_parser×2）各传入作用域内的源 URL → yt-dlp 下载/解析/字幕现经域名规则路由。默认 `""` = 旧行为（仅全局代理）。
+>
+> **② bilibili 直连种子规则**：`network.cpp` 全局源静态初始化里注册 `setDomain("*.bilibili.com", ProxyConfig{""})`（空 = 直连），由 INI `[network] bilibili_direct`（默认 true）门控。bilibili 是国内站点，经境外代理反而变慢/失败；此规则让它在设了全局代理时仍直连（curl 的 api.bilibili.com + yt-dlp 的 www.bilibili.com 一条域名规则全覆盖）。**youtube/googlevideo 无需规则**——它们默认 fall-through 到全局代理（设了就用、没设就直连），且规则存固定 ProxyConfig、不能表达「用全局」，加显式规则是冗余 no-op。
+>
+> **行为变更声明**：设了全局代理的现有用户，bilibili 现改走直连（此前随全局代理）。这是**修方向**而非回归（bilibili 经境外代理本就多半失败/变慢）。无代理用户零影响；可在 INI 设 `bilibili_direct = false` 关掉。下载/解析的代理路由不经 pty 冒烟（无网络），由用户末尾端测验收。
+
+### 改动
+- `ytdlp_runner.h/.cpp`：`run()` 加 `source_url`（默认 ""）→ `resolveProxy(source_url)`。
+- 6 调用点传源 URL：`download_service` / `app_tiktok`(×2) / `playback_service`(×2) / `youtube_channel_parser`(×2)。
+- `network.cpp`：全局源初始化注册 `*.bilibili.com→direct` 域名规则（INI `bilibili_direct` 门控，默认 true）。
+- `ini_config.cpp` create_default：`[network]` 加 `bilibili_direct = true` + 双语注释。
+- `tests/test_units.cpp`：+1 `ProxyManager.DomainRuleForcesDirectOverGlobal`（锁「域名规则空 ProxyConfig 覆盖全局为直连」——bilibili 种子依赖此语义）。
+
+**验收**：0-warning、ctest 45/45（+1）、pty 冒烟 exit 0 + clean endin。代理路由行为待用户端测。#75 Connectivity 收尾。
+
+---
+
 ## 新架构 D44 — 2026-08-14 — INI [keys] 热键重绑（#71 收尾 · D7 完整目标达成 · main 主线）
 
 > Keymap 接 INI `[keys]` 段——无状态命令 + 模式切换键现可用户自定义（D7「热键可自定义」既定目标落地，#71 收尾）。`build_keymap()` 从「动作名→默认 token」表构建，每项 `IniConfig::get("keys", name, default_token)` 取值（INI 无 `[keys]` 段 = 完全用默认，行为零变化）；token 经 `Keymap::parse_token` 解析（键名 space/enter/esc/tab/backspace、单字符[大小写敏感]、或数字 keycode），逗号分隔多键绑同一动作（如 `play_pause = space,p`）。

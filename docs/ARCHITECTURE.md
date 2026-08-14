@@ -82,7 +82,7 @@ UI（`src/ui/`）是纯呈现层，依赖规则：
 - **竞态**：`pending_select_` + 跨线程裸回调（P1-4 向量竞态、P1-5 两锁一树、P1-8 `~App` 缺失致 UAF）。
 - **SQL 卫生**：多处忽略 `exec_sql` 返回、Bilibili 一处 `fmt::format` 拼接（注入面）、`atoll` 解 TEXT 时间戳恒为 0、`StmtRAII` 预编译缓存造好但零使用。
 - **热键**：无状态命令 + 模式切换键（play/pause/volume/nav + 8 mode-switch）经 `Keymap`（D7）→ 可经 INI `[keys]` 重绑（D44，D7「热键可自定义」完整目标）；复杂有状态流（play 'l'/搜索/下载/标记/M/N/b/T）深依赖 mode+选中上下文，仍留 `app_input.cpp handle_input` 的 `switch(ch)`（D42 边界）。
-- **代理**：`apply_network_proxy(CURL*)`（`net/network.cpp`）已统一灌 curl+yt-dlp+mpv，但未抽象为带"分平台/域名规则"的 `IProxyManager`。
+- **代理**：`apply_network_proxy(CURL*, url, platform)`（`net/network.cpp`）是 `IProxyManager::resolveProxy`（规则链 platform→domain→global→direct，D2）的 curl 包装——所有 curl 调用点经它；yt-dlp 经 `YtdlpRunner::run(source_url)`→`resolveProxy(source_url)`（D45，替旧的空 URL）；mpv 播放仍直连。生产期种子规则：`*.bilibili.com→direct`（INI `[network] bilibili_direct` 门控，D45——bilibili 国内站点、设全局代理时仍直连）；youtube/googlevideo 走全局 fall-through。
 - **Windows 构建**：posix_spawn/HOME 路径致坏（P2-X）。
 
 ## 7. 构建/版本约束

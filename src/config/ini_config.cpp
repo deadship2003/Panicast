@@ -623,6 +623,11 @@ reject_unsafe_url = true
 # Applied to: all curl fetches (RSS/feed/OPML/Apple/downloads) and yt-dlp (--proxy).
 # Takes effect immediately, no restart needed. mpv playback still uses the system transparent proxy / env vars.
 proxy =
+# Bilibili 直连（默认开启）/ Bilibili direct connection (default on)
+# Bilibili 是国内站点，经境外代理反而变慢/失败；此项让 *.bilibili.com 绕过上面的全局代理直连。
+# Bilibili is CN-domestic; a foreign proxy slows/breaks it. This routes *.bilibili.com direct,
+# bypassing the global proxy above. Set false to route bilibili through the proxy too. (D45)
+bilibili_direct = true
 
 # ============================================================
 # 【存储配置】 / Storage

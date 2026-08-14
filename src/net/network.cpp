@@ -22,8 +22,16 @@ namespace {
 // which already depends on it) so proxy_manager.cpp stays free of config coupling and links
 // cleanly into the unit-test target.
 [[maybe_unused]] const bool _proxy_source_set = [] {
-    panicast::ProxyManager::instance().setGlobalSource(
+    panicast::ProxyManager &pm = panicast::ProxyManager::instance();
+    pm.setGlobalSource(
         [] { return panicast::ProxyConfig{panicast::IniConfig::instance().get_proxy()}; });
+    // D45: bilibili is CN-domestic — routing it through a foreign proxy slows/breaks access.
+    //   Seed a domain rule forcing *.bilibili.com direct even when a global proxy is set, gated by
+    //   [network] bilibili_direct (default on). youtube/googlevideo need NO rule: they fall through
+    //   to the global proxy by default. Domain rule covers both the curl path (api.bilibili.com)
+    //   and the yt-dlp path (www.bilibili.com), so one rule suffices.
+    if (panicast::IniConfig::instance().get_bool("network", "bilibili_direct", true))
+        pm.setDomain("*.bilibili.com", panicast::ProxyConfig{""});
     return true;
 }();
 }  // namespace

@@ -184,8 +184,10 @@
 
   - [x] **D44 — INI `[keys]` 热键重绑（#71 收尾 · D7「热键可自定义」完整目标达成）** ✅ 2026-08-14（**main 主线**）。`build_keymap()` 改「动作名→默认 token 表」驱动，每项 `IniConfig::get("keys", name, default_token)` 取值（INI 无 `[keys]` 段 = 全用默认，行为零变化）；token 经 `Keymap::parse_token`（新 inline 静态方法）解析——键名（space/enter/esc/tab/backspace）、单字符（**大小写敏感**，'r'≠'R'，匹配 wget_wch 返回即所按）、或数字 keycode；逗号分隔多键绑同一动作（`play_pause = space,p`）。**可重绑 13 个**（play_pause/volume±/nav k-j + D42 的 8 mode-switch R/P/F/H/O/Y/B/I）；**不重绑**复杂有状态流（play 'l'/搜索/下载/标记/M/N/b/T）——留 switch（D42 边界）。**hint 随 Action**：重绑只换触发键、切模式提示不变（描述模式非键）。parse_token 作 Keymap 静态方法（归属自然 + inline 免链接、3 gtest 锁契约 names/chars·case-sensitive·numeric-trim-invalid）。create_default 写入 `[keys]` 段（新 INI 自带默认 + 双语注释；现有 INI 无此段零影响）。验收：0-warning、ctest **44/44**（+3 KeymapParseToken）、pty 冒烟 exit 0 + clean endin。**重绑行为待用户端测**（在 INI [keys] 改键验证）。#71 至此完整收尾。
 
-## Connectivity 跟进（低优先，按需插入）
-- Downloader 全面经 Connectivity（补 D3 未覆盖路径）+ 首批代理规则（youtube→代理、`*.googlevideo.com`→代理、bilibili→直连）。
+  - [x] **D45 — yt-dlp 代理 URL 感知 + bilibili 直连种子规则（#75 · Connectivity 收尾）** ✅ 2026-08-14（**main 主线**）。D2 立 IProxyManager 规则链、D3 curl 全经 `apply_network_proxy(url,platform)`，但留两缺口：① `YtdlpRunner::run` 内 `resolveProxy("")` 传空 URL → 域名规则永不命中；② 无生产期种子规则。**①** run() 加可选 `source_url` 形参 → `resolveProxy(source_url)`，6 调用点（download / tiktok×2 / playback×2 / channel_parser×2）传源 URL → yt-dlp 下载/解析经域名规则路由。**②** network.cpp 全局源初始化注册 `setDomain("*.bilibili.com", direct)`，由 INI `[network] bilibili_direct`（默认 true）门控——bilibili 国内站点、经境外代理反慢/失败，设了全局代理时仍直连（curl api.bilibili.com + yt-dlp www.bilibili.com 一条域名全覆盖）。**youtube/googlevideo 无需规则**（默认 fall-through 到全局代理；规则存固定 ProxyConfig 不能表达「用全局」，加显式规则是冗余 no-op）。行为变更：设全局代理的用户 bilibili 改走直连（修方向非回归；INI 可关）。验收：0-warning、ctest **45/45**（+1 DomainRuleForcesDirectOverGlobal）、pty 冒烟 exit 0 + clean endin。**代理路由待用户端测**。#75 收尾 → Connectivity 跟进段关闭。
+
+## Connectivity 跟进 ✅ 完成（D45）
+- ~~Downloader 全面经 Connectivity（补 D3 未覆盖路径）+ 首批代理规则（youtube→代理、`*.googlevideo.com`→代理、bilibili→直连）。~~ → **D45 完成**：yt-dlp 全路径经 `resolveProxy(source_url)` + bilibili→direct 种子规则（INI `bilibili_direct` 门控）。youtube/googlevideo 走全局 fall-through（无需显式规则）。后续若需 per-platform 专用代理，规则链 API（setPlatform/setDomain）+ `IniConfig::get(section,key)` 已就位。
 
 ## 规则
 - 每个人日任务完成 → 本文件对应项打 `[x]` + `CHANGELOG.md` 一行 + 架构决策入 `DECISIONS_LOG.md`。

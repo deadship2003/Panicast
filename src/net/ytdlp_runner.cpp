@@ -28,7 +28,8 @@ namespace panicast
 
 YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string> &args,
                                      std::function<void(const std::string &)> line_cb,
-                                     int timeout_sec) {
+                                     int timeout_sec,
+                                     const std::string &source_url) {
     Result res;
     std::string ytdlp = find_ytdlp();
     if (ytdlp.empty()) {
@@ -40,10 +41,10 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string> &args,
     std::vector<std::string> storage;
     storage.reserve(args.size() + 3);
     storage.push_back(ytdlp);
-    // D3: resolve proxy via the Connectivity layer (IProxyManager). yt-dlp is used for
-    // youtube/bilibili; the global [network] proxy applies (url/platform-aware routing for
-    // yt-dlp is a future refinement).
-    std::string proxy = ProxyManager::instance().resolveProxy("").url;
+    // D3/D45: resolve proxy via the Connectivity layer (IProxyManager). source_url lets domain
+    //   rules match the request host (e.g. *.bilibili.com → direct even with a global proxy set);
+    //   "" falls back to the global [network] proxy only (the pre-D45 behavior).
+    std::string proxy = ProxyManager::instance().resolveProxy(source_url).url;
     if (!proxy.empty()) {
         storage.push_back("--proxy");
         storage.push_back(proxy);

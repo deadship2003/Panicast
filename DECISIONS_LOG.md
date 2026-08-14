@@ -1,4 +1,22 @@
 
+## D45 — yt-dlp 代理 URL 感知 + bilibili 直连种子规则（#75 · Connectivity 收尾）
+
+**Context:** D2 立 IProxyManager 规则链、D3 让 curl 全经 `apply_network_proxy(url,platform)`，但留两缺口：① `YtdlpRunner::run` 内 `resolveProxy("")` 传空 URL → 域名规则永不命中（host 为空）；② 无生产期种子规则（youtube/bilibili/googlevideo 仅注释示例）。#75 收尾。
+
+**Decision:** ① run() 加 `source_url` 形参 → `resolveProxy(source_url)`，6 调用点传源 URL；② network.cpp 全局源初始化注册 `*.bilibili.com→direct` 域名规则（INI `bilibili_direct` 门控默认 true）。
+
+**关键点:**
+- yt-dlp URL 感知：source_url 让域名规则按下载 host 命中（如 `*.bilibili.com→direct`）。默认 "" 保旧行为。6 调用点作用域内均有源 URL（download/tiktok/playback/channel_parser），机械传参、行为等价（无规则时 resolveProxy(url)≡resolveProxy("")≡全局）。
+- bilibili 用域名规则非平台规则：一条 `*.bilibili.com` 同时覆盖 curl（api.bilibili.com；bilibili_api 已传 platform="bilibili"，platform 未命中后域名规则兜底）+ yt-dlp（www.bilibili.com）。比平台规则鲁棒（不依赖调用点传 platform）。
+- youtube/googlevideo 不加规则：它们 fall-through 到全局代理（设了用、没设直连）。规则存固定 ProxyConfig、不能表达「用全局」，故加显式规则是冗余 no-op。仅 bilibili 需显式规则因其语义是「覆盖全局为直连」。
+- 行为变更：设了全局代理的用户，bilibili 改走直连（修方向非回归——bilibili 经境外代理本多失败/变慢）。无代理用户零影响；INI `bilibili_direct = false` 可关。下载/解析代理路由不经冒烟（无网络），用户端测。
+
+**Verification:** 0-warning、ctest 45/45（+1 `DomainRuleForcesDirectOverGlobal`）、pty 冒烟 exit 0 + clean endin。
+
+**Followups:** #75 Connectivity 收尾。规则链 API（setPlatform/setDomain）+ IniConfig::get(section,key) 已就位，后续若需更多 per-platform 专用代理（如 youtube 专用代理）可在 network.cpp 扩展种子或加 INI `[proxy]` 段。
+
+---
+
 ## D44 — INI [keys] 热键重绑（#71 收尾 · D7 完整目标）
 
 **Context:** D7 立 Keymap/Action + D42 迁 mode-switch 键，但 Keymap 仍是代码默认绑定、未接 INI——「热键可自定义」(ROADMAP D7) 未达成，#71 剩最后一块。complex stateful 流已在 D42 判定留 switch，本步只接 Keymap 已有绑定的重绑通道。

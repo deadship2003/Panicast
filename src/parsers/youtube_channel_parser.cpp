@@ -151,8 +151,8 @@ int YouTubeChannelParser::parse_video_list(const std::string &url, TreeNodePtr p
     std::vector<std::string> lines;
     auto result = YtdlpRunner::run(
         args, [&](const std::string &line) { lines.push_back(line); },
-        90 // 90s timeout (large tabs like shorts are slower)
-    );
+        90, // 90s timeout (large tabs like shorts are slower)
+        url);
     if (!result.launched) {
         err = "yt-dlp not launched";
         return 0;
@@ -231,7 +231,7 @@ int YouTubeChannelParser::parse_channel_tabs(const std::string &channel_url,
     args.push_back("--no-warnings");
     args.push_back(channel_url);
     // -J outputs a single JSON (may contain newlines), so line_cb is unreliable; use stdout_output directly
-    auto result = YtdlpRunner::run(args, nullptr, 30);
+    auto result = YtdlpRunner::run(args, nullptr, 30, channel_url);
     if (!result.launched) {
         err = "yt-dlp not launched";
         return 0;

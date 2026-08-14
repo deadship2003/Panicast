@@ -134,7 +134,8 @@ static std::string probe_tiktok_uname(const std::string &url, const std::string 
             } catch (...) {
             }
         },
-        60);
+        60,
+        url);
     return uname;
 }
 
@@ -151,7 +152,8 @@ TreeNodePtr App::parse_tiktok_user_videos(const std::string &url, const std::str
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; ++attempt) {
         lines.clear();
         auto r =
-            YtdlpRunner::run(args, [&](const std::string &line) { lines.push_back(line); }, 30);
+            YtdlpRunner::run(args, [&](const std::string &line) { lines.push_back(line); }, 30,
+                             url);
         if (!lines.empty())
             break;
         // Empty output — retry once more after backoff (challenge cookie / transient block).

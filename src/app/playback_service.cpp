@@ -323,7 +323,7 @@ PlaybackService::resolve_youtube_url(const std::string &url, bool has_video) con
         args.push_back("-g");
         args.push_back("--no-warnings");
         args.push_back(url);
-        result = YtdlpRunner::run(args, nullptr, timeout_sec);
+        result = YtdlpRunner::run(args, nullptr, timeout_sec, url);
         urls.clear();
         if (result.launched && result.exit_code == 0 && !result.stdout_output.empty()) {
             std::istringstream ss(result.stdout_output);
@@ -368,7 +368,7 @@ PlaybackService::resolve_youtube_url(const std::string &url, bool has_video) con
             sargs.push_back(prefix);
             sargs.push_back("--no-warnings");
             sargs.push_back(url);
-            YtdlpRunner::run(sargs, nullptr, 20);
+            YtdlpRunner::run(sargs, nullptr, 20, url);
             // yt-dlp writes <prefix>.<lang>.vtt (or <prefix>.<lang>-auto.vtt); pick the first .vtt.
             std::error_code ec;
             for (auto &e : fs::directory_iterator(tmp_dir, ec)) {
