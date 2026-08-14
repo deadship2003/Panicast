@@ -104,17 +104,26 @@ void MPVController::set_keep_open(bool keep) {
 void MPVController::sub_add(const std::string &url) {
     if (!ctx_ || url.empty())
         return;
-    const char *args[] = {"sub-add", url.c_str(), "select", nullptr};
-    int rc = mpv_command(ctx_, args);
-    LOG(fmt::format("[MPV] sub-add '{}' (rc={})", url, rc));
+    // Freeze-fix (2026-08-15): via the cmd worker — direct mpv_command on the UI thread (L-key
+    //   video path) blocks forever on a wedged core.
+    enqueue_cmd_([this, url] {
+        const char *args[] = {"sub-add", url.c_str(), "select", nullptr};
+        int rc = mpv_command(ctx_, args);
+        LOG(fmt::format("[MPV] sub-add '{}' (rc={})", url, rc));
+    });
 }
 
 // Y24.28: show OSD text (for ASR transcription progress).
+// Freeze-fix (2026-08-15): routed through the cmd worker — a direct mpv_command from the UI
+//   thread (L-key path) would block forever on a wedged core, freezing the TUI.
 void MPVController::show_osd(const std::string &text, int duration_ms) {
     if (!ctx_ || text.empty())
         return;
-    const char *args[] = {"show-text", text.c_str(), std::to_string(duration_ms).c_str(), nullptr};
-    mpv_command(ctx_, args);
+    std::string ms = std::to_string(duration_ms);
+    enqueue_cmd_([this, text, ms] {
+        const char *args[] = {"show-text", text.c_str(), ms.c_str(), nullptr};
+        mpv_command(ctx_, args);
+    });
 }
 
 // Y24.43: is the mpv video output window actually rendering? current-vo is "null"/empty for audio-only.
@@ -133,8 +142,19 @@ bool MPVController::is_audio_only_mode() {
     return vo == "null" || vid == "no";
 }
 
-// Y24.43: does the current media have an embedded subtitle track? Iterate mpv track-list for type=sub.
+// Y24.43: does the current media have an embedded subtitle track?
+// Freeze-fix (2026-08-15): plain state read — the track-list scan moved to update_state() on the
+//   EVENT thread (scan_sub_track_()). This used to call mpv_get_property(track-list)
+//   synchronously; called from the UI thread every frame (update_remote_state_cache), a wedged
+//   mpv core (dropped paused stream / reconnect black-hole / AO-init timeout) blocked the UI
+//   frame forever — "paused a while → UI unresponsive".
 bool MPVController::has_active_subtitle() const {
+    return state_.has_sub_track; // last-known-good, same pattern as is_video_window_open()
+}
+
+// Event-thread-only: raw mpv track-list scan for a type=sub entry (was the body of
+//   has_active_subtitle). Called from update_state() under the 100ms refresh gate.
+bool MPVController::scan_sub_track_() const {
     if (!ctx_)
         return false;
     mpv_node node;

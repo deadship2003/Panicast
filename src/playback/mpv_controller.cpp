@@ -585,6 +585,10 @@ void MPVController::update_state() {
     int64_t pl_count = 0;
     mpv_get_property(ctx_, "playlist-count", MPV_FORMAT_INT64, &pl_count);
 
+    // Freeze-fix (2026-08-15): embedded sub-track presence, scanned HERE (event thread) instead
+    //   of on demand from the UI thread — see State::has_sub_track.
+    bool sub_track = scan_sub_track_();
+
     // Y11: network/stream health for the INFO "Network: | Buffering:" line.
     int64_t cache_speed = 0;
     mpv_get_property(ctx_, "cache-speed", MPV_FORMAT_INT64, &cache_speed);
@@ -604,6 +608,7 @@ void MPVController::update_state() {
         state_.media_duration = duration;
         state_.playlist_pos = (int)pl_pos;
         state_.playlist_count = (int)pl_count;
+        state_.has_sub_track = sub_track;
         if (t)
             state_.title = t;
         if (path)

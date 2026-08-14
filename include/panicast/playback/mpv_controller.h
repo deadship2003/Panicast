@@ -111,6 +111,14 @@ public:
         // Y12: current subtitle/lyric text (mpv `sub-text` — the active line at time_pos).
         //   For local .lrc (auto-loaded external sub) and YouTube soft subs (sub-file). Empty between lines.
         std::string sub_text;
+        // Freeze-fix (2026-08-15): embedded sub-track presence, refreshed by update_state() on
+        //   the EVENT thread. has_active_subtitle() used to call mpv_get_property(track-list)
+        //   synchronously — from the UI thread (update_remote_state_cache runs it EVERY frame)
+        //   that blocks forever when the mpv core wedges (paused stream dropped by the CDN,
+        //   ffmpeg reconnect black-hole, AO-init timeout): the UI frame never completes, all
+        //   input dies ("paused a while → UI unresponsive"). Now a plain state read, same
+        //   last-known-good pattern as the other fields.
+        bool has_sub_track = false;
     };
 
     State get_state();
@@ -220,6 +228,9 @@ private:
 
     void event_loop();
     void update_state();
+    // Freeze-fix: raw mpv track-list scan for type=sub — EVENT THREAD ONLY (called from
+    //   update_state); a wedged core blocks this caller, which must never be the UI thread.
+    bool scan_sub_track_() const;
     // D36: Extract Method — log codec/bitrate/hwdec once per track (PLAYBACK_RESTART, decoder ready).
     void log_track_codec_info_();
     // D41: Extract Method — END_FILE event handler (reason dispatch + VO-fallback + IPTV msg + callback).
