@@ -78,7 +78,7 @@ UI（`src/ui/`）是纯呈现层，依赖规则：
 
 ## 6. 已知技术债（重构输入，详见 AUDIT_REPORT）
 
-- **上帝对象/文件**：`App`（`app.h` 666 行声明）、`app_run.cpp`(550，机械缝挖尽；run() god-方法 D35 抽出 startup/shutdown bookend，剩 loop 体 286 行待进一步设计分解)、`mpv_controller.cpp`(897，D18-D20+D34 已抽 wrapper/metadata/iptv/单条播放，剩 event_loop/update_state 待设计分解)、`app_input.cpp`(903，硬编码 `switch(ch)`)。~~`ini_config.h`~~（原 1087 行 god-header，D24-D31 已迁 72 个方法出体，现 304 行纯声明头，**基本驯服**）。
+- **上帝对象/文件**：`App`（`app.h` 666 行声明）、`app_run.cpp`(550，机械缝挖尽；run() god-方法 D35 抽出 startup/shutdown bookend，剩 loop 体 286 行待进一步设计分解)、`mpv_controller.cpp`(904，D18-D20+D34 机械抽 wrapper/metadata/iptv/单条播放；D36 设计层抽 event_loop codec-info 块；剩 event_loop END_FILE 分支/run loop 待设计)、`app_input.cpp`(903，硬编码 `switch(ch)`)。~~`ini_config.h`~~（原 1087 行 god-header，D24-D31 已迁 72 个方法出体，现 304 行纯声明头，**基本驯服**）。
 - **竞态**：`pending_select_` + 跨线程裸回调（P1-4 向量竞态、P1-5 两锁一树、P1-8 `~App` 缺失致 UAF）。
 - **SQL 卫生**：多处忽略 `exec_sql` 返回、Bilibili 一处 `fmt::format` 拼接（注入面）、`atoll` 解 TEXT 时间戳恒为 0、`StmtRAII` 预编译缓存造好但零使用。
 - **热键硬编码**：`app_input.cpp` `handle_input` 的 `switch(ch)`，不可配置（`ini_config.h` 注释自承）。

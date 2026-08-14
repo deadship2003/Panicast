@@ -620,58 +620,7 @@ void MPVController::event_loop() {
             //   seeks within a track (which also fire PLAYBACK_RESTART) don't re-log.
             if (!restart_info_logged_) {
                 restart_info_logged_ = true;
-                const char *vc = mpv_get_property_string(ctx_, "video-codec");
-                const char *hw = mpv_get_property_osd_string(ctx_, "hwdec-current");
-                const char *ac = mpv_get_property_string(ctx_, "audio-codec");
-                std::string vcodec = (vc && vc[0]) ? vc : "";
-                std::string hwdec = (hw && hw[0] && strcmp(hw, "no") != 0) ? hw : "";
-                std::string acodec = (ac && ac[0]) ? ac : "";
-                if (vc)
-                    mpv_free((void *)vc);
-                if (hw)
-                    mpv_free((void *)hw);
-                if (ac)
-                    mpv_free((void *)ac);
-                // Y16: expand to full two-line codec info (resolution, bitrate, channels, samplerate).
-                //   Reads the same properties as update_state but logs them once (not per-frame).
-                int64_t vw = 0, vh = 0;
-                mpv_get_property(ctx_, "width", MPV_FORMAT_INT64, &vw);
-                mpv_get_property(ctx_, "height", MPV_FORMAT_INT64, &vh);
-                double vbr = 0;
-                mpv_get_property(ctx_, "video-bitrate", MPV_FORMAT_DOUBLE, &vbr);
-                double abr = 0;
-                mpv_get_property(ctx_, "audio-bitrate", MPV_FORMAT_DOUBLE, &abr);
-                char *asr = mpv_get_property_osd_string(ctx_, "audio-params/samplerate");
-                char *ach = mpv_get_property_osd_string(ctx_, "audio-params/channel-count");
-                std::string samplerate = (asr && asr[0]) ? asr : "";
-                std::string channels = (ach && ach[0]) ? ach : "";
-                if (asr)
-                    mpv_free(asr);
-                if (ach)
-                    mpv_free(ach);
-
-                if (!vcodec.empty()) {
-                    std::string hwdec_disp = hwdec.empty() ? "software" : hwdec;
-                    // Y16: full line — Video: <codec> <WxH> <bitrate>kbps [<hwdec>]
-                    std::string vline = fmt::format("Video: {} {}x{}", vcodec, (int)vw, (int)vh);
-                    if (vbr > 0)
-                        vline += fmt::format(" {}kbps", (int)(vbr / 1000));
-                    vline += fmt::format(" [{}]", hwdec_disp);
-                    LOG(fmt::format("[MPV] {}", vline));
-                    EVENT_LOG(vline);
-                }
-                if (!acodec.empty()) {
-                    // Y16: full line — Audio: <codec> <channels>ch <samplerate>Hz <bitrate>kbps
-                    std::string aline = fmt::format("Audio: {}", acodec);
-                    if (!channels.empty())
-                        aline += fmt::format(" {}ch", channels);
-                    if (!samplerate.empty())
-                        aline += fmt::format(" {}Hz", samplerate);
-                    if (abr > 0)
-                        aline += fmt::format(" {}kbps", (int)(abr / 1000));
-                    LOG(fmt::format("[MPV] {}", aline));
-                    EVENT_LOG(aline);
-                }
+                log_track_codec_info_();
             }
         }
 
@@ -679,6 +628,64 @@ void MPVController::event_loop() {
     }
     mpv_thread_done_.store(true); // signal exit for bounded join in stop()
 }
+
+// D36: log codec/bitrate/hwdec once per track. Called from event_loop's PLAYBACK_RESTART
+//   branch (decoder initialized, properties ready). Guarded once-per-track by the caller.
+void MPVController::log_track_codec_info_() {
+    const char *vc = mpv_get_property_string(ctx_, "video-codec");
+    const char *hw = mpv_get_property_osd_string(ctx_, "hwdec-current");
+    const char *ac = mpv_get_property_string(ctx_, "audio-codec");
+    std::string vcodec = (vc && vc[0]) ? vc : "";
+    std::string hwdec = (hw && hw[0] && strcmp(hw, "no") != 0) ? hw : "";
+    std::string acodec = (ac && ac[0]) ? ac : "";
+    if (vc)
+        mpv_free((void *)vc);
+    if (hw)
+        mpv_free((void *)hw);
+    if (ac)
+        mpv_free((void *)ac);
+    // Y16: expand to full two-line codec info (resolution, bitrate, channels, samplerate).
+    //   Reads the same properties as update_state but logs them once (not per-frame).
+    int64_t vw = 0, vh = 0;
+    mpv_get_property(ctx_, "width", MPV_FORMAT_INT64, &vw);
+    mpv_get_property(ctx_, "height", MPV_FORMAT_INT64, &vh);
+    double vbr = 0;
+    mpv_get_property(ctx_, "video-bitrate", MPV_FORMAT_DOUBLE, &vbr);
+    double abr = 0;
+    mpv_get_property(ctx_, "audio-bitrate", MPV_FORMAT_DOUBLE, &abr);
+    char *asr = mpv_get_property_osd_string(ctx_, "audio-params/samplerate");
+    char *ach = mpv_get_property_osd_string(ctx_, "audio-params/channel-count");
+    std::string samplerate = (asr && asr[0]) ? asr : "";
+    std::string channels = (ach && ach[0]) ? ach : "";
+    if (asr)
+        mpv_free(asr);
+    if (ach)
+        mpv_free(ach);
+
+    if (!vcodec.empty()) {
+        std::string hwdec_disp = hwdec.empty() ? "software" : hwdec;
+        // Y16: full line — Video: <codec> <WxH> <bitrate>kbps [<hwdec>]
+        std::string vline = fmt::format("Video: {} {}x{}", vcodec, (int)vw, (int)vh);
+        if (vbr > 0)
+            vline += fmt::format(" {}kbps", (int)(vbr / 1000));
+        vline += fmt::format(" [{}]", hwdec_disp);
+        LOG(fmt::format("[MPV] {}", vline));
+        EVENT_LOG(vline);
+    }
+    if (!acodec.empty()) {
+        // Y16: full line — Audio: <codec> <channels>ch <samplerate>Hz <bitrate>kbps
+        std::string aline = fmt::format("Audio: {}", acodec);
+        if (!channels.empty())
+            aline += fmt::format(" {}ch", channels);
+        if (!samplerate.empty())
+            aline += fmt::format(" {}Hz", samplerate);
+        if (abr > 0)
+            aline += fmt::format(" {}kbps", (int)(abr / 1000));
+        LOG(fmt::format("[MPV] {}", aline));
+        EVENT_LOG(aline);
+    }
+}
+
 
 void MPVController::update_state() {
     // Null pointer check to prevent segfault

@@ -211,6 +211,8 @@ private:
 
     void event_loop();
     void update_state();
+    // D36: Extract Method — log codec/bitrate/hwdec once per track (PLAYBACK_RESTART, decoder ready).
+    void log_track_codec_info_();
 };
 
 } // namespace panicast

@@ -1,4 +1,19 @@
 
+## D36 — event_loop Extract Method：codec-info 块 → log_track_codec_info_()（设计层第二刀）
+
+**Context:** D35 拆 run() bookend 后，继续 god-方法分解。event_loop(~254)/update_state(~60 经 D34 后) 是 mpv 事件/状态方法。event_loop 的 PLAYBACK_RESTART 分支有一块"每轨记一次 codec 信息"(~52 行)，评估可抽性。
+
+**Decision:** 抽 codec-info 块 → `log_track_codec_info_()`。理据：块**完全自包含**——每个局部(vc/hw/ac/vcodec/hwdec/acodec/vw/vh/vbr/abr/asr/ach/samplerate/channels/vline/aline)都在块内声明、只读成员 `ctx_` → **零参数**抽出。每轨一次守卫(`if(!restart_info_logged_){restart_info_logged_=true;<块>}`)留调用方，只搬 `<块>`。这是干净的 Extract Method（vs update_state 的 IPTV 检测块，其与属性轮询局部缠绕需 ~8 参数 → 不抽）。
+
+**关键点:**
+- 块在 16 空格缩进（event_loop 体 4 → while 8 → else-if 12 → if 16），迁方法体(4 空格)须 **dedent 12**。块内全单行 `fmt::format`、无跨行续行/括号对齐 → 均匀 `line[12:]` 保相对嵌套（空白行保空白）。dedent 安全性前提：块内无续行对齐——抽取前已逐行核查。
+- 设计层 Extract Method 的"零参数"判据：块内局部全自声明 + 只读成员 = 干净切点；若块读取外层局部 → 须传参，参数越多越接近"缠绕切点"（应留后续或重新设计）。codec 块零外层局部读取 → 干净。
+- 续 D35：god-方法分解按"先摘干净果"推进——run() bookend(零参数)、event_loop codec 块(零参数) 已抽；剩余(run loop 各 phase、update_state IPTV 块)皆与外层局部缠绕，需传参/提成成员，留后续设计。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。块 verbatim 搬迁 + dedent，行为保持。
+
+
+
 ## D35 — run() Extract Method：startup/shutdown bookend 抽出（设计层第一刀）
 
 **Context:** 机械搬迁缝（D17-D34）已饱和——cohesive 方法簇都迁了 sibling TU，剩余膨胀在 god-**方法**（run ~470 / event_loop ~254 / update_state ~214）。run() 三段清晰：startup(~115，一次性初始化)/while loop(~286，每帧)/shutdown(~67，teardown+persist+_exit)。是否抽？

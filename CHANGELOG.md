@@ -10,6 +10,22 @@
 
 ---
 
+## 新架构 D36 — 2026-08-14 — 设计层第二刀：event_loop Extract Method — codec-info 块 → log_track_codec_info_()（M3 · main 主线）
+
+> event_loop()（mpv 事件派发，~254 行）的 `MPV_EVENT_PLAYBACK_RESTART` 分支内有一块 **每轨记一次 codec 信息**（~52 行：读 video/audio-codec/bitrate/hwdec/分辨率/声道/采样率 → 日志两行）。该块**完全自包含**：每个局部都在块内声明、只读成员 `ctx_` → **零参数**抽出为 `MPVController::log_track_codec_info_()`。调用点收敛为 `if (!restart_info_logged_) { restart_info_logged_ = true; log_track_codec_info_(); }`（每轨一次守卫留调用方）。
+>
+> Extract Method 续作（D35 后第二刀设计层）：改善 event_loop 可读性，不减总行数（mpv_controller.cpp 897→904）。块在 16 空格缩进、迁方法体（4 空格）须 **dedent 12**——块内全单行 fmt::format、无续行对齐，均匀 `[12:]` 保相对嵌套。
+
+### 改动
+- `mpv_controller.h`：加 `void log_track_codec_info_();` 私有声明。
+- `mpv_controller.cpp`：event_loop PLAYBACK_RESTART 分支的 codec 块（623-674）dedent 12 迁入新方法（插在 update_state 前），调用点替换。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
+- event_loop god-方法：codec 日志细节藏于具名 helper，分支表意清晰（"标记播放已开始；每轨记一次 codec"）。
+
+---
+
 ## 新架构 D35 — 2026-08-14 — 设计层第一刀：run() Extract Method — startup/shutdown bookend 抽出（M3 · main 主线）
 
 > **进入设计层**：机械搬迁缝（D17-D34，cohesive 方法簇 verbatim 迁 sibling TU）已饱和，剩余是 god-**方法**。主流手法 = **Extract Method**（Fowler 长方法重构首推）。run()（~470 行单方法）三段：startup(~115)/while loop(~286)/shutdown(~67)。把两个 bookend 区抽成 `App::startup()`/`App::shutdown()`，run() 收敛为 `startup(); <loop>; shutdown();`。
