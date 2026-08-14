@@ -129,6 +129,17 @@ TEST(URLClassifier, PatternPriority) {
     EXPECT_EQ(URLClassifier::classify("https://youtube.com/watch?v=abc"), URLType::YOUTUBE_VIDEO);
 }
 
+// ─── URLClassifier::is_local_file (D14-3b: single source of truth for ASR is_streaming) ───
+TEST(URLClassifier, IsLocalFile) {
+    // The boolean 3 ASR call sites share as `is_streaming = !is_local_file(url)` (app_input×2,
+    //   app_remote). Locking the predicate directly: classify() routes through it too.
+    EXPECT_TRUE(URLClassifier::is_local_file("/abs/path/file.mp3"));
+    EXPECT_TRUE(URLClassifier::is_local_file("file:///home/user/music.mp3"));
+    EXPECT_FALSE(URLClassifier::is_local_file("https://example.com/stream.mp3"));
+    EXPECT_FALSE(URLClassifier::is_local_file("relative/path.mp3"));  // not absolute, not file://
+    EXPECT_FALSE(URLClassifier::is_local_file(""));                   // empty
+}
+
 // ─── Time format parsing tests (link real SleepTimer::parse_time_string, src/playback/sleep_timer.cpp) ───
 
 TEST(TimeParser, SuffixFormats) {
