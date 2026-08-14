@@ -337,6 +337,11 @@ private:
     void refresh_node();
 
     // ── app_run.cpp ─────────────────────────────────────────────────────────────
+    // D35: Extract Method — run()'s startup/shutdown bookends. run() is now the pure
+    //   frame loop; the one-time init (frontend/mpv/services/data load/remote server)
+    //   and the post-loop teardown (persist state + _exit) are named for readability.
+    void startup();
+    void shutdown();
     // D11-3c: load_history_to_root relocated to LibraryService (the history_root_ owner).
     void load_persistent_data();
     void save_persistent_data();

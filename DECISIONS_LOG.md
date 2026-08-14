@@ -1,4 +1,23 @@
 
+## D35 — run() Extract Method：startup/shutdown bookend 抽出（设计层第一刀）
+
+**Context:** 机械搬迁缝（D17-D34）已饱和——cohesive 方法簇都迁了 sibling TU，剩余膨胀在 god-**方法**（run ~470 / event_loop ~254 / update_state ~214）。run() 三段清晰：startup(~115，一次性初始化)/while loop(~286，每帧)/shutdown(~67，teardown+persist+_exit)。是否抽？
+
+**Decision:** 抽两个 bookend（startup/shutdown），不抽 loop 体。理据：
+1. **两 bookend 自包含**：无局部变量流入/出 loop——startup 经成员(frontend_/player/playback_/library_/pool_/remote_server_)建状态、调成员方法(load_persistent_data/restore_player_state/mark_cached_nodes/load_default_podcasts)；shutdown 的局部(player_state/np/canonical_url/current_title/completed)全在区内自用。→ 抽出方法**零参数**，纯块搬迁。
+2. **loop 体不抽**：各 phase 共享大量局部（frame_start_/app_state/is_loading/sel_node/downloads/state/current_index_snap/next_snap/cur_url_snap/hist_titles/markd 等）横跨多 phase，抽单 phase 须传多参或提成成员 → 复杂度上升、行为风险高。bookend 是干净切点，loop 是缠绕切点——先摘干净果。
+3. **安全护栏**：两 bookend 恰被 pty 冒烟覆盖（启动→loop→q/y 退出→shutdown→exit 0 全路径），行为回归有测。
+
+**关键点（机械层 vs 设计层的本质差异）:**
+- 机械搬迁（D17-D34）：方法簇迁 sibling TU → **减总行数**（大文件变小，多 TU）。验证靠编译等价（同 include 集）。
+- Extract Method（D35）：长方法拆短方法 → **不减总行数**（多方法签名/注释），改善**结构可读性/可测性/可维护性**。验证靠行为保持（测试护栏）。
+- 两者都守铁律（0-warning+ctest+冒烟），但价值维度不同：机械层"文件不再臃肿"，设计层"方法不再难懂"。进入设计层后，行数不再是进度指标，**方法可读性**才是。
+- 主流判断：长方法的首选重构永远是 Extract Method（Fowler《重构》第一个手法、最高频）。run() 先抽 bookend（干净），loop 体留后续设计（缠绕，需更细致的 phase 边界与局部归类）。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。run() god-方法第一步驯服：startup(115)/loop(286)/shutdown(67) 三具名方法。
+
+
+
 ## D34 — mpv_controller 单条播放簇 → mpv_play.cpp（3 方法、~153 行 verbatim 搬迁）
 
 **Context:** D18/D19/D20 已从 mpv_controller.cpp 抽 wrapper(mpv_commands)/metadata(mpv_metadata)/iptv(mpv_iptv) 三组，剩 1050 行。评估剩余方法的机械可搬性。

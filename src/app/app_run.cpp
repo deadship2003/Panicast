@@ -63,121 +63,7 @@ App::~App() {
 }
 
 void App::run() {
-    frontend_->init();
-    // Confirm XML error handler is set (already set in main; this is a secondary confirmation)
-    // Redirect errors to LOG/EVENT_LOG to avoid terminal output causing screen corruption
-    xmlSetGenericErrorFunc(NULL, xml_error_handler);
-    // libxml2 2.12+ callback signature uses const xmlError*; 2.9.x uses non-const.
-    //   The handler uses the const version (for newer releases); this cast compatibilizes older libxml2 (e.g. Debian 12).
-    xmlSetStructuredErrorFunc(NULL, (xmlStructuredErrorFunc)xml_structured_error_handler);
-    if (!player.initialize())
-        LOG("MPV initialization failed");
-
-    // Register playback-ended callback to auto-play the next track
-    player.set_end_file_callback([this](int reason) { pending_end_reason_.store(reason); });
-    LOG("[AUTOPLAY] End-file callback registered");
-
-    // D8: PlaybackService (first Application Service) owns the playback Action handlers
-    //   (pause/volume) — subscribed via playback_.init(). Nav Actions stay here for now.
-    playback_.init();
-    // D8b-2: inject pool_/subtitle (declared after playback_ in App, so they can't be
-    //   construction-time references). play_current / on_playback_ended live in PlaybackService
-    //   now and own the track handles (playback_node_ / playback_mode_) directly (D9-2) — App reads
-    //   them via playback_.playback_node() / playback_.playback_mode(). Must run before the loop.
-    //   D11-1: subtitle is fully event-driven (SubtitleService subscribes the playback events), so
-    //   attach() now takes only the pool — PlaybackService no longer references SubtitleService.
-    playback_.attach(pool_);
-    // D9: subscribe to the playback state events App still consumes locally. The bus is
-    //   synchronous, so these run on the publisher's thread (pool thread for history). D9-2/D9-3:
-    //   PlaybackTrackChanged / PlaybackBufferingChanged no longer need App subscribers — the track
-    //   and buffering state moved into the service (App reads accessors / calls advance_buffering);
-    //   both events stay published as the reactor channel for future direct UI/remote subscribers
-    //   (D10+). Only HistoryChanged is still consumed here (rebuild the history tree).
-    action_subs_.push_back(EventBus::instance().subscribe<HistoryChanged>(
-        [this](const HistoryChanged &) { library_.load_history_to_root(); }));
-    // D7: Keymap (key→Action) + nav input Actions.
-    build_keymap();
-    action_subs_.push_back(
-        EventBus::instance().subscribe<NavUpAction>([this](const NavUpAction &) { nav_up(); }));
-    action_subs_.push_back(EventBus::instance().subscribe<NavDownAction>(
-        [this](const NavDownAction &) { nav_down(); }));
-
-    // Y07: startup runtime-dependency pre-check for YouTube playback. Warn once in the LOG
-    //   panel so a missing dependency is obvious immediately, instead of a cryptic
-    //   "YouTube resolve failed (no yt-dlp output)" discovered only when the user tries to play.
-    {
-        std::string ytdlp = Utils::which_binary("yt-dlp");
-        if (ytdlp.empty()) {
-            EVENT_LOG("Warning: yt-dlp not installed / not in PATH — YouTube playback and parsing "
-                      "unavailable. Install: pip install -U \"yt-dlp[default]\"");
-        } else {
-            LOG(fmt::format("[INIT] yt-dlp: {}", ytdlp));
-            std::string qjs = Utils::which_binary("qjs");
-            if (qjs.empty())
-                qjs = Utils::which_binary("qjsng");
-            if (qjs.empty() && Utils::which_binary("deno").empty()) {
-                EVENT_LOG("Warning: no qjs/qjsng/deno detected — YouTube playback needs a JS "
-                          "runtime to solve nsig. Install quickjs-ng (binary qjs) or deno");
-            } else if (!qjs.empty()) {
-                LOG(fmt::format("[INIT] JS runtime: {}", qjs));
-                // quickjs can't fetch the EJS solver from npm (deno can); needs yt-dlp[default]
-                //   (yt-dlp-ejs). Probe via yt-dlp's OWN environment (yt-dlp -v lists Optional
-                //   libraries incl. yt_dlp_ejs) — reliable, no false negative from system python3
-                //   differing from yt-dlp's install env. Best-effort, non-fatal.
-                FILE *p = popen("yt-dlp -v 2>&1 | grep -q yt_dlp_ejs", "r");
-                if (p) {
-                    if (pclose(p) != 0)
-                        EVENT_LOG("Warning: quickjs missing EJS solver — pip install -U "
-                                  "\"yt-dlp[default]\" (includes yt-dlp-ejs)");
-                }
-            }
-        }
-    }
-
-    Persistence::load_cache(library_.radio_root(), library_.podcast_root());
-    load_persistent_data();
-
-    // Load history into library_.history_root()
-    library_.load_history_to_root();
-
-    // Y01: load Google accounts into library_.account_root() (Y mode)
-    library_.load_accounts_root();
-    library_.load_bilibili_root(); // Y15: B-mode
-    library_.load_tiktok_root();   // Y24.11: T-mode
-
-    // Restore last playback state
-    restore_player_state();
-
-    for (auto &it : library_.radio_root())
-        mark_cached_nodes(it);
-    for (auto &it : library_.podcast_root())
-        mark_cached_nodes(it);
-
-    if (library_.radio_root().empty()) {
-        // Use thread pool; App destructor safely joins (old code: .detach() had use-after-free)
-        pool_.submit([this]() { library_.load_radio_root(); });
-    }
-    // Always load built-in podcasts, merging with cached data
-    load_default_podcasts();
-
-    // Initialize layout manager
-    LayoutMetrics::instance().check_resize();
-
-    // N01: start the remote control server if [remote] enable=true (opt-in). Default off →
-    //   zero impact on the local TUI. The server thread pushes RemoteCommands into remote_bus_;
-    //   the main loop drains them below each frame.
-    if (IniConfig::instance().get_remote_enabled()) {
-        if (remote_server_.start(IniConfig::instance().get_remote_bind(),
-                                 IniConfig::instance().get_remote_port(), this)) {
-            EVENT_LOG(fmt::format("Remote control on — PIN {} (or {}). Open http://127.0.0.1:{}/ "
-                                  "in a browser; ':pin' to show.",
-                                  remote_server_.dynamic_pin(), remote_server_.universal_pin(),
-                                  IniConfig::instance().get_remote_port()));
-        } else {
-            EVENT_LOG("Remote control server failed to start (see log); continuing without remote "
-                      "control");
-        }
-    }
+    startup();
 
     while (running) {
         const auto frame_start_ = std::chrono::steady_clock::now();
@@ -465,6 +351,132 @@ void App::run() {
             LOG(fmt::format("[WATCHDOG] slow frame: {}ms (tree/pl wait logged above if >80ms)",
                             _frame_ms));
     }
+
+    shutdown();
+}
+
+// D35: run() startup bookend — one-time init before the frame loop.
+void App::startup() {
+    frontend_->init();
+    // Confirm XML error handler is set (already set in main; this is a secondary confirmation)
+    // Redirect errors to LOG/EVENT_LOG to avoid terminal output causing screen corruption
+    xmlSetGenericErrorFunc(NULL, xml_error_handler);
+    // libxml2 2.12+ callback signature uses const xmlError*; 2.9.x uses non-const.
+    //   The handler uses the const version (for newer releases); this cast compatibilizes older libxml2 (e.g. Debian 12).
+    xmlSetStructuredErrorFunc(NULL, (xmlStructuredErrorFunc)xml_structured_error_handler);
+    if (!player.initialize())
+        LOG("MPV initialization failed");
+
+    // Register playback-ended callback to auto-play the next track
+    player.set_end_file_callback([this](int reason) { pending_end_reason_.store(reason); });
+    LOG("[AUTOPLAY] End-file callback registered");
+
+    // D8: PlaybackService (first Application Service) owns the playback Action handlers
+    //   (pause/volume) — subscribed via playback_.init(). Nav Actions stay here for now.
+    playback_.init();
+    // D8b-2: inject pool_/subtitle (declared after playback_ in App, so they can't be
+    //   construction-time references). play_current / on_playback_ended live in PlaybackService
+    //   now and own the track handles (playback_node_ / playback_mode_) directly (D9-2) — App reads
+    //   them via playback_.playback_node() / playback_.playback_mode(). Must run before the loop.
+    //   D11-1: subtitle is fully event-driven (SubtitleService subscribes the playback events), so
+    //   attach() now takes only the pool — PlaybackService no longer references SubtitleService.
+    playback_.attach(pool_);
+    // D9: subscribe to the playback state events App still consumes locally. The bus is
+    //   synchronous, so these run on the publisher's thread (pool thread for history). D9-2/D9-3:
+    //   PlaybackTrackChanged / PlaybackBufferingChanged no longer need App subscribers — the track
+    //   and buffering state moved into the service (App reads accessors / calls advance_buffering);
+    //   both events stay published as the reactor channel for future direct UI/remote subscribers
+    //   (D10+). Only HistoryChanged is still consumed here (rebuild the history tree).
+    action_subs_.push_back(EventBus::instance().subscribe<HistoryChanged>(
+        [this](const HistoryChanged &) { library_.load_history_to_root(); }));
+    // D7: Keymap (key→Action) + nav input Actions.
+    build_keymap();
+    action_subs_.push_back(
+        EventBus::instance().subscribe<NavUpAction>([this](const NavUpAction &) { nav_up(); }));
+    action_subs_.push_back(EventBus::instance().subscribe<NavDownAction>(
+        [this](const NavDownAction &) { nav_down(); }));
+
+    // Y07: startup runtime-dependency pre-check for YouTube playback. Warn once in the LOG
+    //   panel so a missing dependency is obvious immediately, instead of a cryptic
+    //   "YouTube resolve failed (no yt-dlp output)" discovered only when the user tries to play.
+    {
+        std::string ytdlp = Utils::which_binary("yt-dlp");
+        if (ytdlp.empty()) {
+            EVENT_LOG("Warning: yt-dlp not installed / not in PATH — YouTube playback and parsing "
+                      "unavailable. Install: pip install -U \"yt-dlp[default]\"");
+        } else {
+            LOG(fmt::format("[INIT] yt-dlp: {}", ytdlp));
+            std::string qjs = Utils::which_binary("qjs");
+            if (qjs.empty())
+                qjs = Utils::which_binary("qjsng");
+            if (qjs.empty() && Utils::which_binary("deno").empty()) {
+                EVENT_LOG("Warning: no qjs/qjsng/deno detected — YouTube playback needs a JS "
+                          "runtime to solve nsig. Install quickjs-ng (binary qjs) or deno");
+            } else if (!qjs.empty()) {
+                LOG(fmt::format("[INIT] JS runtime: {}", qjs));
+                // quickjs can't fetch the EJS solver from npm (deno can); needs yt-dlp[default]
+                //   (yt-dlp-ejs). Probe via yt-dlp's OWN environment (yt-dlp -v lists Optional
+                //   libraries incl. yt_dlp_ejs) — reliable, no false negative from system python3
+                //   differing from yt-dlp's install env. Best-effort, non-fatal.
+                FILE *p = popen("yt-dlp -v 2>&1 | grep -q yt_dlp_ejs", "r");
+                if (p) {
+                    if (pclose(p) != 0)
+                        EVENT_LOG("Warning: quickjs missing EJS solver — pip install -U "
+                                  "\"yt-dlp[default]\" (includes yt-dlp-ejs)");
+                }
+            }
+        }
+    }
+
+    Persistence::load_cache(library_.radio_root(), library_.podcast_root());
+    load_persistent_data();
+
+    // Load history into library_.history_root()
+    library_.load_history_to_root();
+
+    // Y01: load Google accounts into library_.account_root() (Y mode)
+    library_.load_accounts_root();
+    library_.load_bilibili_root(); // Y15: B-mode
+    library_.load_tiktok_root();   // Y24.11: T-mode
+
+    // Restore last playback state
+    restore_player_state();
+
+    for (auto &it : library_.radio_root())
+        mark_cached_nodes(it);
+    for (auto &it : library_.podcast_root())
+        mark_cached_nodes(it);
+
+    if (library_.radio_root().empty()) {
+        // Use thread pool; App destructor safely joins (old code: .detach() had use-after-free)
+        pool_.submit([this]() { library_.load_radio_root(); });
+    }
+    // Always load built-in podcasts, merging with cached data
+    load_default_podcasts();
+
+    // Initialize layout manager
+    LayoutMetrics::instance().check_resize();
+
+    // N01: start the remote control server if [remote] enable=true (opt-in). Default off →
+    //   zero impact on the local TUI. The server thread pushes RemoteCommands into remote_bus_;
+    //   the main loop drains them below each frame.
+    if (IniConfig::instance().get_remote_enabled()) {
+        if (remote_server_.start(IniConfig::instance().get_remote_bind(),
+                                 IniConfig::instance().get_remote_port(), this)) {
+            EVENT_LOG(fmt::format("Remote control on — PIN {} (or {}). Open http://127.0.0.1:{}/ "
+                                  "in a browser; ':pin' to show.",
+                                  remote_server_.dynamic_pin(), remote_server_.universal_pin(),
+                                  IniConfig::instance().get_remote_port()));
+        } else {
+            EVENT_LOG("Remote control server failed to start (see log); continuing without remote "
+                      "control");
+        }
+    }
+}
+
+// D35: run() shutdown bookend — post-loop teardown, persist state, then _exit(0)
+//   (skips ~App so detached pool workers can't UAF members during unwinding).
+void App::shutdown() {
 
     // Shut down the thread pool and join all background load tasks before exiting,
     //   to avoid concurrent mutations causing torn reads/crashes while save_cache serializes the tree

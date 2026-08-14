@@ -10,6 +10,25 @@
 
 ---
 
+## 新架构 D35 — 2026-08-14 — 设计层第一刀：run() Extract Method — startup/shutdown bookend 抽出（M3 · main 主线）
+
+> **进入设计层**：机械搬迁缝（D17-D34，cohesive 方法簇 verbatim 迁 sibling TU）已饱和，剩余是 god-**方法**。主流手法 = **Extract Method**（Fowler 长方法重构首推）。run()（~470 行单方法）三段：startup(~115)/while loop(~286)/shutdown(~67)。把两个 bookend 区抽成 `App::startup()`/`App::shutdown()`，run() 收敛为 `startup(); <loop>; shutdown();`。
+>
+> **与机械搬迁的区别**：Extract Method 改善结构可读性，**不减总行数**（app_run.cpp 538→550，因多了方法签名+注释；但 run() 从 470 行 god-方法拆为 3 个具名方法，每个表意清晰）。这正是设计层 vs 机械层的本质差异。
+>
+> **为何安全**：①两 bookend 自包含——无局部变量流入/出（startup 经成员建状态，shutdown 局部全自用）→ 抽出方法**零参数**；②语句已 4 空格缩进=方法体级 → **无需 dedent，纯块搬迁**；③pty 冒烟覆盖两路径（startup→loop→q/y 退出→shutdown→exit 0）。脚本用**字符串/注释感知括号计数器**定位 while/run 的闭合（loop 体内 fmt::format 串含 `{}`，朴素计数会错）。
+
+### 改动
+- `include/panicast/app/app.h`：加 `void startup();` / `void shutdown();` 私有声明（首个触及 app.h 声明的重构步）。
+- `src/app/app_run.cpp`：run() = startup() 调用 + while loop + shutdown() 调用；新 `App::startup()`（frontend/mpv/services/事件订阅/yt-dlp 预检/数据载入/remote server 一次性初始化）、`App::shutdown()`（kill children/pool join/save 持久化+cache+player_state+progress/player.stop/cleanup/_exit(0)）。
+- while loop 体（286 行，每帧：信号/定时/resize→drain remote/playback→状态计算→flatten/字幕/lyric→下载队列/视图滚动→playlist 快照/DisplayContext/draw→输入）**原样留 run()**——各 phase 共享大量局部（frame_start_/app_state/is_loading/sel_node/downloads/state/current_index_snap…），进一步抽 phase 须传多参或提成成员，复杂度/风险高，留后续。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin（quit→shutdown 持久化路径完整）。
+- run() god-方法驯服第一步：bookend 抽出，loop 体仍大但已是一处连贯的帧循环（可读）。
+
+---
+
 ## 新架构 D34 — 2026-08-14 — god-object 拆分第十八刀：mpv_controller 单条播放簇 → mpv_play.cpp（M3 · main 主线）
 
 > mpv_controller.cpp（D18/D19/D20 已抽 wrapper/metadata/iptv 后剩 1050 行）继续减肥：**单条播放派发簇** play_audio/play_video/play（3 方法、~153 行，URL→mpv 命令派发）verbatim 迁 mpv_play.cpp。整文件无文件局部 helper、3 方法连续成块、依赖全 mpv_controller.h 可见（mpv client API、URLType、ytdlp_runner、ini_config、accounts）→ 同 D18/D19/D20 的 .cpp→.cpp verbatim 搬迁（同 include 集 = 编译等价，无签名改动 → 调用点零触及）。play_list/play_list_from（播放列表关注点，separate cohesion）留 mpv_controller。
