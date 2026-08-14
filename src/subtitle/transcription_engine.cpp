@@ -386,11 +386,11 @@ void TranscriptionEngine::transcribe_one(TreeNodePtr node) {
 
 // ── Real-time (Y24.20) ──
 void TranscriptionEngine::start_realtime(TreeNodePtr node, const std::string &url,
-                                         bool is_streaming, bool is_video) {
+                                         bool is_streaming, bool is_video, bool auto_started) {
     unsigned gen = ++realtime_gen_;
     realtime_active_ = true;
-    EVENT_LOG(fmt::format("Transcribe: real-time start for '{}' (video={})",
-                          node ? node->title : url, is_video));
+    EVENT_LOG(fmt::format("Transcribe: real-time start for '{}' (video={}, auto={})",
+                          node ? node->title : url, is_video, auto_started));
     // DETACH (don't join) any previous worker. start_realtime() is called from the L key handler on
     //   the UI thread; a .join() here would block the UI until the previous chunk's ffmpeg/whisper
     //   finishes (up to ~chunk+whisper time). The previous worker carries an old gen — it sees the
@@ -399,8 +399,8 @@ void TranscriptionEngine::start_realtime(TreeNodePtr node, const std::string &ur
     //   _exit(0), so detached workers never outlive a live engine.
     if (realtime_thread_.joinable())
         realtime_thread_.detach();
-    realtime_thread_ = std::thread([this, node, url, is_streaming, is_video, gen]() {
-        realtime_worker(node, url, is_streaming, is_video, gen);
+    realtime_thread_ = std::thread([this, node, url, is_streaming, is_video, gen, auto_started]() {
+        realtime_worker(node, url, is_streaming, is_video, gen, auto_started);
     });
 }
 
@@ -432,7 +432,7 @@ void TranscriptionEngine::stop_realtime() {
 //     source timeline, accumulated, and fed to the LYRIC panel progressively (audio) / OSD (video).
 //   - Finite media: loop until chunk start ≥ duration. Live media: loop until stopped.
 void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, bool is_streaming,
-                                          bool is_video, unsigned gen) {
+                                          bool is_video, unsigned gen, bool auto_started) {
     std::string whisper_bin = resolve_whisper_bin();
     std::string model = resolve_model();
     if (whisper_bin.empty()) {
@@ -460,6 +460,27 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
     if (mpv_) {
         auto s = mpv_->get_state();
         duration = s.has_media ? s.media_duration : -1.0;
+    }
+    // D49 (auto-ASR gate): an AUTO start must never rolling-capture a live stream (endless CPU).
+    //   At play time mpv may not have reported the duration yet, so wait briefly (≤10s) for it;
+    //   still unknown ⇒ treat as live and bow out quietly — the user can still force ASR with L.
+    if (auto_started && duration <= 0.0) {
+        for (int i = 0; i < 20 && realtime_gen_.load() == gen; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            if (!mpv_)
+                break;
+            auto s = mpv_->get_state();
+            if (s.has_media && s.media_duration > 0.0) {
+                duration = s.media_duration;
+                break;
+            }
+        }
+        if (duration <= 0.0) {
+            LOG(fmt::format(
+                "[Transcribe] auto ASR skipped (live/unknown-duration media): {}", url.substr(0, 80)));
+            realtime_active_ = false;
+            return;
+        }
     }
     bool seekable = (duration > 0.0);
     if (fs::exists(srt_path)) {

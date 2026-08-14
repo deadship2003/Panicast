@@ -37,8 +37,11 @@ public:
 
     // Real-time (Y24.20): transcribe the playing track progressively → LYRIC; save SRT on done.
     //   url = the playing media URL/path; is_streaming = true if not a local file (SRT → data_dir).
+    //   auto_started (D49): this call came from the play-path auto-ASR (not a user L / :asr) — the
+    //   worker then SKIPS non-seekable (live / unknown-duration) media instead of rolling-capturing
+    //   it forever, so auto-ASR can never burn CPU endlessly on a radio stream.
     void start_realtime(TreeNodePtr node, const std::string &url, bool is_streaming,
-                        bool is_video = false);
+                        bool is_video = false, bool auto_started = false);
     void stop_realtime(); // kill + invalidate the running realtime job
     bool realtime_running() const {
         return realtime_gen_.load() > 0 && realtime_active_.load();
@@ -53,6 +56,12 @@ public:
     }
     void poll(IFrontend &ui);
     void shutdown();
+
+    // Y24.20 path resolution (BTW feedback): bare→PATH/which, abs→fs::exists, ~→$HOME.
+    //   Public (D49): the play-path auto-ASR pre-checks availability so users without whisper.cpp
+    //   installed get one quiet LOG line, not an EVENT_LOG popup on every track.
+    static std::string resolve_whisper_bin();
+    static std::string resolve_model();
 
 private:
     SubtitleManager *sm_ = nullptr;
@@ -80,11 +89,9 @@ private:
     void dispatcher_loop();
     void transcribe_one(TreeNodePtr node); // offline: ffmpeg + whisper-cli → <file>.srt
     void realtime_worker(TreeNodePtr node, std::string url, bool is_streaming, bool is_video,
-                         unsigned gen);
+                         unsigned gen, bool auto_started);
 
-    // Y24.20 path resolution (BTW feedback): bare→PATH/which, abs→fs::exists, ~→$HOME.
-    static std::string resolve_whisper_bin();
-    static std::string resolve_model();
+    // Y24.20 path resolution moved to public (D49 — see above).
     // Save segments as SRT; local → <file>.srt next to media; streaming → <data_dir>/transcripts/<hash>.srt.
     static void save_srt(const std::vector<TranscriptSegment> &segs, TreeNodePtr node,
                          const std::string &url, bool is_streaming);

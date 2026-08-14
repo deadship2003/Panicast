@@ -92,6 +92,14 @@ private:
     //   via its own pointers; that path now lives here.
     ThreadPool *pool_ = nullptr;
     MPVController *mpv_ = nullptr;
+    // D49: play-path auto-ASR — after a track starts, if NO cheaper subtitle source exists (no
+    //   local sidecar, no online 📜, no embedded track) and the media is a LOCAL file, kick off
+    //   real-time whisper transcription in the background so the LYRIC panel lights up when
+    //   segments arrive. Play is NEVER delayed — this runs entirely in the pool. Runs in a pool
+    //   task (find_local_subtitle stats the WSL2 /mnt/e mount); NOT for streaming URLs (the
+    //   realtime path would download the whole episode first — that stays a deliberate L press),
+    //   and the engine's auto gate skips live/unknown-duration media.
+    void maybe_auto_asr_(TreeNodePtr node, bool has_video);
     // D10-3 Step 2: EventBus subscription tokens (PlaybackTrackChanged → begin_track). Unsubscribed
     //   in shutdown() so the bus never invokes a callback on a destroyed service.
     std::vector<std::size_t> subs_;

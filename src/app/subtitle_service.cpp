@@ -6,9 +6,11 @@
 #include <fmt/format.h>
 
 #include "panicast/app/playback_events.h" // D10-3 Step 2: PlaybackTrackChanged → begin_track
+#include "panicast/config/ini_config.h"   // D49: [transcription] auto_asr gate
 #include "panicast/core/event_bus.h"      // D10-3 Step 2: subscribe the reactor channel
 #include "panicast/core/logger.h"
 #include "panicast/core/thread_pool.h"
+#include "panicast/net/url_classifier.h"  // D49: is_local_file — auto-ASR is local-media only
 #include "panicast/playback/mpv_controller.h"
 #include "panicast/ui/frontend.h" // D12-3b: poll(IFrontend&) — forwards to SubtitleManager::poll
 
@@ -117,6 +119,7 @@ void SubtitleService::begin_track(TreeNodePtr node, bool has_video) {
                 }
             } else {
                 LOG("[Subtitle] video: no local sidecar found (async)");
+                maybe_auto_asr_(pn_cap, /*has_video=*/true); // D49: local file + no sub → whisper
             }
         });
     } else {
@@ -126,7 +129,43 @@ void SubtitleService::begin_track(TreeNodePtr node, bool has_video) {
         if (node && node->has_subtitle && !node->subtitle_url.empty())
             LOG(fmt::format("[Subtitle] panicast resolves: {} (Method B — audio, async)",
                             basename_of(node->subtitle_url)));
+        // D49: play-path auto-ASR — pool task (stats the mount); starts whisper only when no
+        //   cheaper source exists and the media is local. Play has already been issued above.
+        TreeNodePtr pn_cap = node;
+        pool_->submit([this, pn_cap]() { maybe_auto_asr_(pn_cap, /*has_video=*/false); });
     }
+}
+
+// D49: decide + start the play-path auto-ASR. MUST run in a pool task (find_local_subtitle stats
+//   the WSL2 /mnt/e mount). Order mirrors resolve_subtitle_source's "本地字幕文件优先": any cheaper
+//   source (embedded track / local sidecar / online 📜) suppresses ASR. Local-file-only — the
+//   realtime path fetches remote media whole before transcribing, which is a deliberate user
+//   action (L), not something play should trigger implicitly.
+void SubtitleService::maybe_auto_asr_(TreeNodePtr node, bool has_video) {
+    if (!node)
+        return;
+    if (!IniConfig::instance().get_bool("transcription", "auto_asr", true))
+        return;
+    if (transcription_engine_.realtime_running())
+        return;
+    // Availability pre-check (quiet LOG, no EVENT_LOG popup per track — see resolve_* in the header).
+    if (TranscriptionEngine::resolve_whisper_bin().empty() ||
+        TranscriptionEngine::resolve_model().empty())
+        return;
+    // Cheaper sources win (same chain as resolve_subtitle_source).
+    if (has_video && mpv_ && mpv_->has_active_subtitle())
+        return; // embedded track — mpv already renders it
+    if (!subtitle_mgr_.find_local_subtitle(node).empty())
+        return; // local sidecar (incl. a previous ASR SRT) — load_async picks it up
+    if (node->has_subtitle && !node->subtitle_url.empty())
+        return; // online 📜 transcript
+    std::string url = node->local_file.empty() ? node->url : node->local_file;
+    if (url.empty() || !URLClassifier::is_local_file(url))
+        return; // streaming URL — stays a deliberate L press (would download the whole episode)
+    transcription_engine_.start_realtime(node, url, /*is_streaming=*/false, has_video,
+                                         /*auto_started=*/true);
+    LOG(fmt::format("[Subtitle] auto-ASR started (local, no cheaper source): '{}'",
+                    node->title));
 }
 
 // D11-3a: central "本地字幕文件优先" resolver. Returns the first available non-ASR source so ASR is
