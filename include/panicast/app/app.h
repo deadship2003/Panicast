@@ -145,7 +145,8 @@ private:
     //   exits via _exit, so no explicit unsubscribe needed).
     std::vector<size_t> action_subs_;
     // D7: key → Action map. Bound keys go through the message bus (UI→Action→handler), not
-    //   direct Core calls. Built by build_keymap() (legacy defaults).
+    //   direct Core calls. Built by build_keymap() from a defaults table, overridable via INI
+    //   [keys] (D44 — rebindable hotkeys, D7's full goal); absent [keys] = legacy defaults.
     Keymap keymap_;
     void build_keymap();
     // D11-2: display_list / selected_idx / view_start moved into library_ (view state + its guard

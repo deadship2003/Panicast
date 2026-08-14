@@ -2,7 +2,10 @@
 #include "panicast/app/actions.h"
 #include "panicast/core/event_bus.h"
 
+#include <cctype>
+#include <cstdlib>
 #include <map>
+#include <sstream>
 
 #include "panicast/net/tiktok_region.h" // Y24.11: T-mode region name in the T-key status line
 #include "panicast/net/url_classifier.h" // D14-3b: is_local_file() for ASR streaming/local + offline-transcription gate
@@ -340,23 +343,53 @@ void App::open_command_window() {
 
 // D7: bind the legacy default keys to Actions (the Keymap is the single source of key bindings;
 //   a future [keys] INI override lands here). Bound keys skip the handle_input switch entirely.
+// D7/D44: build the Keymap (key→Action). Defaults are the legacy hardcoded keys; an INI [keys]
+//   section overrides them (rebindable hotkeys — D7's full goal, landed in D44). Each [keys] entry
+//   maps an action name → one or more key tokens (comma-separated; e.g. play_pause = space,p).
+//   Absent/unparseable entries keep the default, so an INI without [keys] behaves exactly as before.
+//   Complex stateful flows (play 'l' / search '/' / download / mark) stay in the switch by design —
+//   only stateless + mode-switch commands are rebindable.
 void App::build_keymap() {
-    keymap_.bind(' ', PlayPauseAction{});
-    keymap_.bind('p', PlayPauseAction{});
-    keymap_.bind('+', VolumeUpAction{});
-    keymap_.bind('-', VolumeDownAction{});
-    keymap_.bind('k', NavUpAction{});
-    keymap_.bind('j', NavDownAction{});
-    // D42: mode-switch keys → SwitchModeAction (homogeneous cluster: switch_mode + optional hint).
-    //   M (cycle), N (jump-to-playing), b (region), T stay in the switch (not pure mode switches).
-    keymap_.bind('R', SwitchModeAction{AppMode::RADIO, ""});
-    keymap_.bind('P', SwitchModeAction{AppMode::PODCAST, ""});
-    keymap_.bind('F', SwitchModeAction{AppMode::FAVOURITE, ""});
-    keymap_.bind('H', SwitchModeAction{AppMode::HISTORY, ""});
-    keymap_.bind('O', SwitchModeAction{AppMode::ONLINE, "Switched to ONLINE mode - press '/' to search"});
-    keymap_.bind('Y', SwitchModeAction{AppMode::ACCOUNT, "Switched to Y mode - 'a' login / 'A' login another / l enter account"});
-    keymap_.bind('B', SwitchModeAction{AppMode::BILIBILI, "B mode (Bilibili)"});
-    keymap_.bind('I', SwitchModeAction{AppMode::IPTV, "I mode (IPTV) - browse All / Region / Country / Category / Language / Custom"});
+    struct Def {
+        const char *name;
+        const char *tok;
+        Action act;
+    };
+    const Def defs[] = {
+        {"play_pause", "space,p", PlayPauseAction{}},
+        {"volume_up", "+", VolumeUpAction{}},
+        {"volume_down", "-", VolumeDownAction{}},
+        {"nav_up", "k", NavUpAction{}},
+        {"nav_down", "j", NavDownAction{}},
+        // D42: mode-switch keys → SwitchModeAction (homogeneous cluster: switch_mode + optional
+        //   hint). M (cycle), N (jump-to-playing), b (region), T stay in the switch (not pure mode
+        //   switches). The hint travels with the action: rebinding only changes the trigger key,
+        //   the post-switch hint stays (it describes the mode, not the key).
+        {"mode_radio", "R", SwitchModeAction{AppMode::RADIO, ""}},
+        {"mode_podcast", "P", SwitchModeAction{AppMode::PODCAST, ""}},
+        {"mode_favourite", "F", SwitchModeAction{AppMode::FAVOURITE, ""}},
+        {"mode_history", "H", SwitchModeAction{AppMode::HISTORY, ""}},
+        {"mode_online", "O",
+         SwitchModeAction{AppMode::ONLINE, "Switched to ONLINE mode - press '/' to search"}},
+        {"mode_account", "Y", SwitchModeAction{AppMode::ACCOUNT,
+                                               "Switched to Y mode - 'a' login / 'A' login another / "
+                                               "l enter account"}},
+        {"mode_bilibili", "B", SwitchModeAction{AppMode::BILIBILI, "B mode (Bilibili)"}},
+        {"mode_iptv", "I", SwitchModeAction{AppMode::IPTV,
+                                            "I mode (IPTV) - browse All / Region / Country / "
+                                            "Category / Language / Custom"}},
+    };
+    const IniConfig &ini = IniConfig::instance();
+    for (const Def &d : defs) {
+        std::string tok = ini.get("keys", d.name, d.tok);
+        std::string part;
+        std::stringstream ss(tok);
+        while (std::getline(ss, part, ',')) {
+            int k = Keymap::parse_token(part);
+            if (k >= 0)
+                keymap_.bind(k, d.act);
+        }
+    }
 }
 
 void App::handle_input(int ch, int marked_count) {

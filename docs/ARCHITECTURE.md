@@ -81,7 +81,7 @@ UI（`src/ui/`）是纯呈现层，依赖规则：
 - **上帝对象/文件**：`App`（`app.h` 553 行声明；D43 抽下载执行引擎 → `DownloadService`：pending_downloads_/start_one/ytdlp/pump + 校验簇 capture_exec/probe/verify 离 App，690→553；剩 pool_/remote_/frontend_/player 等成员簇 + 余下 god-object 方法待续抽）、`app_run.cpp`(589，run() loop 已收敛为 flat 编排骨架：D35 startup/shutdown bookend、D37 tree-locked 显示构建、D38 FrameCtx+prepare_frame（Method Object）、D39 draw_frame、D40 check_exit_requests/drain_frame_events；仅剩 resize/scroll/input/watchdog 小内联段)、`mpv_controller.cpp`(918，D18-D20+D34 机械抽 wrapper/metadata/iptv/单条播放；D36 设计层抽 event_loop codec-info 块、D41 抽 END_FILE 分支 handle_end_file_/handle_playback_error_，event_loop 回归纯派发骨架；剩 update_state IPTV 块等小目标按需)、`app_input.cpp`(882，硬编码 `switch(ch)`；D7 迁无状态键 play/pause/volume/nav、D42 迁 mode-switch 键簇 R/P/F/H/O/Y/B/I → SwitchModeAction，复杂有状态流 play/搜索/下载/标记留 switch)。~~`ini_config.h`~~（原 1087 行 god-header，D24-D31 已迁 72 个方法出体，现 304 行纯声明头，**基本驯服**）。
 - **竞态**：`pending_select_` + 跨线程裸回调（P1-4 向量竞态、P1-5 两锁一树、P1-8 `~App` 缺失致 UAF）。
 - **SQL 卫生**：多处忽略 `exec_sql` 返回、Bilibili 一处 `fmt::format` 拼接（注入面）、`atoll` 解 TEXT 时间戳恒为 0、`StmtRAII` 预编译缓存造好但零使用。
-- **热键硬编码**：`app_input.cpp` `handle_input` 的 `switch(ch)`，不可配置（`ini_config.h` 注释自承）。
+- **热键**：无状态命令 + 模式切换键（play/pause/volume/nav + 8 mode-switch）经 `Keymap`（D7）→ 可经 INI `[keys]` 重绑（D44，D7「热键可自定义」完整目标）；复杂有状态流（play 'l'/搜索/下载/标记/M/N/b/T）深依赖 mode+选中上下文，仍留 `app_input.cpp handle_input` 的 `switch(ch)`（D42 边界）。
 - **代理**：`apply_network_proxy(CURL*)`（`net/network.cpp`）已统一灌 curl+yt-dlp+mpv，但未抽象为带"分平台/域名规则"的 `IProxyManager`。
 - **Windows 构建**：posix_spawn/HOME 路径致坏（P2-X）。
 

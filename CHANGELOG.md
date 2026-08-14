@@ -10,6 +10,26 @@
 
 ---
 
+## 新架构 D44 — 2026-08-14 — INI [keys] 热键重绑（#71 收尾 · D7 完整目标达成 · main 主线）
+
+> Keymap 接 INI `[keys]` 段——无状态命令 + 模式切换键现可用户自定义（D7「热键可自定义」既定目标落地，#71 收尾）。`build_keymap()` 从「动作名→默认 token」表构建，每项 `IniConfig::get("keys", name, default_token)` 取值（INI 无 `[keys]` 段 = 完全用默认，行为零变化）；token 经 `Keymap::parse_token` 解析（键名 space/enter/esc/tab/backspace、单字符[大小写敏感]、或数字 keycode），逗号分隔多键绑同一动作（如 `play_pause = space,p`）。
+>
+> **可重绑范围**：13 个绑定——play_pause / volume_up / volume_down / nav_up / nav_down / 8 个 mode-switch（R/P/F/H/O/Y/B/I）。**不**可重绑：复杂有状态流（play 'l' / 搜索 '/' / 下载 'd''D' / 标记 'a''A' / M 循环 / N 跳节点 / b 区域 / T），它们深依赖 mode + 选中上下文、留 switch（D42 既定边界）。hint 随 Action 走——重绑只换触发键，切模式后的提示不变（提示描述模式、非键）。
+>
+> **parse_token 作 Keymap 静态方法**（归属自然——Keymap 负责键解析；inline，测试不另需链接），加 3 个 gtest 锁契约（names/chars、case-sensitive['r'≠'R'，wget_wch 返回即所按]、numeric/trim/invalid）。**case 敏感**是关键不变量：单字符原样返回（用户写什么绑什么，与 wget_wch 一致），故大写 'R' 需 Shift+R、小写 'r' 按 r 即触发——与 D42 默认一致、未改既有行为。
+>
+> create_default 写入 `[keys]` 段（新 INI 自带可重绑键的默认值 + 双语注释）；现有 INI 无此段 → 用代码默认，零影响。
+
+### 改动
+- `keymap.h`：加 `static int parse_token(const std::string&)`（inline，键名/单字符/数字解析）。
+- `app_input.cpp` build_keymap()：改为遍历 13 项默认表 + IniConfig [keys] 覆盖 + parse_token 多键解析；删硬编码 bind 序列与旧 static parse_key_token。
+- `ini_config.cpp` create_default：加 [keys] 段（13 默认绑定 + 双语注释）。
+- `tests/test_units.cpp`：+3 KeymapParseToken 测试（41→44）。
+
+**验收**：0-warning、ctest 44/44（+3）、pty 冒烟 exit 0 + clean endin。热键重绑行为待用户端测（在 INI [keys] 改键验证）。
+
+---
+
 ## 新架构 D43 — 2026-08-14 — app.h 声明 god-object → DownloadService（#73 · main 主线）
 
 > App 的下载**执行引擎**抽成第四个 Application Service（PlaybackService/LibraryService/SubtitleService 之后）：`DownloadService`（download_service.h/.cpp）持有 pending 队列 + slot 节流（pump/start_one_download）+ 共享 yt-dlp 核心（ytdlp_download，Y24.49）+ curl 路径（retry/resume/416/range 处理）+ 下载校验簇（capture_exec/probe_media_duration/verify_downloaded_file/VerifyResult）。App 仅留 `download_node`——薄编排器（收集 mark → `download_.enqueue/pump` → clear marks → save_cache）。

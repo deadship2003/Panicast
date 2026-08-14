@@ -16,6 +16,7 @@
 #include "panicast/playback/sleep_timer.h" // D14-test: link real parse_time_string (was mirrored copy)
 #include "panicast/domain/media.h"
 #include "panicast/parsers/feed_parser.h"
+#include "panicast/app/keymap.h" // D44-test: parse_token ([keys] hotkey rebinding)
 
 // ─── Since panicast.cpp is a single file, we mirror the pure-function logic for independent testing ───
 // Real integration tests require splitting the modules (v0.6 work)
@@ -25,6 +26,28 @@
 //   classifier instead of a hand-maintained duplicate that silently drifts (the copy had already
 //   diverged: no local-video extension branch, no TikTok, no suffix-aware table matching).
 using namespace panicast;
+
+// ─── Keymap::parse_token ([keys] INI hotkey rebinding, D44) ───
+TEST(KeymapParseToken, NamesAndChars) {
+    EXPECT_EQ(Keymap::parse_token("space"), ' ');
+    EXPECT_EQ(Keymap::parse_token("enter"), '\n');
+    EXPECT_EQ(Keymap::parse_token("esc"), 27);
+    EXPECT_EQ(Keymap::parse_token("tab"), '\t');
+    EXPECT_EQ(Keymap::parse_token("backspace"), 127);
+    EXPECT_EQ(Keymap::parse_token("p"), 'p');
+    EXPECT_EQ(Keymap::parse_token("+"), '+');
+    EXPECT_EQ(Keymap::parse_token("R"), 'R');
+}
+TEST(KeymapParseToken, CaseSensitive) {
+    // 'r' and 'R' are distinct keys (wget_wch returns exactly what's typed); rebinding is case-exact.
+    EXPECT_NE(Keymap::parse_token("r"), Keymap::parse_token("R"));
+}
+TEST(KeymapParseToken, NumericTrimsAndInvalid) {
+    EXPECT_EQ(Keymap::parse_token("25"), 25);     // numeric keycode (Ctrl+Y)
+    EXPECT_EQ(Keymap::parse_token("  p  "), 'p'); // surrounding whitespace trimmed
+    EXPECT_EQ(Keymap::parse_token(""), -1);       // empty → unparseable
+    EXPECT_EQ(Keymap::parse_token("ctrl+y"), -1); // unsupported name → keeps default
+}
 
 // ─── URLClassifier test cases ───
 

@@ -883,6 +883,33 @@ discovery_port = 18430
 #   fixed    - 使用fixed_color指定的单一颜色 / single color from fixed_color
 #   custom   - 使用自定义颜色序列(需修改源码) / custom color sequence (requires source edit)
 # ============================================================
+
+# ============================================================
+# 【热键自定义】 / Hotkey rebinding ([keys])
+# ============================================================
+# 在此重绑可重绑热键；留空或删整行 = 用默认值；改后重启生效。
+# 键值写法：键名(space/enter/esc/tab/backspace) 或 单个字符(如 p + - k) 或 数字 keycode。
+# 同一动作绑多个键用逗号分隔(如 play_pause = space,p)。仅无状态命令 + 模式切换键可重绑；
+# 复杂有状态流(play 'l'/搜索 '/'/下载/标记)保留在程序内不可重绑。
+# Rebind hotkeys here; empty/deleted line = default; restart after editing.
+# Value: a key name (space/enter/esc/tab/backspace), a single char (p + - k), or a numeric keycode.
+# Multiple keys per action: comma-separate (play_pause = space,p). Only stateless + mode-switch
+# keys are rebindable; complex stateful flows (play/search/download/mark) are not.
+[keys]
+play_pause = space,p
+volume_up = +
+volume_down = -
+nav_up = k
+nav_down = j
+mode_radio = R
+mode_podcast = P
+mode_favourite = F
+mode_history = H
+mode_online = O
+mode_account = Y
+mode_bilibili = B
+mode_iptv = I
+# ============================================================
 )";
     }
 }

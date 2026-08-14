@@ -1,4 +1,23 @@
 
+## D44 — INI [keys] 热键重绑（#71 收尾 · D7 完整目标）
+
+**Context:** D7 立 Keymap/Action + D42 迁 mode-switch 键，但 Keymap 仍是代码默认绑定、未接 INI——「热键可自定义」(ROADMAP D7) 未达成，#71 剩最后一块。complex stateful 流已在 D42 判定留 switch，本步只接 Keymap 已有绑定的重绑通道。
+
+**Decision:** build_keymap 改「默认表 + `IniConfig::get("keys", name, default_token)` 覆盖」；`Keymap::parse_token` 解析 token（键名/单字符/数字，多键逗号分隔）。
+
+**关键点:**
+- 默认与覆盖同路径：每项 token = `ini.get("keys", name, default_token)`；INI 无 [keys] → 用 default → 行为零变化（现有用户无感）。
+- 可重绑范围 = Keymap 已有的 13 绑定（无状态 + mode-switch）。复杂有状态流留 switch（D42 边界）——它们深依赖上下文、包 Action 无重绑收益。
+- case 敏感：parse_token 单字符原样返回（'r'≠'R'），匹配 wget_wch「返回即所按」。故默认 'R' 需 Shift+R、'p' 按 p 触发——与 D42 一致，未改既有大小写语义。
+- hint 随 Action：重绑只换触发键，切模式后提示不变（提示描述模式、非键）——比 D42「键特定」更干净，且编程式 switch_mode 不经此路径故无冲突。
+- parse_token 作 Keymap 静态方法：归属自然 + 可单测（inline 免额外链接）。3 gtest 锁契约。
+
+**Verification:** 0-warning、ctest 44/44（+3 KeymapParseToken）、pty 冒烟 exit 0 + clean endin。重绑行为待用户端测。
+
+**Followups:** #71 至此完整收尾（D7 完整目标达成）。复杂有状态流（play/搜索/下载/标记）若要可重绑，需先 Action 化（每流独立 Action 类型），属更大改动、暂不做。
+
+---
+
 ## D43 — app.h 声明 god-object → DownloadService（#73）
 
 **Context:** #73 = 拆 App god-object（app.h 690 行声明）。已抽 3 个 Application Service（PlaybackService D8/LibraryService D10-4/SubtitleService D10-1）。下载簇是自包含的执行单元（library_/pool_/subtitle_ + 单例，无 mode/frontend/running/player 回读），适合抽第四个 Service。但 download_node 依赖 App 共享 mark 方法。
