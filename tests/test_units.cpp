@@ -330,6 +330,21 @@ TEST(ProxyManager, GlobalSourceIsUsedWhenNoRules) {
     EXPECT_EQ(pm.resolveProxy("https://anything.com").url, "socks5h://global:1080");
 }
 
+// Ctrl+N immediacy contract: the global source is re-read on EVERY resolve (production source
+//   reads IniConfig::get_proxy() live), so a proxy edit applies to the next curl fetch /
+//   download / yt-dlp run with no restart. Locks the mechanism against a future "cache the
+//   resolved proxy" regression.
+TEST(ProxyManager, GlobalSourceReadLivePerResolve) {
+    panicast::ProxyManager pm;
+    std::string current = "socks5h://old:1080";
+    pm.setGlobalSource([&current] { return panicast::ProxyConfig{current}; });
+    EXPECT_EQ(pm.resolveProxy("https://x.com").url, "socks5h://old:1080");
+    current = "http://new:8080"; // Ctrl+N ENTER — value changes between resolves
+    EXPECT_EQ(pm.resolveProxy("https://x.com").url, "http://new:8080");
+    current.clear(); // proxy disabled — next resolve is direct
+    EXPECT_FALSE(pm.resolveProxy("https://x.com").enabled());
+}
+
 TEST(ProxyManager, DirectWhenNoSource) {
     panicast::ProxyManager pm;
     EXPECT_FALSE(pm.resolveProxy("https://x.com").enabled());  // direct
