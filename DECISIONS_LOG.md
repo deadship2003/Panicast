@@ -1,4 +1,21 @@
 
+## D32 — app_run feed-loading 组 → app_feeds.cpp（6 方法、~739 行 verbatim 搬迁）
+
+**Context:** D23 首抽 app_run.cpp 时选了持久化组（4 方法、83 行、cohesive），刻意把 feed-loading 组（spawn_load_radio/spawn_load_feed/parse_feed_by_type/cache_youtube_videos/commit_feed_result/load_default_podcasts）留后，理由是"~738 行，parse_feed_by_type/load_default_podcasts 大且缠绕"。本刀评估该留后项：是否真缠绕到不能纯机械 verbatim 搬？
+
+**Decision:** 证伪"缠绕"顾虑——仍是 **.cpp→.cpp verbatim 搬迁**（与 D20 mpv_iptv / D23 app_persistence 同构），理由链：
+1. **实查 app_run.cpp 无文件局部 helper**（无 `static` 内联工具函数、无匿名命名空间）→ 搬 6 方法无需带额外符号。
+2. 6 方法**连续成块**（spawn_load_radio 到 flatten 前），无中间夹杂其他方法 → 切片边界干净。
+3. 仅依赖 app.h 传递可见的符号（线程池 spawn / ParserRegistry::create / BilibiliAPI / YouTube 缓存 repo / EVENT_LOG / fmt）→ 新 TU 取**相同 include 集**即编译等价（include 超集保证任何已编译代码在新 TU 仍编译）。
+4. 方法已 out-of-line `App::`（非 inline）→ 无声明/定义分离的 C++ 三规则坑（默认参数/static/Class::）。
+5. 无签名改动 → 调用点（app_run 主循环 / 各 app_*.cpp）零触及。
+
+**关键点:** "缠绕"（tangled）≠ 不可机械搬——D23 的顾虑是**体量大 + 内部逻辑复杂**（parse_feed_by_type 的多分支、load_default_podcasts 的多源默认），但 verbatim 搬迁**不改逻辑、只改定义所在 TU**，逻辑复杂度与搬迁可行性正交。真正的搬迁障碍是**跨方法耦合**（helper 依赖、签名变更、inline 三规则），这三项 feed 簇都不沾。判断"能否纯机械搬"应看耦合而非体量。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。app_run.cpp 1330→591。
+
+
+
 ## D31 — ini_config create_default（raw-string 配置模板）inline→cpp（~408 行体）
 
 **Context:** ini_config.h 最后一大块是 create_default——自动生成的默认配置模板，体为巨型 raw string `R"(...)"`。D30 脚本的逐行 `b[4:]` dedent 对含 raw string 的体有 corrupt 风险：若 raw-string 内容行有 ≥4 前导空格，会被误去缩进而损坏字符串。

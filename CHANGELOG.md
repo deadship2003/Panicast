@@ -10,6 +10,22 @@
 
 ---
 
+## 新架构 D32 — 2026-08-14 — god-object 拆分第十六刀：app_run feed-loading 组 → app_feeds.cpp（M3 · main 主线）
+
+> **回到 app_run.cpp**：D23 首抽持久化组时，刻意把 feed-loading 组（6 方法、~739 行）留后——当时判定"parse_feed_by_type/load_default_podcasts 大且缠绕"。本刀证伪该顾虑：实查 app_run.cpp **无文件局部 helper**，6 个 feed 方法连续成块、仅依赖 app.h 传递可见符号（spawn 线程 / ParserRegistry / BilibiliAPI / YouTube 缓存 / EVENT_LOG），与 D23 持久化组同构——仍是 **.cpp→.cpp verbatim 搬迁**（方法留 `App::` 成员、新 TU 取**相同 include 集** → 编译等价）。app_run.cpp 1330→591。
+
+### 改动
+- 新 `src/app/app_feeds.cpp`：6 方法 verbatim 迁入——`spawn_load_radio` / `spawn_load_feed` / `parse_feed_by_type` / `cache_youtube_videos` / `commit_feed_result` / `load_default_podcasts`，裹 `namespace panicast{}`，10 个 include（app.h + actions.h + playback_events.h + event_bus.h + net/{bilibili_api,tiktok_region} + parsers/bilibili_parser + unistd.h/cstdio/iostream）。
+- CMakeLists.txt:327 加 `src/app/app_feeds.cpp`（显式源列表，非 glob）。
+- **脚本**（extract_app_feeds.py）：`App::spawn_load_radio(` 定簇首、`^App::flatten(` 定簇尾；断言簇内恰 6 个 `App::` 方法 + 含 load_default_podcasts；新 TU = 同 include 集 + namespace 包裹 + `"".join(cluster)`（slice+join 保逐字）。
+- **验证伪影说明**：搬迁由 Python slice+join 构造，簇字节必然与原 app_run.cpp 区段等价；编译 0-warning 已证明 6 方法在新 TU 正确解析（签名错配/符号缺失即编译失败）。早先两条 diff 命令（误剔/误带列 0 `}`、误含 namespace 大括号）产生的是验证伪影，非真实差异。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
+- app_run.cpp 1330→591（D23+D32 累计 1414→591，−823 行，−58%）；feed-loading 簇（D23 当初留后的"缠绕"目标）落地。剩 run()/App() 生命周期/flatten·items 树扁平化簇（539 行）——后续设计评估。
+
+---
+
 ## 新架构 D31 — 2026-08-14 — god-object 拆分第十五刀：ini_config create_default（raw-string 配置模板）inline→cpp（M3 · main 主线）
 
 > ini_config.h 第八抽：**create_default**——自动生成的默认配置模板（~408 行 raw string `R"(...)"`）整块 verbatim 迁 cpp。这是 header 最后一大块。raw-string 模板内容全在 0 列（无前导空格行），逐行 `b[4:]` 安全：0 列行走 `else` 分支原样保留、仅代码行去缩进。ini_config.h 713→304。

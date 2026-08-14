@@ -27,7 +27,7 @@ src/<module>/*.cpp              实现
 | `subtitle` | 字幕：`subtitle_parser`（`ISubtitleParser` + Registry）、`subtitle_manager`、`transcription_engine`（ASR/whisper） |
 | `theme` | 颜色/主题/字符对 |
 | `ui` | ncurses 渲染：ui（D22 后仅 `draw` + 渲染辅助，原 638→263；lifecycle 终端/信号+init/cleanup/handle_resize 抽至 `ui_lifecycle`）/ui_help（D17 抽自 ui.cpp 的 draw_help）/ui_toggles（D21 视图态 setter/toggle）/popups/lyric_renderer/tree_renderer/status_bar/info_panel/layout/border/icons/art/qr |
-| `app` | 应用层：`app_run`（主循环）、`app_persistence`（D23 启动/退出 DB 持久化：load_data/load_persistent_data/save_persistent_data/restore_player_state）、`app_input`（键派发）、`app_playback/download/search/subscriptions/navigation/...`、modes/ |
+| `app` | 应用层：`app_run`（主循环）、`app_persistence`（D23 启动/退出 DB 持久化：load_data/load_persistent_data/save_persistent_data/restore_player_state）、`app_feeds`（D32 feed-loading 簇：spawn_load_radio/spawn_load_feed/parse_feed_by_type/cache_youtube_videos/commit_feed_result/load_default_podcasts）、`app_input`（键派发）、`app_playback/download/search/subscriptions/navigation/...`、modes/ |
 
 入口：`src/main.cpp` → `App::run()`（`src/app/app_run.cpp`）。
 
@@ -78,7 +78,7 @@ UI（`src/ui/`）是纯呈现层，依赖规则：
 
 ## 6. 已知技术债（重构输入，详见 AUDIT_REPORT）
 
-- **上帝对象/文件**：`App`（`app.h` 605 行声明）、`app_run.cpp`(1195)、`mpv_controller.cpp`(1149)、`app_input.cpp`(746，硬编码 `switch(ch)`)。~~`ini_config.h`~~（原 1087 行 god-header，D24-D31 已迁 72 个方法出体，现 304 行纯声明头，**基本驯服**）。
+- **上帝对象/文件**：`App`（`app.h` 605 行声明）、`app_run.cpp`(591，D23+D32 已抽持久化组+feed-loading 组)、`mpv_controller.cpp`(1149)、`app_input.cpp`(746，硬编码 `switch(ch)`)。~~`ini_config.h`~~（原 1087 行 god-header，D24-D31 已迁 72 个方法出体，现 304 行纯声明头，**基本驯服**）。
 - **竞态**：`pending_select_` + 跨线程裸回调（P1-4 向量竞态、P1-5 两锁一树、P1-8 `~App` 缺失致 UAF）。
 - **SQL 卫生**：多处忽略 `exec_sql` 返回、Bilibili 一处 `fmt::format` 拼接（注入面）、`atoll` 解 TEXT 时间戳恒为 0、`StmtRAII` 预编译缓存造好但零使用。
 - **热键硬编码**：`app_input.cpp` `handle_input` 的 `switch(ch)`，不可配置（`ini_config.h` 注释自承）。
