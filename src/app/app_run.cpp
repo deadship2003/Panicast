@@ -4,6 +4,7 @@
 #include "panicast/app/playback_events.h"
 #include "panicast/core/event_bus.h"
 #include "panicast/net/bilibili_api.h"
+#include "panicast/net/network.h" // D45-fix: Network::init_proxy_routing after IniConfig load
 #include "panicast/net/tiktok_region.h"
 #include "panicast/parsers/bilibili_parser.h"
 #include <cstdio>
@@ -15,6 +16,9 @@ namespace panicast
 App::App() {
     Logger::instance().init();
     IniConfig::instance().load();
+    // D45-fix: wire proxy routing AFTER the INI is loaded (was a network.cpp static initializer
+    //   running before load() → bilibili_direct=false in the INI was silently ignored).
+    Network::init_proxy_routing();
     // Initialize SQLite3 database
     DatabaseManager::instance().init();
     CacheManager::instance()

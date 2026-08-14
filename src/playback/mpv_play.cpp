@@ -1,6 +1,7 @@
 #include "panicast/playback/mpv_controller.h"
 #include <clocale> // setlocale
 #include <chrono>  // steady_clock (bounded join in stop())
+#include <cstdint> // int64_t (D48-prof: was relying on the transitive mpv/client.h include)
 #include <cstring> // strlen
 #include <thread>  // std::this_thread::sleep_for (bounded VO-teardown wait in stop())
 #include <fcntl.h> // open, O_WRONLY (Y24.55: stderr redirect)
@@ -177,49 +178,10 @@ void MPVController::play(const std::string &url, bool force_video, const std::st
 }
 
 void MPVController::play_list(const std::vector<std::string> &urls, bool is_video) {
-    if (urls.empty())
-        return;
-    if (!ctx_)
-        return;              // Guard against NULL handle segfault after initialize failure
-    reset_iptv_detection_(); // Y24.55: re-arm per-track IPTV diagnostics
-
-    // Playlist mode settings
-    // keep-open=no allows the playlist to auto-play the next item
-    // This fixes the issue where playback stopped after finishing one program
-    int rc_keep_open = mpv_set_property_string(ctx_, "keep-open", "no");
-    if (rc_keep_open < 0)
-        LOG(fmt::format("[MPV] WARNING: set property keep-open failed (rc={})", rc_keep_open));
-    LOG("[MPV] Playlist mode: keep-open=no for auto-play next");
-
-    if (is_video) {
-        if (!vo_gpu_) {
-            mpv_set_property_string(ctx_, "vo", "auto");
-            vo_gpu_ = true;
-        }
-    } else {
-        // Don't change vo back to null (see vo_gpu_ note), avoids segfault on video->audio switch
-    }
-
-    std::string tmp = SafeTmpFile::create(".m3u");
-    std::ofstream f(tmp);
-    if (f.is_open()) {
-        for (const auto &url : urls)
-            f << url << "\n";
-        f.close();
-        const char *cmd[] = {"loadlist", tmp.c_str(), "replace", nullptr};
-        int rc_loadlist = mpv_command(ctx_, cmd); // P3-C5: check return (was ignored)
-        if (rc_loadlist < 0)
-            LOG(fmt::format("[MPV] WARNING: loadlist failed (rc={})", rc_loadlist));
-        SafeTmpFile::remove(tmp); // Clean up temp file after loading
-
-        // Ensure playback starts (not paused)
-        int pause_val = 0;
-        int rc_pause = mpv_set_property(ctx_, "pause", MPV_FORMAT_FLAG, &pause_val);
-        if (rc_pause < 0)
-            LOG(fmt::format("[MPV] WARNING: set pause failed (rc={})", rc_pause));
-        LOG("[MPV] play_list: Ensured playing (pause=no)");
-    } else
-        play(urls[0], is_video);
+    // D48-prof: was a ~50-line near-duplicate of play_list_from — the two differed ONLY by the
+    //   start index (and one log line). Delegating keeps one implementation; behavior is
+    //   identical (play_list_from clamps index 0 and start_idx=0 loadlist is the same command).
+    play_list_from(urls, 0, is_video);
 }
 
 void MPVController::play_list_from(const std::vector<std::string> &urls, int start_idx,
@@ -230,8 +192,8 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
         return; // Guard against NULL handle segfault after initialize failure
     if (start_idx < 0)
         start_idx = 0;
-    if (start_idx >= (int)urls.size())
-        start_idx = urls.size() - 1;
+    if (start_idx >= static_cast<int>(urls.size()))
+        start_idx = static_cast<int>(urls.size()) - 1;
     reset_iptv_detection_(); // Y24.55: re-arm per-track IPTV diagnostics
 
     // Playlist mode settings
@@ -245,9 +207,9 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
             mpv_set_property_string(ctx_, "vo", "auto");
             vo_gpu_ = true;
         }
-    } else {
-        // Don't change vo back to null (see vo_gpu_ note), avoids segfault on video->audio switch
     }
+    // else: don't change vo back to null (see vo_gpu_ note) — avoids segfault on video->audio
+    //   switch, so an empty branch is intentional here (kept as a comment).
 
     std::string tmp = SafeTmpFile::create(".m3u");
     std::ofstream f(tmp);
@@ -276,7 +238,7 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
             LOG(fmt::format("[MPV] WARNING: set pause failed (rc={})", rc_pause));
         LOG("[MPV] play_list_from: Ensured playing (pause=no)");
     } else
-        play(urls[start_idx], is_video);
+        play(urls[static_cast<size_t>(start_idx)], is_video);
 }
 
 } // namespace panicast

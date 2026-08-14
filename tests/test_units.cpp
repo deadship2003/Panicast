@@ -49,6 +49,15 @@ TEST(KeymapParseToken, NumericTrimsAndInvalid) {
     EXPECT_EQ(Keymap::parse_token("ctrl+y"), -1); // unsupported name → keeps default
 }
 
+TEST(KeymapParseToken, NumericBounds) {
+    // D44-prof: std::atoi was UB on overflow; from_chars now rejects out-of-range/unparseable.
+    EXPECT_EQ(Keymap::parse_token("0"), '0');          // single char wins → the '0' KEY, not keycode 0
+    EXPECT_EQ(Keymap::parse_token("25"), 25);          // multi-digit → numeric keycode path
+    EXPECT_EQ(Keymap::parse_token("99999999999"), -1); // overflow → rejected, no UB
+    EXPECT_EQ(Keymap::parse_token("12x"), -1);         // trailing garbage → rejected
+    EXPECT_EQ(Keymap::parse_token("-5"), -1);          // sign not a digit → unparseable
+}
+
 // ─── URLClassifier test cases ───
 
 TEST(URLClassifier, EmptyUrl) {

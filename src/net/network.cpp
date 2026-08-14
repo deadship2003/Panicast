@@ -16,25 +16,25 @@ namespace panicast
 
 using json = nlohmann::json;
 
-namespace {
-// D2: wire the Connectivity layer's global proxy source to [network] proxy (Ctrl+N value),
-// read live so changes take effect immediately. IniConfig is referenced HERE (network.cpp,
-// which already depends on it) so proxy_manager.cpp stays free of config coupling and links
-// cleanly into the unit-test target.
-[[maybe_unused]] const bool _proxy_source_set = [] {
-    panicast::ProxyManager &pm = panicast::ProxyManager::instance();
-    pm.setGlobalSource(
-        [] { return panicast::ProxyConfig{panicast::IniConfig::instance().get_proxy()}; });
+// D2/D45-fix: wire the Connectivity layer's global proxy source to [network] proxy (Ctrl+N
+// value), read live so changes take effect immediately, and seed the bilibili direct rule.
+//   Called EXPLICITLY from App's ctor right after IniConfig::load() (Network::
+//   init_proxy_routing) — the old static initializer here ran before main → before load(),
+//   so its eager get_bool("bilibili_direct") always saw the default and an INI
+//   `bilibili_direct = false` was silently ignored. IniConfig stays referenced in network.cpp
+//   (which already depends on it) so proxy_manager.cpp remains free of config coupling and
+//   links cleanly into the unit-test target.
+void Network::init_proxy_routing() {
+    ProxyManager &pm = ProxyManager::instance();
+    pm.setGlobalSource([] { return ProxyConfig{IniConfig::instance().get_proxy()}; });
     // D45: bilibili is CN-domestic — routing it through a foreign proxy slows/breaks access.
     //   Seed a domain rule forcing *.bilibili.com direct even when a global proxy is set, gated by
-    //   [network] bilibili_direct (default on). youtube/googlevideo need NO rule: they fall through
-    //   to the global proxy by default. Domain rule covers both the curl path (api.bilibili.com)
-    //   and the yt-dlp path (www.bilibili.com), so one rule suffices.
-    if (panicast::IniConfig::instance().get_bool("network", "bilibili_direct", true))
-        pm.setDomain("*.bilibili.com", panicast::ProxyConfig{""});
-    return true;
-}();
-}  // namespace
+    //   [network] bilibili_direct (default on; takes effect at startup, restart after changing).
+    //   youtube/googlevideo need NO rule: they fall through to the global proxy by default. Domain
+    //   rule covers both the curl path (api.bilibili.com) and the yt-dlp path (www.bilibili.com).
+    if (IniConfig::instance().get_bool("network", "bilibili_direct", true))
+        pm.setDomain("*.bilibili.com", ProxyConfig{""});
+}
 
 void apply_network_proxy(CURL *curl, const std::string &url, const std::string &platform) {
     if (!curl)

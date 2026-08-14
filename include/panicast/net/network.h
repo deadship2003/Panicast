@@ -45,6 +45,15 @@ void apply_network_proxy(CURL *curl, const std::string &url, const std::string &
 
 class Network {
 public:
+    // D45-fix: wire the Connectivity layer to config — global proxy source ([network] proxy, read
+    //   live so changes take effect immediately) + domain seed rules ([network] bilibili_direct).
+    //   Explicit (called from App's ctor right after IniConfig::load()) instead of a static
+    //   initializer: at static-init time the INI is NOT loaded yet, so the old eager
+    //   get_bool("bilibili_direct") there always read the default and an INI `false` was silently
+    //   ignored. IniConfig is referenced HERE (network.cpp, which already depends on it) so
+    //   proxy_manager.cpp stays free of config coupling and links cleanly into the unit-test target.
+    static void init_proxy_routing();
+
     // SSL compatibility fix: enable ALPN/NPN and automatic TLS negotiation to resolve CDN handshake failures.
     static std::string fetch(const std::string &url, int timeout = DEFAULT_NETWORK_TIMEOUT_SEC);
     // Y01: POST helper for OAuth token endpoint + YouTube API. body is application/x-www-form-urlencoded

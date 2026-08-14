@@ -380,14 +380,33 @@ void App::build_keymap() {
                                             "Category / Language / Custom"}},
     };
     const IniConfig &ini = IniConfig::instance();
+    std::map<int, const char *> bound_by; // D44-prof: key → owning action name (collision log)
     for (const Def &d : defs) {
+        // D44-fix (BUG-2): IniConfig::get returns "" for a present-but-empty value (NOT the
+        //   default) — without this fallback the action would lose ALL its keys, contradicting
+        //   the [keys] template's "empty = default" promise. Same empty→default fixup pattern
+        //   as get_mpv_ao (F40).
         std::string tok = ini.get("keys", d.name, d.tok);
+        if (tok.empty())
+            tok = d.tok;
         std::string part;
         std::stringstream ss(tok);
         while (std::getline(ss, part, ',')) {
             int k = Keymap::parse_token(part);
-            if (k >= 0)
-                keymap_.bind(k, d.act);
+            if (k < 0) {
+                // D44-prof: silent skip left typos ("ctrl+y") invisible — log so a dead rebind
+                //   is diagnosable from panicast.log.
+                LOG(fmt::format("[keys] ignored unparseable token '{}' for action '{}'", part,
+                                d.name));
+                continue;
+            }
+            // D44-prof: bind is map_[key]=a — two actions on one key previously overwrote
+            //   silently (later defs win). Warn so the losing action is visible, not a dead key.
+            if (auto it = bound_by.find(k); it != bound_by.end())
+                LOG(fmt::format("[keys] WARNING: key {} bound to both '{}' and '{}' — '{}' wins",
+                                k, it->second, d.name, d.name));
+            bound_by[k] = d.name;
+            keymap_.bind(k, d.act);
         }
     }
 }

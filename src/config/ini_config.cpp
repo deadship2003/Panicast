@@ -625,8 +625,10 @@ reject_unsafe_url = true
 proxy =
 # Bilibili 直连（默认开启）/ Bilibili direct connection (default on)
 # Bilibili 是国内站点，经境外代理反而变慢/失败；此项让 *.bilibili.com 绕过上面的全局代理直连。
+# 注意：此项在启动时读取，改后需重启（与上面 proxy 的立即生效不同）。
 # Bilibili is CN-domestic; a foreign proxy slows/breaks it. This routes *.bilibili.com direct,
-# bypassing the global proxy above. Set false to route bilibili through the proxy too. (D45)
+# bypassing the global proxy above. Set false to route bilibili through the proxy too.
+# NOTE: read once at startup — restart after changing (unlike `proxy` above, which is live). (D45)
 bilibili_direct = true
 
 # ============================================================
@@ -801,6 +803,15 @@ whisper_bin = whisper-cli
 model = ~/.local/share/panicast/models/ggml-small.en-q5_1.bin
 # max concurrent offline jobs; dispatcher ramps within [1, max] based on CPU load (getloadavg).
 max_concurrent = 3
+# 播放时自动本地 ASR（默认开）/ Auto local ASR on play (default on)
+# 播放本地节目且没有任何更便宜的字幕来源（内嵌轨/本地SRT/在线转录）时，后台自动起 whisper 转写；
+# 字幕就位后 LYRIC 面板自动亮起——播放本身零等待。仅对本地文件生效（流媒体想转写请手动按 L，
+# 因为那需要先整集下载）；直播/未知时长的流自动跳过。whisper 线程数已预留核心，不会卡 UI/播放。
+# When playing a LOCAL episode with no cheaper subtitle source (embedded/local SRT/online), start
+# whisper transcription in the background; the LYRIC panel lights up when segments arrive — play is
+# never delayed. Local files only (streaming needs a full download first — press L deliberately);
+# live/unknown-duration streams are skipped. whisper threads already reserve cores for UI + mpv.
+auto_asr = true
 
 [statusbar_color]
 # 颜色模式 / Color mode:
@@ -896,10 +907,13 @@ discovery_port = 18430
 # 键值写法：键名(space/enter/esc/tab/backspace) 或 单个字符(如 p + - k) 或 数字 keycode。
 # 同一动作绑多个键用逗号分隔(如 play_pause = space,p)。仅无状态命令 + 模式切换键可重绑；
 # 复杂有状态流(play 'l'/搜索 '/'/下载/标记)保留在程序内不可重绑。
+# 两个动作绑到同一键时后者生效并在日志留 WARNING；无法解析的键值会被忽略并记日志。
 # Rebind hotkeys here; empty/deleted line = default; restart after editing.
 # Value: a key name (space/enter/esc/tab/backspace), a single char (p + - k), or a numeric keycode.
 # Multiple keys per action: comma-separate (play_pause = space,p). Only stateless + mode-switch
 # keys are rebindable; complex stateful flows (play/search/download/mark) are not.
+# If two actions share a key the later one wins (WARNING logged); unparseable tokens are
+# skipped and logged.
 [keys]
 play_pause = space,p
 volume_up = +

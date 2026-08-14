@@ -324,6 +324,7 @@ add_executable(panicast
     src/app/app_navigation.cpp
     src/app/app_tree_expand.cpp
     src/app/app_input.cpp
+    src/app/keymap.cpp # D44-prof: parse_token impl (was inline in keymap.h)
     src/app/app_nodes.cpp
     src/app/app_run.cpp
     src/app/app_persistence.cpp
@@ -511,6 +512,7 @@ if(BUILD_TESTING)
         # D14-test: link the real URLClassifier (pure, dep-free) so URLClassifier tests stop
         #   mirroring classify/PATTERNS by hand (the copy had already drifted from production).
         target_sources(test_units PRIVATE
+            src/app/keymap.cpp                # D44-test: real Keymap::parse_token (impl moved out of the header)
             src/net/url_classifier.cpp
             src/playback/sleep_timer.cpp    # D14-test: link real SleepTimer::parse_time_string
             src/core/event_log.cpp)         # sleep_timer.cpp uses EVENT_LOG → needs EventLog
