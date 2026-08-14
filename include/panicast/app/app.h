@@ -344,6 +344,20 @@ private:
     void shutdown();
     // D37: Extract Method — the per-frame tree-locked display-build phase of run()'s loop.
     bool build_frame_display();
+    // D38: per-frame render context (Replace Method with Method Object — Fowler). The frame
+    //   loop computes a handful of temporaries each frame — player state, the derived
+    //   AppState, the selection/download snapshots — that the prepare and draw phases both
+    //   touch. Bundling them into one struct lets the loop delegate those phases to named
+    //   methods without long parameter lists (the plain-Extract-Method alternative would
+    //   need a 5-arg draw(state, app_state, marked, sel_node, downloads)).
+    struct FrameCtx {
+        MPVController::State state;
+        AppState app_state = AppState::BROWSING;
+        int marked = 0;
+        TreeNodePtr sel_node;
+        std::vector<DownloadProgress> downloads;
+    };
+    FrameCtx prepare_frame(); // D38: state + derived AppState + selection/download snapshots
     // D11-3c: load_history_to_root relocated to LibraryService (the history_root_ owner).
     void load_persistent_data();
     void save_persistent_data();

@@ -10,6 +10,23 @@
 
 ---
 
+## 新架构 D38 — 2026-08-14 — 设计层第四刀：run() loop 引入 FrameCtx + 抽 prepare_frame()（Method Object）（M3 · main 主线）
+
+> run() 帧循环的「prepare 半」——取状态 + 派生 AppState + build_frame_display loading 合并 + 选中/下载快照——此前全部内联，且产出的 `state`/`app_state`/`marked`/`sel_node`/`downloads` **五个局部被后面的 draw phase 跨段读取**（plain Extract Method 会落到 5 参 `draw(...)`）。引入 **per-frame 渲染上下文结构 `FrameCtx`** 承载这五个共享帧局部（Fowler「Replace Method with Method Object」），prepare 半抽成 `FrameCtx App::prepare_frame()`，run() 改一行 `FrameCtx f = prepare_frame();`，残留内联 draw 块与 input 改读 `f.*`。
+>
+> 续 D35-D37「先摘干净果 → 设计层 Extract Method」：本刀是 **run loop 共享帧局部缠绕的首个解法 = Method Object**。draw 块仍内联于此版（D39 再抽为 `draw_frame(FrameCtx&)`）。
+
+### 改动
+- `app.h`：`run` 段加私有嵌套结构 `FrameCtx`（`MPVController::State state` / `AppState` / `marked` / `sel_node` / `downloads`）+ `FrameCtx prepare_frame();` 声明。
+- `app_run.cpp`：run() loop 的 state 取值+app_state 计算+loading 合并+marked/sel_node/downloads 收集（原 ~55 行）整体迁入新 `prepare_frame()`（插在 run() 后）；调用点替换为 `FrameCtx f = prepare_frame();`；内联 draw 块与 input 的 5 处局部引用改 `f.*`；current_index「app-owned 不从 mpv 每帧同步」注释随 `current_index_snap` 归位。
+
+### 验收
+- 编译 0-warning（`-Wall -Wextra -Wpedantic`）。
+- ctest 41/41 绿。
+- pty 冒烟：exit 0 + altbuf 进 + clean endin `\x1b[?1049l` + quit 对话框渲染。
+
+---
+
 ## 新架构 D37 — 2026-08-14 — 设计层第三刀：run() loop Extract Method — tree-locked 显示构建 phase → build_frame_display()（M3 · main 主线）
 
 > run() 帧循环里最自包含的 phase：**tree_mutex 锁内的显示构建**（~55 行：watchdog 计时取锁→清空+flatten 显示列表→扫 loading 节点→消费 pending_select→字幕 poll→刷新 lyric history→解析 lyric-bar 激活）。该 phase **零外层局部读取**（只读成员 library_/player/subtitle_/frontend_/cur_items()）、产出唯一 bool `is_loading` → 干净 Extract Method：零参数、一个返回值。锁在方法内获取/释放（语义不变）。抽成 `bool App::build_frame_display()`，调用点 `bool is_loading = build_frame_display();`。

@@ -1,4 +1,21 @@
 
+## D38 — run() loop 引入 FrameCtx + 抽 prepare_frame()（设计层第四刀 · Method Object）
+
+**Context:** D35-D37 用「干净切点」判据（零外层局部读取）摘完了 run() loop 的干净果（startup/shutdown bookend、tree-locked 显示构建）。剩下的 phase 都**与外层帧局部缠绕**：state（取自 player.get_state）被状态计算 + draw 共读；app_state（计算产物）被 draw 读；marked/sel_node/downloads（快照产物）被 draw + input 共读。plain Extract Method 对 draw phase 会落到 5 参 `draw(state, app_state, marked, sel_node, downloads)`——缠绕切点，无法零参数。
+
+**Decision:** 引入 **per-frame 渲染上下文结构 `FrameCtx`**（Fowler「Replace Method with Method Object」）承载这五个共享帧局部，把「prepare 半」（取状态 + 派生 AppState + build_frame_display loading 合并 + 选中/下载快照 + pump + pending 折叠）抽成 `FrameCtx App::prepare_frame()`。run() 改 `FrameCtx f = prepare_frame();`，残留内联 draw 块与 input 改读 `f.*`。FrameCtx 作 App 私有嵌套结构定义于 app.h（`MPVController::State` 用嵌套公开类型，经 mpv_controller.h 可见）。
+
+**关键点:**
+- 这是共享帧局部缠绕的标准解法：当 plain Extract Method 被跨段局部共享阻塞，Method Object 把这些临时量收进一个结构，各 phase 变成取 `FrameCtx&` 的方法（或读返回的 FrameCtx）。draw phase 即将（D39）抽为 `void draw_frame(const FrameCtx&)`，届时参数列表是 1 个 struct 引用而非 5 个裸值。
+- 行为保持：prepare_frame 是纯块搬迁（原内联 compute+gather 整体迁入，逐行不变，仅局部名 state→f.state 等）；current_index「app-owned 不从 mpv 每帧同步」注释随 `current_index_snap` 归位到 draw 快照块（语义注释随其所注释的代码）。
+- 锁边界不变量（P1.2）：draw 块仍持 `playlist_mutex_`、输入在其后无锁区——本刀未动锁结构（draw 仍内联）。frame_start_（watchdog 计时基）prepare 不触及，留 loop 顶层。
+- 非过度设计：Method Object 仅在 plain Extract Method 确被共享局部阻塞时引入（此处正是），非为抽象而抽象。app.h 净增 FrameCtx 结构 + 1 方法声明（run loop 解耦的合理代价）。
+
+**Verification:** ctest 41/41、0-warning（`-Wall -Wextra -Wpedantic`）、pty 冒烟 exit 0 + clean endin（prepare→draw→input 每帧路径完整）。
+
+**Followups:** D39 抽 draw 块 → `draw_frame(const FrameCtx&)`；D40 抽 exit-check phase → `bool check_exit_requests()`（返回 true 则 break）。run() loop 收敛为 flat 骨架后收尾 #70。
+
+
 ## D37 — run() loop Extract Method：tree-locked 显示构建 phase → build_frame_display()（设计层第三刀）
 
 **Context:** D35 抽 run() bookend、D36 抽 event_loop codec 块后，继续 run() 帧循环的 god-方法分解。loop 各 phase 多与外层局部缠绕（frame_start_/state/app_state/sel_node/downloads/current_index_snap 横跨多 phase）。评估哪个 phase 是干净切点。

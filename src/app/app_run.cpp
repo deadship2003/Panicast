@@ -121,61 +121,7 @@ void App::run() {
         // N02: refresh the state snapshot cache for remote query commands (status/currentsong).
         update_remote_state_cache();
 
-        auto state = player.get_state();
-
-        // Pointer-driven model: current_index is app-owned (set by play_current /
-        //   on_playback_ended), NOT derived from mpv's playlist_pos. No per-frame
-        //   sync from mpv is needed.
-
-        // Improved state-detection logic to correctly show Navigating/Buffering/Playing/Pause
-        // Add List-mode detection
-        // D9-3: the buffering lifecycle (pending + 30s timeout + has_media clear + the one-time
-        //   buffering-duration log) moved into PlaybackService::advance_buffering — App owns no
-        //   playback-state member. It returns true while a just-started track is still pending mpv
-        //   load (<30s); the PLAYING/PAUSED vs mpv-idle-BUFFERING distinction still derives from mpv
-        //   here (core_idle/paused). Runs on the UI thread (D4 invariant unaffected).
-        AppState app_state;
-        if (playback_.advance_buffering(state.has_media)) {
-            app_state = AppState::BUFFERING; // playback initiated, mpv still loading (<30s)
-        } else if (state.has_media) {
-            if (state.core_idle && !state.paused) {
-                // Has media, idle and not paused = buffering
-                app_state = AppState::BUFFERING;
-            } else if (state.paused) {
-                // Has media, paused
-                app_state = AppState::PAUSED;
-            } else {
-                // Has media, playing
-                app_state = AppState::PLAYING;
-            }
-        } else {
-            // No media, navigating (incl. just-timed-out pending)
-            app_state = AppState::BROWSING;
-        }
-
-        bool is_loading = build_frame_display();
-        // Node-loading state has higher priority than browsing but lower than playback states
-        if (is_loading && app_state == AppState::BROWSING)
-            app_state = AppState::LOADING;
-
-        int marked = count_marked_current();
-        TreeNodePtr sel_node = (library_.selected_idx() >= 0 && library_.selected_idx() < (int)library_.display_list().size())
-                                   ? library_.display_list()[library_.selected_idx()].node
-                                   : nullptr;
-        auto downloads = ProgressManager::instance().get_all();
-        // Free slots (completed entries just cleared by get_all) → promote pending downloads,
-        //   capping active+visible entries at MAX_CONCURRENT_DOWNLOADS.
-        pump_download_queue(downloads.size());
-        // Collapsed summary for queued items (keeps the INFO panel from being overrun).
-        if (!pending_downloads_.empty()) {
-            DownloadProgress syn;
-            syn.title = fmt::format("··· +{} pending download", pending_downloads_.size());
-            syn.active = false;
-            syn.complete = false;
-            syn.failed = false;
-            syn.is_youtube = false;
-            downloads.push_back(syn);
-        }
+        FrameCtx f = prepare_frame();
 
         int vh = LINES - 5;
         if (vh < 1)
@@ -190,6 +136,9 @@ void App::run() {
         // Snapshot the playing pointer + the INFO play-context (history 3 + next 3)
         //   under the lock. P1.2 (Y23.5): hold the lock during draw ONLY (not during input —
         //   handle_input → play_current → locks playlist_mutex_ → would deadlock if held).
+        // Pointer-driven model: current_index is app-owned (set by play_current /
+        //   on_playback_ended), NOT derived from mpv's playlist_pos. No per-frame sync from
+        //   mpv is needed.
         int current_index_snap = playback_.current_index();
         std::vector<int> next_snap;
         std::string cur_url_snap;
@@ -267,9 +216,9 @@ void App::run() {
             dctx.now_playing_url = np.id.url();
             dctx.now_playing_title = np.title;
 
-            frontend_->draw(mode, library_.display_list(), library_.selected_idx(), state, library_.view_start(), app_state,
-                    marked, search_.search_query(), search_.current_match_idx(),
-                    search_.total_matches(), sel_node, downloads,
+            frontend_->draw(mode, library_.display_list(), library_.selected_idx(), f.state, library_.view_start(), f.app_state,
+                    f.marked, search_.search_query(), search_.current_match_idx(),
+                    search_.total_matches(), f.sel_node, f.downloads,
                     visual_mode_, visual_start_, playback_.playlist(), current_index_snap,
                     play_mode, hist_titles, next_snap, dctx);
         } // release pl_draw_lock before input processing (avoids deadlock with play_current)
@@ -282,9 +231,9 @@ void App::run() {
         wint_t wch;
         int wrc = wget_wch(stdscr, &wch);
         if (wrc == KEY_CODE_YES) {
-            handle_input(static_cast<int>(wch), marked); // special key / mouse
+            handle_input(static_cast<int>(wch), f.marked); // special key / mouse
         } else if (wrc == OK && wch < 128) {
-            handle_input(static_cast<int>(wch), marked); // ASCII only
+            handle_input(static_cast<int>(wch), f.marked); // ASCII only
         }
         // wrc == ERR (no input) or non-ASCII char → drop silently
         const long _frame_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -296,6 +245,62 @@ void App::run() {
     }
 
     shutdown();
+}
+
+// D38: per-frame render-context preparation (Extract Method + Method Object from run()'s loop).
+//   Pulls the previously-inline compute+gather phase — player state, the derived AppState
+//   (BUFFERING/PAUSED/PLAYING/BROWSING, merged with the node-loading flag), and the
+//   selection/download snapshots — into one named method returning FrameCtx. run()'s loop
+//   shrinks to a flat prepare→scroll→draw→input→watchdog skeleton; the draw phase reads the
+//   same values back from the struct instead of ~5 interleaved loop locals.
+App::FrameCtx App::prepare_frame() {
+    FrameCtx f;
+    f.state = player.get_state();
+
+    // D9-3: the buffering lifecycle (pending + 30s timeout + has_media clear + the one-time
+    //   buffering-duration log) is owned by PlaybackService::advance_buffering (App holds no
+    //   playback-state member). It returns true while a just-started track is still pending mpv
+    //   load (<30s); the PLAYING/PAUSED vs mpv-idle-BUFFERING distinction still derives from mpv
+    //   here (core_idle/paused). Runs on the UI thread (D4 invariant unaffected).
+    if (playback_.advance_buffering(f.state.has_media)) {
+        f.app_state = AppState::BUFFERING; // playback initiated, mpv still loading (<30s)
+    } else if (f.state.has_media) {
+        if (f.state.core_idle && !f.state.paused) {
+            f.app_state = AppState::BUFFERING; // has media, idle and not paused
+        } else if (f.state.paused) {
+            f.app_state = AppState::PAUSED;
+        } else {
+            f.app_state = AppState::PLAYING;
+        }
+    } else {
+        f.app_state = AppState::BROWSING; // no media, navigating
+    }
+
+    const bool is_loading = build_frame_display();
+    // Node-loading state has higher priority than browsing but lower than playback states.
+    if (is_loading && f.app_state == AppState::BROWSING)
+        f.app_state = AppState::LOADING;
+
+    f.marked = count_marked_current();
+    f.sel_node = (library_.selected_idx() >= 0 &&
+                  library_.selected_idx() < (int)library_.display_list().size())
+                     ? library_.display_list()[library_.selected_idx()].node
+                     : nullptr;
+    f.downloads = ProgressManager::instance().get_all();
+    // Free slots (completed entries just cleared by get_all) → promote pending downloads,
+    //   capping active+visible entries at MAX_CONCURRENT_DOWNLOADS.
+    pump_download_queue(f.downloads.size());
+    // Collapsed summary for queued items (keeps the INFO panel from being overrun).
+    if (!pending_downloads_.empty()) {
+        DownloadProgress syn;
+        syn.title = fmt::format("··· +{} pending download", pending_downloads_.size());
+        syn.active = false;
+        syn.complete = false;
+        syn.failed = false;
+        syn.is_youtube = false;
+        f.downloads.push_back(syn);
+    }
+    return f;
 }
 
 // D35: run() startup bookend — one-time init before the frame loop.
