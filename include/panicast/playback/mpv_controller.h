@@ -208,6 +208,15 @@ private:
     std::string classify_iptv_load_error_() const; // -13 → #1/#2/#3/#4 by last_log_text_ keywords
     std::string iptv_message_for_error_(int error) const; // END_FILE r=4 → IPTV: context message
     void reset_iptv_detection_(); // re-arm per-track one-shots/timing at each load entry point
+    // D46: runtime IPTV diagnostics — off-air(#5)/audio-only(#7)/slow(#11) detection, extracted
+    //   from update_state() into mpv_iptv.cpp. Inputs are the property-read snapshot (derived in
+    //   update_state); mutates the per-track one-shot flags above. Runs on the event-loop thread.
+    void detect_iptv_states_(bool has_media_now, bool has_audio, bool has_video_track,
+                             bool idle, int64_t cache_speed, int64_t buf_pct, double buf_dur);
+    // D47: apply all [mpv]-section IniConfig options (vo/vid/ao/ytdl-format/keep-open/subtitle/
+    //   slang/audio-display/proxy/tls/cache/user-agent) to ctx_ before mpv_initialize, with CLI
+    //   overrides taking precedence. Impl in mpv_init.cpp; extracted verbatim from initialize().
+    void apply_mpv_options_();
 
     void event_loop();
     void update_state();

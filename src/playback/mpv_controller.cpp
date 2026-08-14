@@ -90,92 +90,9 @@ bool MPVController::initialize() {
         mpv_set_option_string(ctx_, "script-opts", so.c_str());
     }
 
-    // F24: vo/vid/ytdl-format/cache/demuxer/tls/user-agent/keep-open from [mpv] section of IniConfig.
-    //   CLI overrides (--vo, --vid, --ao, --quiet = --vo=null --vid=no) take precedence over INI values.
-    std::string mpv_vo = IniConfig::instance().get_mpv_vo();
-    std::string mpv_vid = IniConfig::instance().get_mpv_vid();
-    std::string mpv_ao = IniConfig::instance().get_mpv_ao(); // F40: returns pulse,alsa if INI empty
-    // F40: one-time INI fixup — if ao was empty/absent, persist the default so it's visible/editable
-    //   (old config.ini had "ao =" empty → overrode the default → needed explicit --ao=pulse).
-    if (IniConfig::instance().get("mpv", "ao", "").empty()) {
-        IniConfig::instance().set("mpv", "ao", "pulse,alsa");
-    }
-    if (!cli_vo_override_.empty())
-        mpv_vo = cli_vo_override_;
-    if (!cli_vid_override_.empty())
-        mpv_vid = cli_vid_override_;
-    if (!cli_ao_override_.empty())
-        mpv_ao = cli_ao_override_;
-    mpv_set_option_string(ctx_, "vo", mpv_vo.c_str());
-    mpv_set_option_string(ctx_, "vid", mpv_vid.c_str());
-    if (!mpv_ao.empty())
-        mpv_set_option_string(ctx_, "ao", mpv_ao.c_str()); // empty = leave mpv default (auto)
-    std::string mpv_ytdl_format = IniConfig::instance().get_mpv_ytdl_format();
-    mpv_set_option_string(ctx_, "ytdl-format", mpv_ytdl_format.c_str());
-    mpv_set_option_string(ctx_, "keep-open",
-                          IniConfig::instance().get_mpv_keep_open() ? "yes" : "no");
-    // Y14: subtitle settings now INI-configurable ([mpv] sub_align_x/y, sub_visibility, sub_ass_override).
-    //   Defaults: center/bottom/yes/auto. For VIDEO: subtitles render in the video window (mpv native).
-    //   For AUDIO (no video window): TUI lyric panel shows sub-text (gated by !has_video in draw_info).
-    mpv_set_option_string(ctx_, "sub-ass-override",
-                          IniConfig::instance().get_mpv_sub_ass_override().c_str());
-    mpv_set_option_string(ctx_, "sub-align-x", IniConfig::instance().get_mpv_sub_align_x().c_str());
-    mpv_set_option_string(ctx_, "sub-align-y", IniConfig::instance().get_mpv_sub_align_y().c_str());
-    mpv_set_option_string(ctx_, "sub-visibility",
-                          IniConfig::instance().get_mpv_sub_visibility().c_str());
-    // Y24.43: prefer English among multiple embedded subtitle tracks (slang). mpv auto-selects the
-    //   matching track → sub-text reflects the English subtitle. INI-configurable, default "en".
-    mpv_set_option_string(ctx_, "slang", IniConfig::instance().get_mpv_sub_lang().c_str());
-    // Y12: audio-display=no — don't open a video window for embedded cover art / pictures when
-    //   playing audio files (mp3 with album art). Keeps audio playback windowless (no art popup).
-    mpv_set_option_string(ctx_, "audio-display", "no");
-    LOG(fmt::format("[MPV] Init: vo={}, vid={}, ao={}, ytdl-format={}, keep-open={}", mpv_vo,
-                    mpv_vid, mpv_ao.empty() ? "auto" : mpv_ao, mpv_ytdl_format,
-                    IniConfig::instance().get_mpv_keep_open() ? "yes" : "no"));
-
-    // YouTube playback: resolve_youtube_url() pre-resolves every YouTube URL to a direct stream
-    //   URL via `yt-dlp -g` (with --cookies + --proxy + --js-runtimes) BEFORE handing it to mpv, so
-    //   mpv's ytdl hook is never used for YouTube and mpv needs no cookies/player_client here — one
-    //   resolve path, no fallback. mpv only needs the proxy to fetch the resolved stream itself.
-    {
-        std::string proxy = IniConfig::instance().get_proxy();
-        if (!proxy.empty()) {
-            // Y24.53: FIX — mpv's proxy option is "http-proxy" (was "proxy" → mpv silently ignored
-            //   it, NEVER used the proxy → geo-blocked streams failed even with [network] proxy set).
-            //   Also set env vars for SOCKS proxy support (ffmpeg reads http_proxy/https_proxy;
-            //   curl uses explicit CURLOPT_PROXY so env vars don't double-apply).
-            mpv_set_option_string(ctx_, "http-proxy", proxy.c_str());
-            setenv("http_proxy", proxy.c_str(), 1);
-            setenv("https_proxy", proxy.c_str(), 1);
-            LOG(fmt::format("[MPV] proxy: {} (http-proxy + env)", proxy));
-        }
-    }
-
-    // F24: TLS verification from [mpv] section (default true, aligned with libcurl configuration)
-    bool mpv_tls_verify = IniConfig::instance().get_mpv_tls_verify();
-    mpv_set_option_string(ctx_, "tls-verify", mpv_tls_verify ? "yes" : "no");
-    LOG(fmt::format("[MPV] TLS verify: {} (streaming {})", mpv_tls_verify ? "enabled" : "disabled",
-                    mpv_tls_verify ? "secure" : "compatibility mode"));
-
-    // F24: Network buffer configuration from [mpv] section — optimize streaming playback under VPN/high-latency
-    std::string mpv_cache = IniConfig::instance().get_mpv_cache();
-    std::string mpv_demuxer_max_bytes = IniConfig::instance().get_mpv_demuxer_max_bytes();
-    std::string mpv_demuxer_max_back_bytes = IniConfig::instance().get_mpv_demuxer_max_back_bytes();
-    int mpv_cache_secs = IniConfig::instance().get_mpv_cache_secs();
-    mpv_set_option_string(ctx_, "cache", mpv_cache.c_str());
-    mpv_set_option_string(ctx_, "demuxer-max-bytes", mpv_demuxer_max_bytes.c_str());
-    mpv_set_option_string(ctx_, "demuxer-max-back-bytes", mpv_demuxer_max_back_bytes.c_str());
-    mpv_set_option_string(ctx_, "cache-secs", std::to_string(mpv_cache_secs).c_str());
-    LOG(fmt::format("[MPV] Network buffer: cache={}, demuxer-max-bytes={}, "
-                    "demuxer-max-back-bytes={}, cache-secs={}",
-                    mpv_cache, mpv_demuxer_max_bytes, mpv_demuxer_max_back_bytes, mpv_cache_secs));
-
-    // F24: browser User-Agent from [mpv] section (some CDNs reject default mpv UA).
-    //   Applied before mpv_initialize (option-string form). This complements the yt-dlp -g fallback
-    //   in the event_loop for sites that still reject the player UA.
-    std::string mpv_user_agent = IniConfig::instance().get_mpv_user_agent();
-    mpv_set_option_string(ctx_, "user-agent", mpv_user_agent.c_str());
-    LOG(fmt::format("[MPV] user-agent: {}", mpv_user_agent));
+    // D47: apply all [mpv]-section options (vo/vid/ao/subtitles/proxy/tls/cache/user-agent) —
+    //   extracted to apply_mpv_options_() (mpv_init.cpp). CLI overrides take precedence over INI.
+    apply_mpv_options_();
 
     // F25: removed F23's process-global dup2(stderr → /dev/null) around mpv_initialize().
     //   Root cause of the F24 VO/AO init failure: dup2 mutated fd 2 / TTY state process-wide
@@ -843,57 +760,12 @@ void MPVController::update_state() {
         }
     }
 
-    // Y24.55: IPTV context diagnostics — only when the app flagged this load as IPTV. Detects the
-    //   three states mpv does NOT surface as an END_FILE error: off-air (#5), audio-only channel
-    //   (#7), and sustained slow rebuffering (#11). One-shot per track (re-armed in
-    //   reset_iptv_detection_ / FILE_LOADED). update_state runs on the event-loop thread, so these
-    //   members need no lock. Locals (has_path/path/idle/buf_pct/cache_speed/codec/vcodec/buf_dur)
-    //   are still in scope here.
-    if (iptv_context_.load() && file_loaded_time_set_ && !offair_reported_) {
-        bool has_media_now = (has_path >= 0 && path);
-        bool has_audio = (codec != nullptr && codec[0] != '\0');
-        bool has_video_track = (vcodec != nullptr && vcodec[0] != '\0');
-        auto now = std::chrono::steady_clock::now();
-        auto since_loaded_s =
-            std::chrono::duration_cast<std::chrono::seconds>(now - file_loaded_time_).count();
-
-        // #5 off-air: loaded (address OK, HTTP 200) but no media data flows — core idle, no codec,
-        //   no download, buffering stuck at 0. Held continuously for offair_detect_secs (INI, default
-        //   12s) before reporting, so a slow-but-working stream's initial fill isn't misread. Any
-        //   data/codec arrival cancels the timer.
-        bool no_data = has_media_now && idle && !has_audio && !has_video_track &&
-                       cache_speed == 0 && buf_pct == 0;
-        if (no_data) {
-            if (!stuck_timing_) {
-                stuck_timing_ = true;
-                stuck_since_ = now;
-            } else if (since_loaded_s >= IniConfig::instance().get_iptv_offair_detect_secs()) {
-                offair_reported_ = true;
-                stuck_timing_ = false;
-                EVENT_LOG("IPTV: connected, no stream data — channel may be off-air; retry later");
-            }
-        } else {
-            stuck_timing_ = false; // data arrived or playing — cancel off-air timing
-        }
-
-        // #7 audio-only: an audio codec is present and actually playing, but no video track ever
-        //   appeared (after an 8s grace so a slow video-track init isn't misread). Informational.
-        if (!offair_reported_ && !audio_only_reported_ && has_audio && !has_video_track && !idle &&
-            buf_pct == 0 && since_loaded_s >= 8) {
-            audio_only_reported_ = true;
-            EVENT_LOG("IPTV: audio-only channel — no video track, playing as audio");
-        }
-
-        // #11 slow: data is flowing but the core keeps stalling (buffering in progress, <1s buffered
-        //   ahead) sustained past 20s. Throttled to once per track. Distinct from #5 (which has
-        //   buf_pct==0 and no data at all).
-        if (!offair_reported_ && !slow_reported_ && idle && buf_pct > 0 && buf_dur < 1.0 &&
-            since_loaded_s >= 20) {
-            slow_reported_ = true;
-            EVENT_LOG(
-                "IPTV: network too slow — sustained buffering, bandwidth insufficient or unstable");
-        }
-    }
+    // D46: IPTV runtime diagnostics extracted to detect_iptv_states_() (mpv_iptv.cpp) — off-air
+    //   (#5) / audio-only (#7) / slow (#11) detection. Inputs derived from the property reads
+    //   above (still valid here — the mpv_free cleanup runs after this call).
+    detect_iptv_states_((has_path >= 0 && path), (codec != nullptr && codec[0] != '\0'),
+                        (vcodec != nullptr && vcodec[0] != '\0'), idle, cache_speed, buf_pct,
+                        buf_dur);
 
     if (path)
         mpv_free(path);

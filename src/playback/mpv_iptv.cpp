@@ -8,7 +8,12 @@
 #include "panicast/playback/mpv_controller.h"
 
 #include <cctype>
+#include <chrono>
+#include <cstdint>
 #include <string>
+
+#include "panicast/config/ini_config.h"
+#include "panicast/core/event_log.h"
 
 namespace panicast
 {
@@ -91,5 +96,58 @@ void MPVController::reset_iptv_detection_() {
     audio_only_reported_ = false;
     slow_reported_ = false;
     had_playback_started_ = false;
+}
+
+// Y24.55/D46: IPTV runtime diagnostics — extracted verbatim from update_state() (D46 god-object
+//   split). Detects the three states mpv does NOT surface as an END_FILE error: off-air (#5),
+//   audio-only channel (#7), sustained slow rebuffering (#11). One-shot per track (re-armed in
+//   reset_iptv_detection_ / FILE_LOADED). update_state runs on the event-loop thread, so these
+//   members need no lock. Inputs are the property-read snapshot passed from update_state.
+void MPVController::detect_iptv_states_(bool has_media_now, bool has_audio,
+                                        bool has_video_track, bool idle,
+                                        int64_t cache_speed, int64_t buf_pct,
+                                        double buf_dur) {
+    if (!(iptv_context_.load() && file_loaded_time_set_ && !offair_reported_))
+        return;
+    auto now = std::chrono::steady_clock::now();
+    auto since_loaded_s =
+        std::chrono::duration_cast<std::chrono::seconds>(now - file_loaded_time_).count();
+
+    // #5 off-air: loaded (address OK, HTTP 200) but no media data flows — core idle, no codec,
+    //   no download, buffering stuck at 0. Held continuously for offair_detect_secs (INI, default
+    //   12s) before reporting, so a slow-but-working stream's initial fill isn't misread. Any
+    //   data/codec arrival cancels the timer.
+    bool no_data = has_media_now && idle && !has_audio && !has_video_track &&
+                   cache_speed == 0 && buf_pct == 0;
+    if (no_data) {
+        if (!stuck_timing_) {
+            stuck_timing_ = true;
+            stuck_since_ = now;
+        } else if (since_loaded_s >= IniConfig::instance().get_iptv_offair_detect_secs()) {
+            offair_reported_ = true;
+            stuck_timing_ = false;
+            EVENT_LOG("IPTV: connected, no stream data — channel may be off-air; retry later");
+        }
+    } else {
+        stuck_timing_ = false; // data arrived or playing — cancel off-air timing
+    }
+
+    // #7 audio-only: an audio codec is present and actually playing, but no video track ever
+    //   appeared (after an 8s grace so a slow video-track init isn't misread). Informational.
+    if (!offair_reported_ && !audio_only_reported_ && has_audio && !has_video_track && !idle &&
+        buf_pct == 0 && since_loaded_s >= 8) {
+        audio_only_reported_ = true;
+        EVENT_LOG("IPTV: audio-only channel — no video track, playing as audio");
+    }
+
+    // #11 slow: data is flowing but the core keeps stalling (buffering in progress, <1s buffered
+    //   ahead) sustained past 20s. Throttled to once per track. Distinct from #5 (which has
+    //   buf_pct==0 and no data at all).
+    if (!offair_reported_ && !slow_reported_ && idle && buf_pct > 0 && buf_dur < 1.0 &&
+        since_loaded_s >= 20) {
+        slow_reported_ = true;
+        EVENT_LOG(
+            "IPTV: network too slow — sustained buffering, bandwidth insufficient or unstable");
+    }
 }
 } // namespace panicast

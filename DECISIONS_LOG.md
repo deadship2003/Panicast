@@ -1,4 +1,40 @@
 
+## D47 — initialize() [mpv] 选项簇 → mpv_init.cpp（#77 · god-object 抽取）
+
+**Context:** #77 续。initialize() 202 行是文件最大函数；其 [mpv] 选项应用块（~85 行）是离散关注点「应用用户可配选项」，ROADMAP 既标 initialize 为目标。
+
+**Decision:** 抽 `apply_mpv_options_()` 迁新 `mpv_init.cpp`（init 关注点兄弟 TU）。
+
+**关键点:**
+- 新 TU mpv_init.cpp：无既有 init 兄弟文件（mpv_commands=控制 wrapper、mpv_play=单条派发均非 init）；选项簇够大（~85 行）值得独立 TU。声明留 mpv_controller.h（成员函数，读 ctx_/cli_*_override_）。
+- 单一关注点 + 无早返回：选项块是顺序 set_option、无控制流外逸 → 调一次于 mpv_initialize 前，行为与内联块逐字等价。
+- initialize() 收敛为可读序列（create→探测 yt-dlp→固定 flag→apply_mpv_options_→initialize→post-init→启线程）。
+- 边界：固定行为 flag（idle/geometry/ontop/terminal/input-bindings/ytdl）留 initialize（核心行为常量，非「用户可配选项」）；mpv_initialize 后的 post-init（log 订阅/VO-AO 日志/stderr 重定向/启线程）留 initialize（一次性初始化）。再细分即过度分解。
+
+**Verification:** 0-warning、ctest 46/46、pty 冒烟 exit 0 + clean endin。
+
+**Followups:** #77 mpv god-object 抽取告一段落——initialize()/update_state() 主体为单关注点（setup/polling），再抽过度分解。app.h 553 仍待续（其他成员簇）。#77 评估完成。
+
+---
+
+## D46 — update_state IPTV 运行诊断 → mpv_iptv.cpp（#77 · god-object 抽取）
+
+**Context:** #77 评估 mpv_controller.cpp 剩余簇。update_state() 内 IPTV 诊断块（~50 行，off-air/audio-only/slow 三态判定）是 ARCHITECTURE 既标的「update_state IPTV 块」目标——离散关注点、含计时/one-shot 逻辑，适合 Extract Method。
+
+**Decision:** 抽 `detect_iptv_states_(has_media_now,has_audio,has_video_track,idle,cache_speed,buf_pct,buf_dur)`，迁 mpv_iptv.cpp（与既有 IPTV 方法同处、读相同私有标志）。
+
+**关键点:**
+- 归宿 mpv_iptv.cpp 非 mpv_controller.cpp：与 classify_iptv_load_error_/iptv_message_for_error_/set_iptv_context/reset_iptv_detection_ 同属 IPTV 关注点、共享 one-shot 标志 → 内聚类聚一处（D20 模式）。
+- 入参传派生值（bool×3 + idle + cache_speed + buf_pct + buf_dur）非重读属性：update_state 已读这些给 state_，detect 复用快照（避免重复 mpv_get_property）。
+- 守卫内移：原 `if(iptv_context_&&...)` 块体迁入方法、首行 `if(!(...)) return;`——调用点无条件调一次，语义等价。
+- 逐字搬迁：计时/阈值/one-shot 更新 1:1；event-loop 线程独占故成员无锁（原注释保留）。
+
+**Verification:** 0-warning、ctest 46/46、pty 冒烟 exit 0 + clean endin。IPTV 诊断行为待用户端测。
+
+**Followups:** initialize() 选项簇（D47）。
+
+---
+
 ## D45 — yt-dlp 代理 URL 感知 + bilibili 直连种子规则（#75 · Connectivity 收尾）
 
 **Context:** D2 立 IProxyManager 规则链、D3 让 curl 全经 `apply_network_proxy(url,platform)`，但留两缺口：① `YtdlpRunner::run` 内 `resolveProxy("")` 传空 URL → 域名规则永不命中（host 为空）；② 无生产期种子规则（youtube/bilibili/googlevideo 仅注释示例）。#75 收尾。

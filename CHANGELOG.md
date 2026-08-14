@@ -10,6 +10,33 @@
 
 ---
 
+## 新架构 D47 — 2026-08-14 — initialize() [mpv] 选项簇 → mpv_init.cpp（#77 · god-object 抽取 · main 主线）
+
+> `initialize()`（202 行，文件最大函数）的 [mpv] 选项应用块（vo/vid/ao/ytdl-format/keep-open/subtitle/slang/audio-display/proxy/tls/cache/user-agent，~85 行）抽成 `apply_mpv_options_()`，迁入**新** `mpv_init.cpp`（init 关注点的兄弟 TU，匹配 D18-D20/D34/D36 的成员组拆分模式——声明留 mpv_controller.h、实现落兄弟 .cpp）。单一关注点「应用用户可配 mpv 选项」；CLI override 优先于 INI；无早返回、调用一次于 mpv_initialize 前，行为与原内联块逐字等价。initialize() 收敛为可读序列：create → 探测 yt-dlp → 固定行为 flag → apply_mpv_options_() → initialize → post-init → 启线程。mpv_controller.cpp 873→790（D46+D47 累计 918→790）。
+
+### 改动
+- 新 `src/playback/mpv_init.cpp`：apply_mpv_options_（逐字搬迁自 initialize）。
+- `mpv_controller.h`：+ apply_mpv_options_ 私有声明。
+- `mpv_controller.cpp` initialize：选项块替为 apply_mpv_options_() 调用。
+- `CMakeLists.txt`：显式源表加 src/playback/mpv_init.cpp。
+
+**验收**：0-warning、ctest 46/46、pty 冒烟 exit 0 + clean endin。mpv 选项行为待用户端测。
+
+---
+
+## 新架构 D46 — 2026-08-14 — update_state IPTV 运行诊断 → mpv_iptv.cpp（#77 · god-object 抽取 · main 主线）
+
+> `update_state()` 的 IPTV 上下文诊断块（off-air #5 / audio-only #7 / slow #11，~50 行）抽成 `detect_iptv_states_()`，迁入既有 `mpv_iptv.cpp`（与 classify/message/set/reset 同处——读相同的私有 one-shot 标志：iptv_context_/file_loaded_time_/stuck_timing_/offair_reported_/...）。Extract Method（D36/D41 模式）：update_state 把属性读快照派生出的 7 个入参（has_media_now/has_audio/has_video_track/idle/cache_speed/buf_pct/buf_dur）传入，方法内部自算 now/since_loaded_s 并按 INI 阈值判定三态、更新 one-shot 标志。body 逐字搬迁、行为等价。mpv_controller.cpp 918→873。
+
+### 改动
+- `mpv_iptv.cpp`：+ detect_iptv_states_（含 `<chrono>`/`<cstdint>`/ini_config/event_log 依赖）。
+- `mpv_controller.h`：+ detect_iptv_states_ 私有声明。
+- `mpv_controller.cpp` update_state：IPTV 块替为 detect_iptv_states_(...) 调用。
+
+**验收**：0-warning、ctest 46/46、pty 冒烟 exit 0 + clean endin。IPTV 诊断行为待用户端测（无 IPTV 流）。
+
+---
+
 ## 新架构 D45 — 2026-08-14 — yt-dlp 代理 URL 感知 + bilibili 直连种子规则（#75 · Connectivity 收尾 · main 主线）
 
 > D2 立了 `IProxyManager` 规则链（platform→domain→global→direct）+ D3 让所有 curl 经 `apply_network_proxy(url,platform)`，但**两处缺口**留到 #75：① yt-dlp 路径 `resolveProxy("")` 传空 URL → 域名规则永不命中（D3 自承「yt-dlp 的 url/platform 感知路由为后续精化项」）；② 无任何生产期种子规则（注释里的 youtube/bilibili/googlevideo 只是示例）。
