@@ -1,4 +1,21 @@
 
+## D39 — run() loop 抽 draw 块 → draw_frame(const FrameCtx&)（设计层第五刀 · prepare/draw 双半收尾）
+
+**Context:** D38 引入 FrameCtx 并抽出 prepare 半后，run() loop 的「draw 半」（取锁 → 快照 current_index/next/cur_url → 节流 history 缓存 → 构建 DisplayContext → frontend_->draw，~85 行）仍内联。D38 把 draw 块的输入全改成 `f.*`，使其具备零额外参数抽出条件——评估是否此时抽出。
+
+**Decision:** 抽出 draw 半 → `void App::draw_frame(const FrameCtx &f)`。该块产出的 current_index_snap/next_snap/cur_url_snap **仅被 draw 调用自消费**——input 读 `f.marked`、watchdog 读 `frame_start_`，都不触及这三个 → 它们降为方法内局部，FrameCtx 无需承载。配合 D38 已有的 FrameCtx 输入，draw_frame 签名仅 1 个 const 引用（而非 D38 前预估的 5 参裸值）。
+
+**关键点:**
+- 锁搬进方法内获取/释放：原为 while 体内 `{ lock_guard(playlist_mutex_); ... }` 作用域，整体进方法——方法入口取锁、出口释放，与原作用域进出完全同构（与 D37 build_frame_display 搬 tree_mutex 同型）。
+- P1.2 不变量（Y23.5）保持：`playlist_mutex_` 仅持于 draw、draw_frame 返回即释放、其后 input（handle_input→play_current→lock playlist_mutex_）无锁区，不致死锁。行为等价（锁覆盖范围与原 scope 1:1）。
+- 块多级嵌套（声明 8sp / 锁体 12sp / 内层 current_index 重取 16sp），按级 dedent：≥12 前导去 8、≥8 去 4（声明 8→4、锁体 12→4、内层 16→8），丢弃外层 lock-scope 大括号（方法体即该作用域），内层 current_index 重取 scope 保留。声明先于锁初始化的结构不变（原即如此）。
+- Method Object 价值兑现：D38 的 FrameCtx 使 draw 半从「缠绕切点（5 参）」降为「1 参 const 引用」——这正是引入 FrameCtx 的回报。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin（prepare→draw→input 每帧路径完整）。
+
+**Followups:** run() loop 仅剩 exit-check phase（SIGINT/睡眠定时/resize，~38 行）可抽 `bool check_exit_requests()`（返回 true 则 break）；drain 三行 + 视图滚动 + input + watchdog 短小可留内联。抽完 exit-check 即收尾 #70。
+
+
 ## D38 — run() loop 引入 FrameCtx + 抽 prepare_frame()（设计层第四刀 · Method Object）
 
 **Context:** D35-D37 用「干净切点」判据（零外层局部读取）摘完了 run() loop 的干净果（startup/shutdown bookend、tree-locked 显示构建）。剩下的 phase 都**与外层帧局部缠绕**：state（取自 player.get_state）被状态计算 + draw 共读；app_state（计算产物）被 draw 读；marked/sel_node/downloads（快照产物）被 draw + input 共读。plain Extract Method 对 draw phase 会落到 5 参 `draw(state, app_state, marked, sel_node, downloads)`——缠绕切点，无法零参数。

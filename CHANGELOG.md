@@ -10,6 +10,23 @@
 
 ---
 
+## 新架构 D39 — 2026-08-14 — 设计层第五刀：run() loop 抽 draw 块 → draw_frame(const FrameCtx&)（M3 · main 主线）
+
+> run() 帧循环的「draw 半」（取 `playlist_mutex_` → 快照 current_index/next/cur_url → 节流 get_history 缓存 → 构建 DisplayContext → `frontend_->draw`，~85 行内联）抽出为 `void App::draw_frame(const FrameCtx&)`。D38 引入 FrameCtx 后该块全部输入已是 `f.*` + 成员，产出的 current_index_snap/next_snap/cur_url_snap 仅 draw 调用自消费（input 读 `f.marked`、watchdog 读 `frame_start_`，皆不触及）→ 干净 Extract Method。
+>
+> **锁搬进方法内取/放**（原为 while 体内 `{ lock_guard(pl_mutex); ... }` 作用域，整体进方法——入口取锁出口释放，与原作用域进出完全同构）。P1.2 不变量保持：`playlist_mutex_` 仅持于 draw、方法返回即释放、其后 input 无锁区。续 D35-D38：**prepare 半（D38）+ draw 半（D39）成对抽出**，run() loop 收敛为 flat 骨架：信号/定时退出检查 → drain → `prepare_frame()` → 视图滚动 → `draw_frame(f)` → input → watchdog。
+
+### 改动
+- `app.h`：加 `void draw_frame(const FrameCtx &f);` 声明。
+- `app_run.cpp`：run() loop 的 draw 块（原 ~85 行）迁入新 `draw_frame()`（插在 prepare_frame 后）；调用点替换为 `draw_frame(f);`。块多级嵌套（8/12/16sp）按级 dedent（≥12→-8、≥8→-4）并丢弃外层 lock-scope 大括号；锁 `pl_draw_lock` 进方法体、声明先于锁的结构不变。
+
+### 验收
+- 编译 0-warning（`-Wall -Wextra -Wpedantic`）。
+- ctest 41/41 绿。
+- pty 冒烟：exit 0 + altbuf 进 + clean endin `\x1b[?1049l` + quit 对话框渲染。
+
+---
+
 ## 新架构 D38 — 2026-08-14 — 设计层第四刀：run() loop 引入 FrameCtx + 抽 prepare_frame()（Method Object）（M3 · main 主线）
 
 > run() 帧循环的「prepare 半」——取状态 + 派生 AppState + build_frame_display loading 合并 + 选中/下载快照——此前全部内联，且产出的 `state`/`app_state`/`marked`/`sel_node`/`downloads` **五个局部被后面的 draw phase 跨段读取**（plain Extract Method 会落到 5 参 `draw(...)`）。引入 **per-frame 渲染上下文结构 `FrameCtx`** 承载这五个共享帧局部（Fowler「Replace Method with Method Object」），prepare 半抽成 `FrameCtx App::prepare_frame()`，run() 改一行 `FrameCtx f = prepare_frame();`，残留内联 draw 块与 input 改读 `f.*`。

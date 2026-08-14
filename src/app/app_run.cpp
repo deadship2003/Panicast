@@ -133,95 +133,7 @@ void App::run() {
         if (library_.view_start() < 0)
             library_.view_start() = 0;
 
-        // Snapshot the playing pointer + the INFO play-context (history 3 + next 3)
-        //   under the lock. P1.2 (Y23.5): hold the lock during draw ONLY (not during input —
-        //   handle_input → play_current → locks playlist_mutex_ → would deadlock if held).
-        // Pointer-driven model: current_index is app-owned (set by play_current /
-        //   on_playback_ended), NOT derived from mpv's playlist_pos. No per-frame sync from
-        //   mpv is needed.
-        int current_index_snap = playback_.current_index();
-        std::vector<int> next_snap;
-        std::string cur_url_snap;
-        {
-            const auto _pw0 = std::chrono::steady_clock::now();
-            std::lock_guard<std::mutex> pl_draw_lock(
-                playback_.playlist_mutex()); // released before input
-            const long _pl_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         std::chrono::steady_clock::now() - _pw0)
-                                         .count();
-            if (_pl_wait_ms > 80)
-                LOG(fmt::format("[WATCHDOG] waited {}ms for playlist_mutex_", _pl_wait_ms));
-            {
-                current_index_snap = playback_.current_index();
-                int n = static_cast<int>(playback_.playlist().size());
-                if (current_index_snap >= 0 && current_index_snap < n) {
-                    cur_url_snap = playback_.playlist()[current_index_snap].url;
-                    if (play_mode == PlayMode::REPEAT) {
-                        for (int k = 0; k < 3; ++k)
-                            next_snap.push_back(current_index_snap);
-                    } else if (play_mode == PlayMode::CYCLE) {
-                        for (int k = 1; k <= 3; ++k)
-                            next_snap.push_back((current_index_snap + k) % n);
-                    } else { // SHUFFLE — pre-generated lookahead
-                        int cnt = 0;
-                        for (int idx : playback_.shuffle_queue()) {
-                            next_snap.push_back(idx);
-                            if (++cnt == 3)
-                                break;
-                        }
-                    }
-                }
-            }
-
-            // Global play history (last 3, excluding the currently playing track)
-            // P2 (Y23.7): throttle get_history(8) DB query to ~1/sec (was every frame ~33fps).
-            //   record_play_history (on track change) invalidates immediately.
-            static int hist_frame_cnt = 0;
-            static std::vector<std::string> cached_hist_titles;
-            static std::string cached_hist_url;
-            if (++hist_frame_cnt >= 30 ||
-                (!cur_url_snap.empty() && cur_url_snap != cached_hist_url)) {
-                hist_frame_cnt = 0;
-                cached_hist_url = cur_url_snap;
-                cached_hist_titles.clear();
-                auto hist = DatabaseManager::instance().get_history(8);
-                for (auto &[u, t, ts, mt] : hist) {
-                    if (!cur_url_snap.empty() && u == cur_url_snap)
-                        continue;
-                    cached_hist_titles.push_back(t);
-                    if (cached_hist_titles.size() >= 3)
-                        break;
-                }
-            }
-            auto &hist_titles = cached_hist_titles;
-
-            // INFO area renders the 7-line play context from playlist/current_index/
-            //   play_mode + hist_titles + next_snap.
-            // Y24.7: L-mode poll already ran above (handoff + activation); no separate call needed.
-            // D12-1: push runtime display state into the UI — it must not query these singletons
-            //   itself (runtime/business state; see docs/ARCHITECTURE.md §2.1). Region codes are
-            //   resolved to display names here so the UI renders plain values. URLClassifier stays
-            //   a direct call inside the UI (stateless pure function, cross-cutting infra).
-            DisplayContext dctx;
-            dctx.sleep_active = SleepTimer::instance().is_active();
-            dctx.sleep_remaining = dctx.sleep_active ? SleepTimer::instance().remaining_seconds() : 0;
-            dctx.online_region_name =
-                ITunesSearch::get_region_name(OnlineState::instance().current_region);
-            dctx.tiktok_region = TikTokRegion::current();
-            // D14-3/D15: canonical now-playing identity from PlaybackService. The UI reads the
-            //   playing track's url+title from this view-model bag instead of a domain TreeNodePtr,
-            //   so cached items identify by source URL (not the played path) and the render
-            //   contract stays view-model-only for the playing track.
-            const Media np = playback_.now_playing();
-            dctx.now_playing_url = np.id.url();
-            dctx.now_playing_title = np.title;
-
-            frontend_->draw(mode, library_.display_list(), library_.selected_idx(), f.state, library_.view_start(), f.app_state,
-                    f.marked, search_.search_query(), search_.current_match_idx(),
-                    search_.total_matches(), f.sel_node, f.downloads,
-                    visual_mode_, visual_start_, playback_.playlist(), current_index_snap,
-                    play_mode, hist_titles, next_snap, dctx);
-        } // release pl_draw_lock before input processing (avoids deadlock with play_current)
+        draw_frame(f);
 
         // Wide-char input: wget_wch cleanly distinguishes special keys (KEY_CODE_YES) from
         //   committed characters (OK). In browsing mode only ASCII (<128) + special keys are
@@ -301,6 +213,102 @@ App::FrameCtx App::prepare_frame() {
         f.downloads.push_back(syn);
     }
     return f;
+}
+
+// D39: per-frame draw (Extract Method from run()'s loop). Snapshots the playing pointer
+//   + INFO play-context (history 3 + next 3) under playlist_mutex_, builds the DisplayContext
+//   view-model bag, and hands everything to the frontend. P1.2 (Y23.5): the lock is held for
+//   draw ONLY — this method returns before run()'s input phase (handle_input → play_current →
+//   locks playlist_mutex_ → would deadlock if still held). All inputs come from FrameCtx +
+//   members; current_index/next/history are computed here and consumed only by the draw call.
+void App::draw_frame(const FrameCtx &f) {
+    // Snapshot the playing pointer + the INFO play-context (history 3 + next 3)
+    //   under the lock. P1.2 (Y23.5): hold the lock during draw ONLY (not during input —
+    //   handle_input → play_current → locks playlist_mutex_ → would deadlock if held).
+    // Pointer-driven model: current_index is app-owned (set by play_current /
+    //   on_playback_ended), NOT derived from mpv's playlist_pos. No per-frame sync from
+    //   mpv is needed.
+    int current_index_snap = playback_.current_index();
+    std::vector<int> next_snap;
+    std::string cur_url_snap;
+    const auto _pw0 = std::chrono::steady_clock::now();
+    std::lock_guard<std::mutex> pl_draw_lock(
+        playback_.playlist_mutex()); // released before input
+    const long _pl_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - _pw0)
+                                 .count();
+    if (_pl_wait_ms > 80)
+        LOG(fmt::format("[WATCHDOG] waited {}ms for playlist_mutex_", _pl_wait_ms));
+    {
+        current_index_snap = playback_.current_index();
+        int n = static_cast<int>(playback_.playlist().size());
+        if (current_index_snap >= 0 && current_index_snap < n) {
+            cur_url_snap = playback_.playlist()[current_index_snap].url;
+            if (play_mode == PlayMode::REPEAT) {
+                for (int k = 0; k < 3; ++k)
+                    next_snap.push_back(current_index_snap);
+            } else if (play_mode == PlayMode::CYCLE) {
+                for (int k = 1; k <= 3; ++k)
+                    next_snap.push_back((current_index_snap + k) % n);
+            } else { // SHUFFLE — pre-generated lookahead
+                int cnt = 0;
+                for (int idx : playback_.shuffle_queue()) {
+                    next_snap.push_back(idx);
+                    if (++cnt == 3)
+                        break;
+                }
+            }
+        }
+    }
+
+    // Global play history (last 3, excluding the currently playing track)
+    // P2 (Y23.7): throttle get_history(8) DB query to ~1/sec (was every frame ~33fps).
+    //   record_play_history (on track change) invalidates immediately.
+    static int hist_frame_cnt = 0;
+    static std::vector<std::string> cached_hist_titles;
+    static std::string cached_hist_url;
+    if (++hist_frame_cnt >= 30 ||
+        (!cur_url_snap.empty() && cur_url_snap != cached_hist_url)) {
+        hist_frame_cnt = 0;
+        cached_hist_url = cur_url_snap;
+        cached_hist_titles.clear();
+        auto hist = DatabaseManager::instance().get_history(8);
+        for (auto &[u, t, ts, mt] : hist) {
+            if (!cur_url_snap.empty() && u == cur_url_snap)
+                continue;
+            cached_hist_titles.push_back(t);
+            if (cached_hist_titles.size() >= 3)
+                break;
+        }
+    }
+    auto &hist_titles = cached_hist_titles;
+
+    // INFO area renders the 7-line play context from playlist/current_index/
+    //   play_mode + hist_titles + next_snap.
+    // Y24.7: L-mode poll already ran above (handoff + activation); no separate call needed.
+    // D12-1: push runtime display state into the UI — it must not query these singletons
+    //   itself (runtime/business state; see docs/ARCHITECTURE.md §2.1). Region codes are
+    //   resolved to display names here so the UI renders plain values. URLClassifier stays
+    //   a direct call inside the UI (stateless pure function, cross-cutting infra).
+    DisplayContext dctx;
+    dctx.sleep_active = SleepTimer::instance().is_active();
+    dctx.sleep_remaining = dctx.sleep_active ? SleepTimer::instance().remaining_seconds() : 0;
+    dctx.online_region_name =
+        ITunesSearch::get_region_name(OnlineState::instance().current_region);
+    dctx.tiktok_region = TikTokRegion::current();
+    // D14-3/D15: canonical now-playing identity from PlaybackService. The UI reads the
+    //   playing track's url+title from this view-model bag instead of a domain TreeNodePtr,
+    //   so cached items identify by source URL (not the played path) and the render
+    //   contract stays view-model-only for the playing track.
+    const Media np = playback_.now_playing();
+    dctx.now_playing_url = np.id.url();
+    dctx.now_playing_title = np.title;
+
+    frontend_->draw(mode, library_.display_list(), library_.selected_idx(), f.state, library_.view_start(), f.app_state,
+            f.marked, search_.search_query(), search_.current_match_idx(),
+            search_.total_matches(), f.sel_node, f.downloads,
+            visual_mode_, visual_start_, playback_.playlist(), current_index_snap,
+            play_mode, hist_titles, next_snap, dctx);
 }
 
 // D35: run() startup bookend — one-time init before the frame loop.

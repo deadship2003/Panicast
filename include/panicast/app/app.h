@@ -358,6 +358,7 @@ private:
         std::vector<DownloadProgress> downloads;
     };
     FrameCtx prepare_frame(); // D38: state + derived AppState + selection/download snapshots
+    void draw_frame(const FrameCtx &f); // D39: per-frame draw under playlist_mutex_ (snapshot + dctx + frontend_->draw)
     // D11-3c: load_history_to_root relocated to LibraryService (the history_root_ owner).
     void load_persistent_data();
     void save_persistent_data();
