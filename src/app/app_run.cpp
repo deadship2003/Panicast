@@ -67,33 +67,10 @@ void App::run() {
 
     while (running) {
         const auto frame_start_ = std::chrono::steady_clock::now();
-        // Check SIGINT (CTRL+C) exit request
-        if (g_exit_requested) {
-            g_exit_requested = false; // reset flag
-            // Termination signals (SIGHUP/SIGTERM/SIGQUIT — terminal closed / killed): flush & exit
-            //   immediately WITHOUT a confirm popup. There may be no terminal to interact with, and the
-            //   process is being told to die. Crucially this runs pool_.shutdown() so in-flight YouTube
-            //   parses finish writing their episode_cache — otherwise the channel is empty on next start
-            //   (the "abnormal exit loses the YouTube channel" bug).
-            if (g_crash_sig != 0) {
-                g_crash_sig = 0;
-                EVENT_LOG(
-                    fmt::format("Termination signal received, flushing cache before exit..."));
-                running = false;
-                break;
-            }
-            if (frontend_->confirm_box("Quit PANICAST? (CTRL+C)")) {
-                running = false;
-                break;
-            }
-        }
-
-        // Check sleep timer
-        if (SleepTimer::instance().is_active() && SleepTimer::instance().check_expired()) {
-            EVENT_LOG("Sleep timer expired, exiting...");
-            running = false;
+        // D40: SIGINT (CTRL+C) / termination-signal / sleep-timer exit checks extracted to
+        //   check_exit_requests() (sets running=false + returns true when the loop should break).
+        if (check_exit_requests())
             break;
-        }
 
         // Unified window-size detection and scroll-offset reset
         // LayoutMetrics auto-detects size changes and resets all scroll offsets
@@ -107,19 +84,9 @@ void App::run() {
             EVENT_LOG(fmt::format("Terminal resized: {}x{}", COLS, LINES));
         }
 
-        // N01: drain remote commands on the UI thread (server→bus→here). Non-blocking; no-op
-        //   when the queue is empty or remote control is disabled.
-        drain_remote_commands();
-        // D4: run the playback-ended handler on the UI thread. The mpv event thread only QUEUES
-        //   END_FILE here — previously it ran on_playback_ended on the mpv thread under
-        //   playlist_mutex_, contending with this loop's draw lock (also playlist_mutex_) and
-        //   freezing the TUI a while after pause (a paused live stream drops → END_FILE → the
-        //   mpv thread blocks the UI's draw). Draining here runs the handler on the UI thread.
-        int _end_reason = pending_end_reason_.exchange(-1);
-        if (_end_reason != -1)
-            playback_.on_playback_ended(_end_reason, mode, play_mode);
-        // N02: refresh the state snapshot cache for remote query commands (status/currentsong).
-        update_remote_state_cache();
+        // D40: per-frame cross-thread drain (remote commands + queued playback-ended + remote
+        //   state cache) extracted to drain_frame_events().
+        drain_frame_events();
 
         FrameCtx f = prepare_frame();
 
@@ -157,6 +124,51 @@ void App::run() {
     }
 
     shutdown();
+}
+
+// D40: per-frame exit-request check (Extract Method from run()'s loop). Handles the three
+//   loop-terminating conditions — CTRL+C/SIGINT (with a confirm popup), termination signals
+//   (SIGHUP/SIGTERM/SIGQUIT: flush & exit immediately WITHOUT a popup — there may be no
+//   terminal to interact with; pool_.shutdown() runs in shutdown() so in-flight YouTube parses
+//   finish writing episode_cache, avoiding the "abnormal exit loses the YouTube channel" bug),
+//   and the sleep timer. Sets running=false and returns true when the loop should break; the
+//   caller does `if (check_exit_requests()) break;`.
+bool App::check_exit_requests() {
+    if (g_exit_requested) {
+        g_exit_requested = false; // reset flag
+        if (g_crash_sig != 0) {
+            g_crash_sig = 0;
+            EVENT_LOG(fmt::format("Termination signal received, flushing cache before exit..."));
+            running = false;
+            return true;
+        }
+        if (frontend_->confirm_box("Quit PANICAST? (CTRL+C)")) {
+            running = false;
+            return true;
+        }
+    }
+    if (SleepTimer::instance().is_active() && SleepTimer::instance().check_expired()) {
+        EVENT_LOG("Sleep timer expired, exiting...");
+        running = false;
+        return true;
+    }
+    return false;
+}
+
+// D40: per-frame cross-thread drain (Extract Method from run()'s loop). Three UI-thread
+//   drains that must run each frame:
+//   - N01: remote commands (server→bus→here), non-blocking no-op when empty/disabled.
+//   - D4: the playback-ended handler. The mpv event thread only QUEUES END_FILE here —
+//     previously it ran on_playback_ended on the mpv thread under playlist_mutex_, contending
+//     with this loop's draw lock and freezing the TUI after pause (a paused live stream drops →
+//     END_FILE → the mpv thread blocks the UI's draw). Draining here runs it on the UI thread.
+//   - N02: refresh the remote state-snapshot cache for query commands (status/currentsong).
+void App::drain_frame_events() {
+    drain_remote_commands();
+    int _end_reason = pending_end_reason_.exchange(-1);
+    if (_end_reason != -1)
+        playback_.on_playback_ended(_end_reason, mode, play_mode);
+    update_remote_state_cache();
 }
 
 // D38: per-frame render-context preparation (Extract Method + Method Object from run()'s loop).

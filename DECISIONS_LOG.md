@@ -1,4 +1,21 @@
 
+## D40 — run() loop 抽 exit-check + drain → check_exit_requests()/drain_frame_events()（设计层第六刀 · #70 收尾）
+
+**Context:** D35-D39 抽完 run() loop 的 startup/shutdown bookend、tree-locked 显示构建、prepare 半（Method Object）、draw 半后，loop 顶部仍剩两块注释密集的内联 phase——exit-check（CTRL+C/终止信号/睡眠定时，~28 行）与 drain（remote/playback/state 三排空，~13 行）。评估收尾抽取。
+
+**Decision:** 抽两块。exit-check → `bool check_exit_requests()`（命中退出条件时 `running=false` + `return true`）；drain → `void drain_frame_events()`。两块皆零外层局部读取（只读成员）。
+
+**关键点:**
+- break 不能跨方法 → exit-check 以返回值传「该 break 了」：方法内设 `running=false` 并 `return true`，调用方 `if (check_exit_requests()) break;`。退出序列（reset 标志→EVENT_LOG→running=false→跳出）与原内联 1:1。这是 Extract Method 处理「含 break/continue 的块」的标准手法（控制信号经返回值传出）。
+- 终止信号（SIGHUP/SIGTERM/SIGQUIT）无弹窗立即退出的语义保持——可能已无终端可交互；pool_.shutdown 在 shutdown() 跑（避免「异常退出丢 YouTube 频道」bug），此逻辑未动、仅搬位置。
+- D4 不变量（playback-ended 在 UI 线程 drain、不在 mpv 线程持 playlist_mutex_）保持——drain_frame_events 仍每帧在 UI 线程跑。
+- 不再继续抽 resize/view-scroll/input/watchdog：皆小（6-9 行）且单一职责，再抽为命名方法属过度分解（用户排斥）——run() loop 现已可一眼读懂。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。
+
+**收尾:** #70（run() loop 分解收尾）完成。run() loop = `startup()` + while{ frame_start; check_exit_requests→break; resize; drain_frame_events; prepare_frame; scroll; draw_frame; input; watchdog } + `shutdown()`。下一个 god-方法目标：#72 event_loop END_FILE 分支（mpv_controller.cpp）或 #71 app_input Keymap。
+
+
 ## D39 — run() loop 抽 draw 块 → draw_frame(const FrameCtx&)（设计层第五刀 · prepare/draw 双半收尾）
 
 **Context:** D38 引入 FrameCtx 并抽出 prepare 半后，run() loop 的「draw 半」（取锁 → 快照 current_index/next/cur_url → 节流 history 缓存 → 构建 DisplayContext → frontend_->draw，~85 行）仍内联。D38 把 draw 块的输入全改成 `f.*`，使其具备零额外参数抽出条件——评估是否此时抽出。

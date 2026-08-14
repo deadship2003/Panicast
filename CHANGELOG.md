@@ -10,6 +10,25 @@
 
 ---
 
+## 新架构 D40 — 2026-08-14 — 设计层第六刀：run() loop 抽 exit-check + drain → check_exit_requests()/drain_frame_events()（M3 · #70 收尾 · main 主线）
+
+> run() 帧循环顶部两块注释密集的内联 phase 抽出，loop 彻底收敛为 flat 编排：
+> 1. **exit-check**（~28 行）：CTRL+C/SIGINT（带 confirm 弹窗）+ 终止信号（无弹窗立即 flush&exit——可能已无终端可交互）+ 睡眠定时 → `bool check_exit_requests()`。三种退出条件命中时 `running=false` + `return true`，调用点 `if (check_exit_requests()) break;`（break 不能跨方法，以返回值传「该 break 了」）。
+> 2. **drain**（~13 行）：UI 线程每帧三排空（remote 命令 / queued playback-ended / remote 状态快照）→ `void drain_frame_events()`。
+>
+> 两块皆零外层局部读取。续 D35-D39：**run() loop 收敛为可一眼读懂的编排骨架** — `frame_start` → `if (check_exit_requests()) break` → resize → `drain_frame_events()` → `prepare_frame()` → view-scroll → `draw_frame(f)` → input → watchdog。残留 resize/scroll/input/watchdog 皆小且单一职责，再抽即过度分解 → **#70 收尾**。
+
+### 改动
+- `app.h`：加 `bool check_exit_requests();` + `void drain_frame_events();` 声明。
+- `app_run.cpp`：run() loop 的 SIGINT/睡眠定时块 → `if (check_exit_requests()) break;`；3 排空块 → `drain_frame_events();`。两方法定义插在 run() 后。退出语义保持（原 break 改「方法内 running=false + return true，调用方 break」，退出序列 1:1）。
+
+### 验收
+- 编译 0-warning（`-Wall -Wextra -Wpedantic`）。
+- ctest 41/41 绿。
+- pty 冒烟：exit 0 + altbuf 进 + clean endin `\x1b[?1049l` + quit 对话框渲染。
+
+---
+
 ## 新架构 D39 — 2026-08-14 — 设计层第五刀：run() loop 抽 draw 块 → draw_frame(const FrameCtx&)（M3 · main 主线）
 
 > run() 帧循环的「draw 半」（取 `playlist_mutex_` → 快照 current_index/next/cur_url → 节流 get_history 缓存 → 构建 DisplayContext → `frontend_->draw`，~85 行内联）抽出为 `void App::draw_frame(const FrameCtx&)`。D38 引入 FrameCtx 后该块全部输入已是 `f.*` + 成员，产出的 current_index_snap/next_snap/cur_url_snap 仅 draw 调用自消费（input 读 `f.marked`、watchdog 读 `frame_start_`，皆不触及）→ 干净 Extract Method。

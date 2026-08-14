@@ -342,6 +342,8 @@ private:
     //   and the post-loop teardown (persist state + _exit) are named for readability.
     void startup();
     void shutdown();
+    bool check_exit_requests(); // D40: SIGINT/termination/sleep-timer → sets running=false + returns true to break
+    void drain_frame_events();  // D40: per-frame remote/playback/state drain (UI thread)
     // D37: Extract Method — the per-frame tree-locked display-build phase of run()'s loop.
     bool build_frame_display();
     // D38: per-frame render context (Replace Method with Method Object — Fowler). The frame
