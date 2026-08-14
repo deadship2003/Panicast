@@ -621,7 +621,8 @@ reject_unsafe_url = true
 #   http://192.168.1.5:33833       (HTTP proxy)
 #   https://192.168.1.5:33833      (HTTPS proxy)
 # Applied to: all curl fetches (RSS/feed/OPML/Apple/downloads) and yt-dlp (--proxy).
-# Takes effect immediately, no restart needed. mpv playback still uses the system transparent proxy / env vars.
+# Takes effect immediately, no restart needed. mpv playback NEVER uses this proxy — mpv is
+# playback-only; the network for streaming is the user's concern (transparent proxy / env).
 proxy =
 # Bilibili 直连（默认开启）/ Bilibili direct connection (default on)
 # Bilibili 是国内站点，经境外代理反而变慢/失败；此项让 *.bilibili.com 绕过上面的全局代理直连。

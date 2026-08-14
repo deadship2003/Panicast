@@ -137,12 +137,6 @@ public:
     // Automatically applied and cleared after the FILE_LOADED event fires
     void set_resume_position(const std::string &url, double position);
 
-    // Re-apply the [network] proxy to the live mpv context (http-proxy option) + the
-    //   http_proxy/https_proxy env vars (read by ffmpeg for SOCKS). Called at init via
-    //   apply_mpv_options_() and again by Ctrl+N's ENTER so a proxy edit takes effect
-    //   for playback immediately — no program restart (mpv options are runtime-writable).
-    void refresh_proxy();
-
 private:
     mpv_handle *ctx_ = nullptr;
     std::thread mpv_thread_;
@@ -220,7 +214,7 @@ private:
     void detect_iptv_states_(bool has_media_now, bool has_audio, bool has_video_track,
                              bool idle, int64_t cache_speed, int64_t buf_pct, double buf_dur);
     // D47: apply all [mpv]-section IniConfig options (vo/vid/ao/ytdl-format/keep-open/subtitle/
-    //   slang/audio-display/proxy/tls/cache/user-agent) to ctx_ before mpv_initialize, with CLI
+    //   slang/audio-display/tls/cache/user-agent) to ctx_ before mpv_initialize, with CLI
     //   overrides taking precedence. Impl in mpv_init.cpp; extracted verbatim from initialize().
     void apply_mpv_options_();
 

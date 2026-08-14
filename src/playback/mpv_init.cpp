@@ -1,13 +1,12 @@
 // MPV playback init-options layer — extracted implementation unit (D47 god-object split).
 //   apply_mpv_options_() applies all user-configurable mpv options (vo/vid/ao/ytdl-format/
-//   keep-open/subtitle/slang/audio-display/proxy/tls/cache/user-agent) read from the [mpv]
+//   keep-open/subtitle/slang/audio-display/tls/cache/user-agent) read from the [mpv]
 //   section of IniConfig, with CLI overrides taking precedence. It remains an MPVController
 //   member (reads ctx_ + the cli_*_override_ statics); only its implementation lives here.
 //   Declaration stays in mpv_controller.h. Mechanical verbatim move from initialize() (mpv_controller.cpp).
 #include "panicast/playback/mpv_controller.h"
 
 #include <string>
-#include <unistd.h> // setenv (mpv proxy env vars)
 
 #include <fmt/format.h>
 
@@ -66,23 +65,12 @@ void MPVController::apply_mpv_options_() {
                     mpv_vid, mpv_ao.empty() ? "auto" : mpv_ao, mpv_ytdl_format,
                     IniConfig::instance().get_mpv_keep_open() ? "yes" : "no"));
 
-    // YouTube playback: resolve_youtube_url() pre-resolves every YouTube URL to a direct stream
-    //   URL via `yt-dlp -g` (with --cookies + --proxy + --js-runtimes) BEFORE handing it to mpv, so
-    //   mpv's ytdl hook is never used for YouTube and mpv needs no cookies/player_client here — one
-    //   resolve path, no fallback. mpv only needs the proxy to fetch the resolved stream itself.
-    {
-        std::string proxy = IniConfig::instance().get_proxy();
-        if (!proxy.empty()) {
-            // Y24.53: FIX — mpv's proxy option is "http-proxy" (was "proxy" → mpv silently ignored
-            //   it, NEVER used the proxy → geo-blocked streams failed even with [network] proxy set).
-            //   Also set env vars for SOCKS proxy support (ffmpeg reads http_proxy/https_proxy;
-            //   curl uses explicit CURLOPT_PROXY so env vars don't double-apply).
-            mpv_set_option_string(ctx_, "http-proxy", proxy.c_str());
-            setenv("http_proxy", proxy.c_str(), 1);
-            setenv("https_proxy", proxy.c_str(), 1);
-            LOG(fmt::format("[MPV] proxy: {} (http-proxy + env)", proxy));
-        }
-    }
+    // Proxy: NONE, by design. mpv is playback-only; the network is the user's concern (e.g. a
+    //   transparent proxy). The app's own network front (curl downloads / yt-dlp resolves /
+    //   parsers) routes through [network] proxy via ProxyManager; the URLs mpv receives are
+    //   already proxy-resolved direct stream URLs. Setting http-proxy or http_proxy/https_proxy
+    //   env vars here would leak the app proxy into mpv's stream fetches (Y24.53 behavior,
+    //   removed 2026-08) — geo-blocked streams are the user's transparent-proxy problem, not mpv's.
 
     // F24: TLS verification from [mpv] section (default true, aligned with libcurl configuration)
     bool mpv_tls_verify = IniConfig::instance().get_mpv_tls_verify();
@@ -109,26 +97,6 @@ void MPVController::apply_mpv_options_() {
     std::string mpv_user_agent = IniConfig::instance().get_mpv_user_agent();
     mpv_set_option_string(ctx_, "user-agent", mpv_user_agent.c_str());
     LOG(fmt::format("[MPV] user-agent: {}", mpv_user_agent));
-}
-
-// Runtime proxy refresh (Ctrl+N ENTER): re-applies the CURRENT [network] proxy to the live
-//   mpv context + env. curl/yt-dlp already resolve the proxy live per request (ProxyManager's
-//   global source reads IniConfig each resolve); mpv's http-proxy option and the env vars were
-//   the only init-time snapshot. Empty proxy → clear option + unsetenv (back to direct).
-void MPVController::refresh_proxy() {
-    if (!ctx_)
-        return;
-    std::string proxy = IniConfig::instance().get_proxy();
-    mpv_set_option_string(ctx_, "http-proxy", proxy.c_str());
-    if (!proxy.empty()) {
-        setenv("http_proxy", proxy.c_str(), 1);
-        setenv("https_proxy", proxy.c_str(), 1);
-        LOG(fmt::format("[MPV] proxy refreshed: {} (http-proxy + env)", proxy));
-    } else {
-        unsetenv("http_proxy");
-        unsetenv("https_proxy");
-        LOG("[MPV] proxy cleared (direct) — http-proxy + env");
-    }
 }
 
 } // namespace panicast

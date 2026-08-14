@@ -90,8 +90,9 @@ bool MPVController::initialize() {
         mpv_set_option_string(ctx_, "script-opts", so.c_str());
     }
 
-    // D47: apply all [mpv]-section options (vo/vid/ao/subtitles/proxy/tls/cache/user-agent) —
+    // D47: apply all [mpv]-section options (vo/vid/ao/subtitles/tls/cache/user-agent) —
     //   extracted to apply_mpv_options_() (mpv_init.cpp). CLI overrides take precedence over INI.
+    //   (No proxy here: mpv is playback-only — network/transparent proxy is the user's concern.)
     apply_mpv_options_();
 
     // F25: removed F23's process-global dup2(stderr → /dev/null) around mpv_initialize().

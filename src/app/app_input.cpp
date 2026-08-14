@@ -90,9 +90,11 @@ void App::handle_mouse_event() {
 }
 
 // Ctrl+N: open the network proxy configuration dialog. Format: socks5h://host:port / http://host:port etc.
-// After normalization + validation, persists to [network] proxy, taking effect immediately:
-//   curl/yt-dlp resolve the proxy live per request, and player.refresh_proxy() re-applies it to
-//   the running mpv (http-proxy + env) — no program restart needed.
+// After normalization + validation, persists to [network] proxy. Scope: the app's network front ONLY
+//   (curl downloads / yt-dlp resolves / parsers) — they resolve the proxy live per request via
+//   ProxyManager, so an edit takes effect on the next request, no restart. mpv is deliberately
+//   OUT of scope: it is playback-only and never gets a proxy (the network is the user's concern,
+//   e.g. a transparent proxy).
 // Default is no proxy ([network] proxy empty = direct/transparent proxy). The dialog preloads the current proxy value;
 //   you can edit/delete/save: clear + Enter -> set("") (disable proxy, takes effect immediately), no restart needed.
 void App::configure_proxy() {
@@ -106,7 +108,6 @@ void App::configure_proxy() {
 
     if (input.empty()) {
         IniConfig::instance().set("network", "proxy", "");
-        player.refresh_proxy(); // live mpv http-proxy + env — effective immediately, no restart
         EVENT_LOG("Proxy disabled (direct)");
         return;
     }
@@ -117,7 +118,6 @@ void App::configure_proxy() {
         return;
     }
     IniConfig::instance().set("network", "proxy", norm);
-    player.refresh_proxy(); // live mpv http-proxy + env — effective immediately, no restart
     EVENT_LOG(fmt::format("Proxy set: {}", norm));
 }
 
