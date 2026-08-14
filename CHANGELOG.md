@@ -10,6 +10,22 @@
 
 ---
 
+## 新架构 D37 — 2026-08-14 — 设计层第三刀：run() loop Extract Method — tree-locked 显示构建 phase → build_frame_display()（M3 · main 主线）
+
+> run() 帧循环里最自包含的 phase：**tree_mutex 锁内的显示构建**（~55 行：watchdog 计时取锁→清空+flatten 显示列表→扫 loading 节点→消费 pending_select→字幕 poll→刷新 lyric history→解析 lyric-bar 激活）。该 phase **零外层局部读取**（只读成员 library_/player/subtitle_/frontend_/cur_items()）、产出唯一 bool `is_loading` → 干净 Extract Method：零参数、一个返回值。锁在方法内获取/释放（语义不变）。抽成 `bool App::build_frame_display()`，调用点 `bool is_loading = build_frame_display();`。
+>
+> 块在 12 空格（while 体 8→scope 12），方法体 4 空格 → **dedent 8**。块内一处多行续行（watchdog `duration_cast` 对齐在 `<...>` 内），逐行去 8 保相对对齐。续 D35/D36"先摘干净果"：run() loop 的 tree-lock phase 是干净切点（零外层局部），抽出后 run() loop 更清晰。
+
+### 改动
+- `app.h`：加 `bool build_frame_display();` 私有声明。
+- `app_run.cpp`：run() loop 的 tree-lock scope（156-213）dedent 8 迁入新方法（插在 startup 前），调用点替换为 `bool is_loading = build_frame_display();`。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin（每帧渲染路径完整）。
+- run() loop 进一步可读：tree-lock 显示构建藏于具名 helper。run() loop 剩：信号/定时/resize 检查 + 状态计算 + 下载队列/视图滚动 + playlist 快照/draw + 输入。
+
+---
+
 ## 新架构 D36 — 2026-08-14 — 设计层第二刀：event_loop Extract Method — codec-info 块 → log_track_codec_info_()（M3 · main 主线）
 
 > event_loop()（mpv 事件派发，~254 行）的 `MPV_EVENT_PLAYBACK_RESTART` 分支内有一块 **每轨记一次 codec 信息**（~52 行：读 video/audio-codec/bitrate/hwdec/分辨率/声道/采样率 → 日志两行）。该块**完全自包含**：每个局部都在块内声明、只读成员 `ctx_` → **零参数**抽出为 `MPVController::log_track_codec_info_()`。调用点收敛为 `if (!restart_info_logged_) { restart_info_logged_ = true; log_track_codec_info_(); }`（每轨一次守卫留调用方）。

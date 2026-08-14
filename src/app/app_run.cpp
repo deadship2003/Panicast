@@ -153,64 +153,7 @@ void App::run() {
             app_state = AppState::BROWSING;
         }
 
-        bool is_loading = false;
-        {
-            const auto _tw0 = std::chrono::steady_clock::now();
-            std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
-            const long _tree_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                           std::chrono::steady_clock::now() - _tw0)
-                                           .count();
-            if (_tree_wait_ms > 80)
-                LOG(fmt::format("[WATCHDOG] waited {}ms for tree_mutex", _tree_wait_ms));
-            library_.display_list().clear();
-            flatten_items(cur_items());
-            for (const auto &item : library_.display_list()) {
-                if (item.node->loading) {
-                    is_loading = true;
-                    break;
-                }
-            }
-            // Y11: consume a pending async selection (set by a pool task that built a new node,
-            //   e.g. YouTube search results, or D12-2's eventized jump_to_match) — move the cursor
-            //   to it once, then clear. D12-2: also center the view (was jump_to_match's inline
-            //   scroll) so search-jump, jump_to_playing, and async selects all center consistently.
-            if (library_.pending_select()) {
-                for (size_t i = 0; i < library_.display_list().size(); ++i) {
-                    if (library_.display_list()[i].node == library_.pending_select()) {
-                        library_.selected_idx() = (int)i;
-                        library_.view_start() = std::max(0, (int)i - (LINES - 5) / 2);
-                        break;
-                    }
-                }
-                library_.pending_select().reset();
-            }
-            // Y24.7: SubtitleManager poll — handoff pending transcript to UI + offset + logs.
-            subtitle_.poll(*frontend_, frontend_->is_lyric_bar_requested());
-            // Y24.48: refresh lyric history EVERY frame (even when the bar is inactive) so an
-            //   embedded sub cue (sub_text) is detected and can auto-open the bar.
-            frontend_->update_lyric_history(player.get_state());
-            // Y24.48: LYRIC bar activation — default CLOSED. Auto-open only when a displayable
-            //   subtitle source exists (transcript READY / ASR running / embedded cue seen this
-            //   track), OR the user manually opened (L). Manual=Closed suppresses auto until track
-            //   change. VO open (video window) → always closed (subs render in mpv's window).
-            bool lyric_active = false;
-            if (!player.is_video_window_open() && frontend_->is_lyric_bar_requested()) {
-                switch (frontend_->lyric_manual()) {
-                case LyricManual::Open:
-                    lyric_active = true;
-                    break;
-                case LyricManual::Closed:
-                    lyric_active = false;
-                    break;
-                default: // Auto
-                    lyric_active = subtitle_.subtitle_mgr().status() == TranscriptStatus::READY ||
-                                   subtitle_.transcription_engine().realtime_running() ||
-                                   frontend_->embedded_sub_confirmed();
-                    break;
-                }
-            }
-            frontend_->set_lyric_bar_active(lyric_active);
-        }
+        bool is_loading = build_frame_display();
         // Node-loading state has higher priority than browsing but lower than playback states
         if (is_loading && app_state == AppState::BROWSING)
             app_state = AppState::LOADING;
@@ -356,6 +299,70 @@ void App::run() {
 }
 
 // D35: run() startup bookend — one-time init before the frame loop.
+
+// D37: per-frame tree-locked display build (Extract Method from run()'s loop).
+//   Acquires tree_mutex (watchdog-timed), rebuilds the display list (flatten), consumes a
+//   pending async select, polls subtitles, refreshes lyric history, resolves lyric-bar
+//   activation. Returns whether any displayed node is still loading (drives LOADING state).
+bool App::build_frame_display() {
+    bool is_loading = false;
+    const auto _tw0 = std::chrono::steady_clock::now();
+    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
+    const long _tree_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::steady_clock::now() - _tw0)
+                                   .count();
+    if (_tree_wait_ms > 80)
+        LOG(fmt::format("[WATCHDOG] waited {}ms for tree_mutex", _tree_wait_ms));
+    library_.display_list().clear();
+    flatten_items(cur_items());
+    for (const auto &item : library_.display_list()) {
+        if (item.node->loading) {
+            is_loading = true;
+            break;
+        }
+    }
+    // Y11: consume a pending async selection (set by a pool task that built a new node,
+    //   e.g. YouTube search results, or D12-2's eventized jump_to_match) — move the cursor
+    //   to it once, then clear. D12-2: also center the view (was jump_to_match's inline
+    //   scroll) so search-jump, jump_to_playing, and async selects all center consistently.
+    if (library_.pending_select()) {
+        for (size_t i = 0; i < library_.display_list().size(); ++i) {
+            if (library_.display_list()[i].node == library_.pending_select()) {
+                library_.selected_idx() = (int)i;
+                library_.view_start() = std::max(0, (int)i - (LINES - 5) / 2);
+                break;
+            }
+        }
+        library_.pending_select().reset();
+    }
+    // Y24.7: SubtitleManager poll — handoff pending transcript to UI + offset + logs.
+    subtitle_.poll(*frontend_, frontend_->is_lyric_bar_requested());
+    // Y24.48: refresh lyric history EVERY frame (even when the bar is inactive) so an
+    //   embedded sub cue (sub_text) is detected and can auto-open the bar.
+    frontend_->update_lyric_history(player.get_state());
+    // Y24.48: LYRIC bar activation — default CLOSED. Auto-open only when a displayable
+    //   subtitle source exists (transcript READY / ASR running / embedded cue seen this
+    //   track), OR the user manually opened (L). Manual=Closed suppresses auto until track
+    //   change. VO open (video window) → always closed (subs render in mpv's window).
+    bool lyric_active = false;
+    if (!player.is_video_window_open() && frontend_->is_lyric_bar_requested()) {
+        switch (frontend_->lyric_manual()) {
+        case LyricManual::Open:
+            lyric_active = true;
+            break;
+        case LyricManual::Closed:
+            lyric_active = false;
+            break;
+        default: // Auto
+            lyric_active = subtitle_.subtitle_mgr().status() == TranscriptStatus::READY ||
+                           subtitle_.transcription_engine().realtime_running() ||
+                           frontend_->embedded_sub_confirmed();
+            break;
+        }
+    }
+    frontend_->set_lyric_bar_active(lyric_active);
+    return is_loading;
+}
 void App::startup() {
     frontend_->init();
     // Confirm XML error handler is set (already set in main; this is a secondary confirmation)

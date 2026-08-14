@@ -1,4 +1,20 @@
 
+## D37 — run() loop Extract Method：tree-locked 显示构建 phase → build_frame_display()（设计层第三刀）
+
+**Context:** D35 抽 run() bookend、D36 抽 event_loop codec 块后，继续 run() 帧循环的 god-方法分解。loop 各 phase 多与外层局部缠绕（frame_start_/state/app_state/sel_node/downloads/current_index_snap 横跨多 phase）。评估哪个 phase 是干净切点。
+
+**Decision:** 抽 tree-locked 显示构建 phase → `bool App::build_frame_display()`。该 phase（取 tree_mutex→清空+flatten 显示列表→扫 loading→消费 pending_select→字幕 poll→lyric history→lyric-bar 激活）**零外层局部读取**——只用成员(library_/player/subtitle_/frontend_/cur_items())，产出唯一 bool `is_loading`。→ 零参数、一个返回值的干净 Extract Method。锁在方法内获取/释放，语义不变。
+
+**关键点:**
+- "干净切点"判据复用 D36：块零外层局部读取 + 只读成员 = 零参数抽出。其余 phase（状态计算读 state、draw 读 app_state/sel_node/downloads/current_index_snap、输入读 marked）皆有外层局部缠绕，须传参/提成成员 → 缠绕切点，留后续。
+- 块 12 空格→方法体 4 空格，dedent 8。块内一处多行续行（watchdog `duration_cast<...>(\n  ...)`，续行对齐在 `<...>` 内），逐行去 8 前导空格保相对对齐（非压平）。dedent 前逐行核查无续行对齐失真。
+- 锁语义保持：原为 `while` 体内 `{ lock_guard(tree_mutex); ... }` 作用域，现整体进方法——方法入口取锁、出口释放，与原作用域进出完全同构。P1.2 不变量（tree_mutex 仅持锁于显示构建、不延及输入）保持——输入仍在其后无锁区。
+- 风险：per-frame 路径，pty 冒烟渲染帧覆盖（gross breakage 可测）；抽取为纯块搬迁+返回值，行为保持。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。run() loop tree-lock phase 抽出，loop 更可读。
+
+
+
 ## D36 — event_loop Extract Method：codec-info 块 → log_track_codec_info_()（设计层第二刀）
 
 **Context:** D35 拆 run() bookend 后，继续 god-方法分解。event_loop(~254)/update_state(~60 经 D34 后) 是 mpv 事件/状态方法。event_loop 的 PLAYBACK_RESTART 分支有一块"每轨记一次 codec 信息"(~52 行)，评估可抽性。
