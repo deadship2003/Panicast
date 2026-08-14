@@ -10,6 +10,23 @@
 
 ---
 
+## 新架构 D33 — 2026-08-14 — god-object 拆分第十七刀：app_run tree-flatten 组 → app_flatten.cpp（M3 · main 主线）
+
+> app_run.cpp **最后一簇机械可搬组**：flatten/flatten_items/items_for_mode/cur_items（4 方法、~52 行）——纯树→显示列表扁平化 + 按模式取项，cohesive（显示列表构造，与主循环不同关注点）。依赖全 app.h 可见（`library_`/LibraryService、TreeNode/NodeType/AppMode、OnlineState），无文件局部 helper → 与 D20/D23/D32 同构的 .cpp→.cpp verbatim 搬迁（同 include 集 = 编译等价）。顺手清掉 run() 与 flatten 间那段 orphan 注释（`// D11-3c: load_radio_root relocated...`——该方法早已不存在，死文档）。
+>
+> **app_run.cpp 机械分解收官**：run()（~470 行单方法）是不可拆的主循环/中央状态机（deeply coupled，需设计性分解，非 verbatim 目标）。D23 持久化组 + D32 feed 簇 + D33 flatten 簇已把 app_run.cpp 的机械可搬缝挖尽；app_run.cpp 现形为"主循环 + ctor/dtor"（591→538）。app_run.cpp 累计 1414→538（−62%）。
+
+### 改动
+- 新 `src/app/app_flatten.cpp`：4 方法 verbatim 迁入，裹 `namespace panicast{}`，同 app_run.cpp 的 10 include（编译等价超集；flatten 实际仅需 app.h，余为保守沿用）。
+- CMakeLists.txt:328 接入。
+- 清 orphan 注释一行。
+
+### 验收
+- 0-warning、ctest 41/41、pty 冒烟 exit 0 + clean endin。
+- app_run.cpp 591→538。后续 app_run.cpp 减肥（run() 设计性分解）属设计任务、非机械搬迁。
+
+---
+
 ## 新架构 D32 — 2026-08-14 — god-object 拆分第十六刀：app_run feed-loading 组 → app_feeds.cpp（M3 · main 主线）
 
 > **回到 app_run.cpp**：D23 首抽持久化组时，刻意把 feed-loading 组（6 方法、~739 行）留后——当时判定"parse_feed_by_type/load_default_podcasts 大且缠绕"。本刀证伪该顾虑：实查 app_run.cpp **无文件局部 helper**，6 个 feed 方法连续成块、仅依赖 app.h 传递可见符号（spawn 线程 / ParserRegistry / BilibiliAPI / YouTube 缓存 / EVENT_LOG），与 D23 持久化组同构——仍是 **.cpp→.cpp verbatim 搬迁**（方法留 `App::` 成员、新 TU 取**相同 include 集** → 编译等价）。app_run.cpp 1330→591。

@@ -1,4 +1,18 @@
 
+## D33 — app_run tree-flatten 组 → app_flatten.cpp（4 方法、~52 行 verbatim 搬迁）
+
+**Context:** D32 抽完 feed 簇后，app_run.cpp 剩 run()（~470 行主循环）+ ctor/dtor + flatten 簇（flatten/flatten_items/items_for_mode/cur_items，~52 行）。评估 flatten 簇是否可机械搬、run() 是否可搬。
+
+**Decision:** flatten 簇——搬；run()——不搬。
+1. **flatten 簇可搬**：4 方法 cohesive（树→显示列表扁平化 + 按模式取项），与主循环是不同关注点；依赖全 app.h 可见（library_/LibraryService、TreeNode/NodeType/AppMode、OnlineState），无文件局部 helper → 同 D20/D23/D32 的 .cpp→.cpp verbatim 搬迁（同 include 集 = 编译等价）。新 app_flatten.cpp 取 app_run.cpp 同 10 include（超集，保守；flatten 实际仅需 app.h，余沿用无害）。
+2. **run() 不可机械搬**：~470 行单方法 = 主循环 + 中央状态机，deeply coupled（每帧 drain 命令/事件、调各 Service、驱动渲染、处理退出），整块搬走只是换文件名不减肥；真正的减肥需设计性分解（抽 sub-loop 为 helper 方法）——那是设计任务，非 verbatim 搬迁，风险等级不同。本刀不碰。
+
+**关键点:** 区分"机械搬迁缝"与"设计分解缝"——前者是 cohesive 方法簇、零签名改动、同 include 即编译（D17-D33 共 17 刀已挖尽 app_run.cpp/ui.cpp/mpv_controller.cpp/ini_config.h 的机械缝）；后者需改控制流/签名/调用点，是更高的设计决策。app_run.cpp 机械缝至此收官（run() 待设计分解）。判断"还能不能机械搬"看耦合（helper/签名/inline 三规则），不看体量——但判断"搬了有没有减肥意义"看是否真 cohesive：flatten 簇虽仅 52 行，但它是独立关注点（显示列表构造），搬出后 app_run.cpp = 纯主循环，形合理。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin。app_run.cpp 591→538。
+
+
+
 ## D32 — app_run feed-loading 组 → app_feeds.cpp（6 方法、~739 行 verbatim 搬迁）
 
 **Context:** D23 首抽 app_run.cpp 时选了持久化组（4 方法、83 行、cohesive），刻意把 feed-loading 组（spawn_load_radio/spawn_load_feed/parse_feed_by_type/cache_youtube_videos/commit_feed_result/load_default_podcasts）留后，理由是"~738 行，parse_feed_by_type/load_default_podcasts 大且缠绕"。本刀评估该留后项：是否真缠绕到不能纯机械 verbatim 搬？

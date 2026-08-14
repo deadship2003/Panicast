@@ -325,6 +325,7 @@ add_executable(panicast
     src/app/app_run.cpp
     src/app/app_persistence.cpp
     src/app/app_feeds.cpp
+    src/app/app_flatten.cpp
     src/app/app_remote.cpp
     src/app/app_account.cpp
     src/app/app_bilibili.cpp
