@@ -10,6 +10,26 @@
 
 ---
 
+## 新架构 D42 — 2026-08-14 — app_input mode-switch 键簇 → SwitchModeAction（Keymap/Action 迁移 · #71 · main 主线）
+
+> `handle_input` 的 `switch(ch)` 里 8 个同质 mode-switch 键迁到 Keymap/Action（D7 续作）：R/P/F/H → `switch_mode(RADIO/PODCAST/FAVOURITE/HISTORY)`（无提示）；O/Y/B/I → `switch_mode(ONLINE/ACCOUNT/BILIBILI/IPTV)` + 各自一行 EVENT_LOG 提示。
+>
+> 新增 `struct SwitchModeAction { AppMode target; std::string hint; }` 入 Action variant；`build_keymap()` 绑定 8 键；App 订阅 → `switch_mode(target)` + 非空则 `EVENT_LOG(hint)`；switch 删去这 8 case。**设计点**：hint 键特定（非模式特定）——`switch_mode()` 还被远程命令/M 循环/编程路径调用（不想要提示），故提示随键绑定走、不进 `switch_mode`。
+>
+> **留 switch 的键**（非纯 mode-switch，按设计不迁）：M（循环，读当前 mode）、N（跳到正在播放）、b（区域循环）、T（TikTok）。复杂有状态流（play 'l'/搜索 '/'/下载 'd''D'/标记 'a''A'）深依赖 mode+选中上下文，强包 Action 增间接层却不带来可重绑收益 → 留 switch。**Keymap 持「无状态命令」、switch 持「复杂有状态流」** = 清晰边界。
+
+### 改动
+- `actions.h`：加 `SwitchModeAction{AppMode target; std::string hint;}` + Action variant 项（加 `core/types.h` 供 AppMode）。
+- `app_input.cpp`：`build_keymap()` 绑定 8 mode 键；switch 删去 R/P/F/H/O/Y/B/I 共 8 case。
+- `app_run.cpp`：加 `subscribe<SwitchModeAction>` → `switch_mode` + 可选 hint。
+
+### 验收
+- 编译 0-warning（`-Wall -Wextra -Wpedantic`）。
+- ctest 41/41 绿。
+- pty 冒烟：exit 0 + altbuf 进 + clean endin `\x1b[?1049l` + quit 对话框渲染。
+
+---
+
 ## 新架构 D41 — 2026-08-14 — event_loop END_FILE 分支分解 → handle_end_file_() + handle_playback_error_()（M3 · #72 完成 · main 主线）
 
 > `mpv_controller.cpp` 的 `event_loop()` 里 `MPV_EVENT_END_FILE` 分支原本内联 ~80 行（取 ef→reason/error_code→LOG→reason 派发→reason==4 错误路径[VO 回退+IPTV 消息]→锁外 callback），是 event_loop 最大内联块；reason==4 子块独占 ~48 行。分两刀 Extract Method：

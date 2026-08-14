@@ -1,4 +1,21 @@
 
+## D42 — app_input mode-switch 键簇 → SwitchModeAction（Keymap/Action 迁移 · #71）
+
+**Context:** D6/D7 立 Keymap/Action（key→Action→EventBus publish）+ 迁 6 个无状态键（play/pause/volume/nav）。#71 续作：handle_input 的 switch(ch) 仍有 30+ case。评估哪些键簇适合迁 Action。
+
+**Decision:** 迁 8 个同质 mode-switch 键（R/P/F/H/O/Y/B/I）→ `SwitchModeAction{AppMode target; std::string hint}`。其余键按设计不迁。
+
+**关键点:**
+- 同质簇优先：8 键都是 `switch_mode(X)` + 可选提示，结构一致 → 一个 Action 类型覆盖。M（循环读当前 mode）、N（跳节点）、b（区域）、T 非纯 mode-switch，不迁。
+- hint 键特定非模式特定：switch_mode() 被远程命令/M 循环/编程路径多处调用，那些不要提示；提示是「按某键」的属性，随键绑定（Action）走，不进 switch_mode。这避免了「编程式切模式也弹提示」的行为漂移。
+- 边界裁定：复杂有状态流（play 'l'/搜索 '/'/下载 'd''D'/标记 'a''A'）深依赖 mode+选中节点上下文，包 Action 增间接层却不带来可重绑收益 → 留 switch。Keymap 持「无状态可重绑命令」、switch 持「复杂有状态流」——主流设计（如 vim 的 mode-dependent 命令也保留过程式派发）。
+- 非过度设计：续已立的 D7 模式（一致性），非为新抽象而新抽象。可重绑性是 Keymap 的既定价值（INI [keys] 覆盖待接线，但 Keymap 已是绑定的单一事实源）。
+
+**Verification:** ctest 41/41、0-warning、pty 冒烟 exit 0 + clean endin（8 mode 键经 keymap→publish→subscribe→switch_mode 完整路径）。
+
+**Followups:** #71 剩余：INI [keys] 覆盖接线（让 Keymap 真正可重绑）；复杂流是否迁 Action 视可重绑需求定（目前留 switch 合理）。#71 无状态簇迁移告一段落。下一大目标 #73（app.h Service 抽取）。
+
+
 ## D41 — event_loop END_FILE 分支分解 → handle_end_file_() + handle_playback_error_()（#72 完成）
 
 **Context:** D36 抽完 event_loop 的 codec-info 块后，event_loop 另一大内联块——MPV_EVENT_END_FILE 分支（~80 行，含 reason==4 错误路径 ~48 行）仍内联。这是 mpv_controller.cpp 设计层分解的剩余目标（#72）。

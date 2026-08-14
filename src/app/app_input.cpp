@@ -347,6 +347,16 @@ void App::build_keymap() {
     keymap_.bind('-', VolumeDownAction{});
     keymap_.bind('k', NavUpAction{});
     keymap_.bind('j', NavDownAction{});
+    // D42: mode-switch keys → SwitchModeAction (homogeneous cluster: switch_mode + optional hint).
+    //   M (cycle), N (jump-to-playing), b (region), T stay in the switch (not pure mode switches).
+    keymap_.bind('R', SwitchModeAction{AppMode::RADIO, ""});
+    keymap_.bind('P', SwitchModeAction{AppMode::PODCAST, ""});
+    keymap_.bind('F', SwitchModeAction{AppMode::FAVOURITE, ""});
+    keymap_.bind('H', SwitchModeAction{AppMode::HISTORY, ""});
+    keymap_.bind('O', SwitchModeAction{AppMode::ONLINE, "Switched to ONLINE mode - press '/' to search"});
+    keymap_.bind('Y', SwitchModeAction{AppMode::ACCOUNT, "Switched to Y mode - 'a' login / 'A' login another / l enter account"});
+    keymap_.bind('B', SwitchModeAction{AppMode::BILIBILI, "B mode (Bilibili)"});
+    keymap_.bind('I', SwitchModeAction{AppMode::IPTV, "I mode (IPTV) - browse All / Region / Country / Category / Language / Custom"});
 }
 
 void App::handle_input(int ch, int marked_count) {
@@ -426,28 +436,6 @@ void App::handle_input(int ch, int marked_count) {
     case '?':
         frontend_->show_help(player.get_state());
         break; // show help popup directly
-    case 'R':
-        switch_mode(AppMode::RADIO);
-        break;
-    case 'P':
-        switch_mode(AppMode::PODCAST);
-        break;
-    case 'F':
-        switch_mode(AppMode::FAVOURITE);
-        break;
-    case 'H':
-        switch_mode(AppMode::HISTORY);
-        break;
-    case 'O': { // ONLINE mode
-        switch_mode(AppMode::ONLINE);
-        EVENT_LOG("Switched to ONLINE mode - press '/' to search");
-        break;
-    }
-    case 'Y': { // Y01: Y mode (Google accounts)
-        switch_mode(AppMode::ACCOUNT);
-        EVENT_LOG("Switched to Y mode - 'a' login / 'A' login another / l enter account");
-        break;
-    }
     case 'M': {
         // Mode cycle covers all 9 modes (RADIO/PODCAST/FAVOURITE/HISTORY/ONLINE/ACCOUNT/BILIBILI/TIKTOK/IPTV).
         switch_mode((AppMode)(((int)mode + 1) % 9));
@@ -466,16 +454,7 @@ void App::handle_input(int ch, int marked_count) {
         }
         break;
     }
-    case 'B': { // Y15: B mode (Bilibili)
-        switch_mode(AppMode::BILIBILI);
-        EVENT_LOG("B mode (Bilibili)");
-        break;
-    }
-    case 'I': { // Y24.50: I mode (IPTV, iptv-org playlists)
-        switch_mode(AppMode::IPTV);
-        EVENT_LOG("I mode (IPTV) - browse All / Region / Country / Category / Language / Custom");
-        break;
-    }
+    // D42: R/P/F/H/O/Y/B/I mode-switch keys migrated to SwitchModeAction (build_keymap).
     case 14: { // Ctrl+N - open network proxy configuration dialog
         configure_proxy();
         break;

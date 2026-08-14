@@ -427,6 +427,13 @@ void App::startup() {
         EventBus::instance().subscribe<NavUpAction>([this](const NavUpAction &) { nav_up(); }));
     action_subs_.push_back(EventBus::instance().subscribe<NavDownAction>(
         [this](const NavDownAction &) { nav_down(); }));
+    // D42: mode-switch keys (R/P/F/H/O/Y/B/I) → SwitchModeAction.
+    action_subs_.push_back(EventBus::instance().subscribe<SwitchModeAction>(
+        [this](const SwitchModeAction &a) {
+            switch_mode(a.target);
+            if (!a.hint.empty())
+                EVENT_LOG(a.hint);
+        }));
 
     // Y07: startup runtime-dependency pre-check for YouTube playback. Warn once in the LOG
     //   panel so a missing dependency is obvious immediately, instead of a cryptic
