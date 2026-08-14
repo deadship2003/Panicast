@@ -545,6 +545,11 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
         if (!cached.empty() && fs::exists(cached, ec)) {
             src = cached;
             LOG(fmt::format("[Transcribe] realtime: using cached local file: {}", cached));
+        } else if (fs::exists(url, ec)) {
+            // Playing URL is itself a local file (D49 auto-ASR path): use it directly,
+            // never route a local path into Network::download_to_file.
+            src = url;
+            LOG(fmt::format("[Transcribe] realtime: playing URL is a local file: {}", url));
         } else {
             std::string dir = Utils::get_download_dir();
             fs::create_directories(dir, ec);

@@ -111,4 +111,24 @@ void MPVController::apply_mpv_options_() {
     LOG(fmt::format("[MPV] user-agent: {}", mpv_user_agent));
 }
 
+// Runtime proxy refresh (Ctrl+N ENTER): re-applies the CURRENT [network] proxy to the live
+//   mpv context + env. curl/yt-dlp already resolve the proxy live per request (ProxyManager's
+//   global source reads IniConfig each resolve); mpv's http-proxy option and the env vars were
+//   the only init-time snapshot. Empty proxy → clear option + unsetenv (back to direct).
+void MPVController::refresh_proxy() {
+    if (!ctx_)
+        return;
+    std::string proxy = IniConfig::instance().get_proxy();
+    mpv_set_option_string(ctx_, "http-proxy", proxy.c_str());
+    if (!proxy.empty()) {
+        setenv("http_proxy", proxy.c_str(), 1);
+        setenv("https_proxy", proxy.c_str(), 1);
+        LOG(fmt::format("[MPV] proxy refreshed: {} (http-proxy + env)", proxy));
+    } else {
+        unsetenv("http_proxy");
+        unsetenv("https_proxy");
+        LOG("[MPV] proxy cleared (direct) — http-proxy + env");
+    }
+}
+
 } // namespace panicast

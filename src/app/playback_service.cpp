@@ -162,7 +162,12 @@ bool PlaybackService::advance_buffering(bool mpv_has_media) {
 //   relies on mpv loop_file (no action here). SHUFFLE consumes the pre-generated shuffle_queue_
 //   front and refills it.
 void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_mode) {
-    EventBus::instance().publish(PlaybackTrackEnded{}); // D11-1: track ended → SubtitleService stop_realtime (was a direct call — playback no longer touches subtitles)
+    // D11-1: track ended → SubtitleService stop_realtime (was a direct call — playback no longer
+    //   touches subtitles). reason=5 (redirect) means the outgoing track was superseded by a new
+    //   load (play_current already published Ended on supersede) — republishing here would race
+    //   and kill the newborn track's auto-ASR (D49), so skip it.
+    if (reason != 5)
+        EventBus::instance().publish(PlaybackTrackEnded{});
     std::lock_guard<std::mutex> pl_lock(playlist_mutex_);
     if (reason != 0) {
         set_buffering_(false); // Y23.9: error/stop → clear pending (back to BROWSING)

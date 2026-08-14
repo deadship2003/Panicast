@@ -137,6 +137,12 @@ public:
     // Automatically applied and cleared after the FILE_LOADED event fires
     void set_resume_position(const std::string &url, double position);
 
+    // Re-apply the [network] proxy to the live mpv context (http-proxy option) + the
+    //   http_proxy/https_proxy env vars (read by ffmpeg for SOCKS). Called at init via
+    //   apply_mpv_options_() and again by Ctrl+N's ENTER so a proxy edit takes effect
+    //   for playback immediately — no program restart (mpv options are runtime-writable).
+    void refresh_proxy();
+
 private:
     mpv_handle *ctx_ = nullptr;
     std::thread mpv_thread_;
