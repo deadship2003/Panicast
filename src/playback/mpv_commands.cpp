@@ -83,22 +83,27 @@ void MPVController::set_speed(double s) {
     enqueue_cmd_([this, s]() mutable { mpv_set_property(ctx_, "speed", MPV_FORMAT_DOUBLE, &s); });
 }
 
+// Freeze-fix (2026-08-15): enqueued — these sync property sets run right after play() in the
+//   play_current sequence (UI thread) and must not block on a wedged core. FIFO order in the
+//   single cmd worker preserves the play→keep-open→loop→pause sequence exactly.
 void MPVController::set_loop_file(bool loop) {
     if (!ctx_)
         return;
-    const char *val = loop ? "inf" : "no";
-    int rc_loop_file = mpv_set_property_string(ctx_, "loop-file", val);
-    if (rc_loop_file < 0)
-        LOG(fmt::format("[MPV] WARNING: set property loop-file failed (rc={})", rc_loop_file));
-    LOG(fmt::format("[MPV] loop-file set to: {}", val));
+    enqueue_cmd_([this, loop] {
+        int rc_loop_file = mpv_set_property_string(ctx_, "loop-file", loop ? "inf" : "no");
+        if (rc_loop_file < 0)
+            LOG(fmt::format("[MPV] WARNING: set property loop-file failed (rc={})", rc_loop_file));
+        LOG(fmt::format("[MPV] loop-file set to: {}", loop ? "inf" : "no"));
+    });
 }
 
 void MPVController::set_keep_open(bool keep) {
     if (!ctx_)
         return;
-    const char *val = keep ? "yes" : "no";
-    mpv_set_property_string(ctx_, "keep-open", val);
-    LOG(fmt::format("[MPV] keep-open set to: {}", val));
+    enqueue_cmd_([this, keep] {
+        mpv_set_property_string(ctx_, "keep-open", keep ? "yes" : "no");
+        LOG(fmt::format("[MPV] keep-open set to: {}", keep ? "yes" : "no"));
+    });
 }
 
 void MPVController::sub_add(const std::string &url) {
@@ -185,12 +190,13 @@ bool MPVController::scan_sub_track_() const {
 void MPVController::set_loop_playlist(bool loop) {
     if (!ctx_)
         return;
-    const char *val = loop ? "inf" : "no";
-    int rc_loop_playlist = mpv_set_property_string(ctx_, "loop-playlist", val);
-    if (rc_loop_playlist < 0)
-        LOG(fmt::format("[MPV] WARNING: set property loop-playlist failed (rc={})",
-                        rc_loop_playlist));
-    LOG(fmt::format("[MPV] loop-playlist set to: {}", val));
+    enqueue_cmd_([this, loop] {
+        int rc_loop_playlist = mpv_set_property_string(ctx_, "loop-playlist", loop ? "inf" : "no");
+        if (rc_loop_playlist < 0)
+            LOG(fmt::format("[MPV] WARNING: set property loop-playlist failed (rc={})",
+                            rc_loop_playlist));
+        LOG(fmt::format("[MPV] loop-playlist set to: {}", loop ? "inf" : "no"));
+    });
 }
 
 MPVController::State MPVController::get_state() {
