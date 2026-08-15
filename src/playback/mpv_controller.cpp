@@ -473,7 +473,12 @@ void MPVController::handle_end_file_(mpv_event_end_file *ef) {
     } else if (reason == 4) {
         handle_playback_error_(error_code);
     } else if (reason == 2) {
-        EVENT_LOG("MPV: Stopped");
+        // LOG-polish (2026-08-15): a stop while a new load is in flight (loadfile/loadlist was
+        //   issued — replay, channel switch, network drop + retry) reads as a track CHANGE to the
+        //   user, not a dead stop. logging_load_ is set on play/play_list_from and cleared at
+        //   FILE_LOADED, so it is exactly "a new track is loading right now".
+        EVENT_LOG(logging_load_.load() ? "MPV: Stopped current track — buffering next..."
+                                       : "MPV: Stopped");
     } else if (reason == 3) {
         EVENT_LOG("MPV: Quitting");
     } else if (reason == 5) {

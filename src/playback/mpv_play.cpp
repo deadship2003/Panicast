@@ -207,6 +207,7 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
         start_idx = 0;
     if (start_idx >= static_cast<int>(urls.size()))
         start_idx = static_cast<int>(urls.size()) - 1;
+    logging_load_ = true; // Y24.17: start the load window (play() sets it too; loadlist path missed it)
     reset_iptv_detection_(); // Y24.55: re-arm per-track IPTV diagnostics
 
     // Playlist mode settings
