@@ -102,6 +102,9 @@ public:
     // ── lyric-bar / scroll / tree-line toggles + queries ──
     virtual void toggle_lyric_bar() = 0;
     virtual bool is_lyric_bar_requested() const = 0;
+    // LYRIC-fix (2026-08-15): the L key enables the INI master switch live (persisted) — pressing
+    //   L is explicit intent and must not be a silent no-op when [display] lyric_bar is off.
+    virtual void set_lyric_bar_requested(bool requested) = 0;
     virtual bool is_lyric_bar_active() const = 0;
     virtual LyricManual lyric_manual() const = 0;
     virtual void set_lyric_manual(LyricManual m) = 0;

@@ -129,7 +129,7 @@ public:
     }
     // Y24.43: set the user's LYRIC-bar request state (persisted). Distinct from set_lyric_bar_active
     //   (per-frame derived). Used by the L key to open/close without the flip ambiguity of toggle.
-    void set_lyric_bar_requested(bool requested);
+    void set_lyric_bar_requested(bool requested) override;
     void toggle_lyric_bar() override;
 
     // Y24.48: LyricManual (Auto/Open/Closed) is defined on IFrontend (frontend.h); UI inherits it.

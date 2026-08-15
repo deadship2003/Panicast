@@ -809,6 +809,13 @@ void App::handle_input(int ch, int marked_count) {
                 break;
             }
             frontend_->set_lyric_manual(LyricManual::Open);
+            // LYRIC-fix (2026-08-15): the INI master switch ([display] lyric_bar, default OFF)
+            //   gates panel activation in app_run — pressing L is explicit user intent, so enable
+            //   the master switch too. Without this, L was a silent no-op: the transcript loaded
+            //   fine ("parsed 309 segments", "L: online transcript -> LYRIC" logged) but the
+            //   panel never appeared (user report 2026-08-15).
+            if (!frontend_->is_lyric_bar_requested())
+                frontend_->set_lyric_bar_requested(true);
             // If ASR already running, just reveal the panel — don't restart.
             if (subtitle_.transcription_engine().realtime_running()) {
                 break;
