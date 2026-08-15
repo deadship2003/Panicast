@@ -94,12 +94,15 @@ void SubtitleService::stop_realtime() {
 }
 
 void SubtitleService::begin_track(TreeNodePtr node, bool has_video) {
-    // ASR-fix (2026-08-15): synthetic playback nodes (history root, search results) are built with
-    //   only url/title/duration — the 📜/📝 transcript metadata the RSS parse attached lives in
-    //   episode_cache. Reattach it here so the online transcript (cheapest source) wins over ASR
-    //   and the LYRIC panel lights without re-parsing the feed. Single indexed-ish row lookup
+    // ASR-fix (2026-08-15): playback nodes can lose the 📜 transcript URL while keeping the flag.
+    //   Two producers of the broken state: (a) synthetic nodes (history root, search) built with
+    //   only url/title/duration; (b) tree_nodes DB restore — that table persists has_subtitle but
+    //   has NO subtitle_url column, so a restart-restored episode shows has_subtitle=1 with an
+    //   empty URL and load_async reports "no transcript" despite episode_cache holding the correct
+    //   URL. Reattach whenever the URL is missing (flag state irrelevant) — the online transcript
+    //   (cheapest source) then wins over ASR without re-parsing the feed. Single row lookup
     //   (record_play_history already does DB writes on this thread).
-    if (node && !node->has_subtitle && !node->has_asr_srt && node->subtitle_url.empty() &&
+    if (node && node->subtitle_url.empty() && !node->has_asr_srt &&
         node->url.rfind("http", 0) == 0) {
         bool db_sub = false, db_asr = false;
         std::string db_sub_url, db_asr_path;
