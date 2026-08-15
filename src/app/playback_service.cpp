@@ -4,6 +4,7 @@
 #include <chrono>
 #include <filesystem>
 #include <random>
+#include <unordered_map> // stream-fix: resolve_cache
 #include <sstream>
 
 #include <fmt/format.h>
@@ -18,6 +19,7 @@
 #include "panicast/core/paths.h"
 #include "panicast/core/thread_pool.h"
 #include "panicast/net/url_classifier.h"
+#include "panicast/net/network.h" // stream-fix: resolve_redirects (play-path CDN URL)
 #include "panicast/net/ytdlp_runner.h"
 #include "panicast/parsers/youtube_channel_parser.h"
 #include "panicast/storage/cache.h"
@@ -27,6 +29,17 @@
 
 namespace panicast
 {
+
+namespace {
+// stream-fix (2026-08-16): per-session map of episode source URL → resolved CDN URL. Every hit is
+//   re-validated with a 1-byte GET before use (signed CDN URLs expire; a stale entry re-resolves
+//   the chain), so the TTL only bounds memory, not correctness. One entry per distinct episode
+//   played this session — trivially small.
+std::mutex resolve_cache_mtx;
+std::unordered_map<std::string, std::pair<std::string, std::chrono::steady_clock::time_point>>
+    resolve_cache;
+constexpr int RESOLVE_CACHE_TTL_MIN = 120;
+} // namespace
 
 // ── Action handling (D8a) ─────────────────────────────────────────────────────
 void PlaybackService::init() {
@@ -300,6 +313,81 @@ void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_
 //   merge DASH streams → 1080p. Empty vector = resolve failed (caller skips, no fallback).
 //   Y24.47: in audio-only mode (--quiet / vo=null / vid=no) pick the AUDIO format even for video
 //   items, so yt-dlp returns an audio-only stream URL → the video stream is never downloaded
+
+// stream-fix (2026-08-16): episode source URL → final CDN URL, session-cached + revalidated.
+//   Why: tracker chains (pdst.fm → pscrb.fm → … → CDN, 3-6 hops) cost ~1s/hop through the
+//   transparent proxy, and mpv's ffmpeg re-walks the ENTIRE chain on every open/probe/duration-
+//   seek — measured 9-77s just to reach FILE_LOADED (curl one-shot: 6.4s for the whole chain,
+//   0.8s TTFB on the final URL). Resolving once here and handing mpv the direct URL restores
+//   "buffer a little, play while buffering". Never blocks the UI thread (pool task) and never
+//   blocks playback on failure — "" / validation miss falls back to the source URL, which is
+//   exactly the old mpv-native path. Also caches the no-redirect case so replays skip the probe.
+std::string PlaybackService::resolve_stream_url_(const std::string &orig_url) {
+    auto host_of = [](const std::string &u) {
+        size_t s = u.find("://");
+        size_t b = (s == std::string::npos) ? 0 : s + 3;
+        size_t e = u.find('/', b);
+        return u.substr(b, (e == std::string::npos) ? std::string::npos : e - b);
+    };
+    auto t0 = std::chrono::steady_clock::now();
+    auto ms = [&]() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - t0)
+            .count();
+    };
+
+    // 1) Fresh cache hit → validate it's still servable (signed CDN URLs expire); a redirect on
+    //    validation is followed to the new final (chains can grow shorter/different over time).
+    {
+        std::string cached;
+        {
+            std::lock_guard<std::mutex> lock(resolve_cache_mtx);
+            auto it = resolve_cache.find(orig_url);
+            if (it != resolve_cache.end() &&
+                std::chrono::steady_clock::now() - it->second.second <
+                    std::chrono::minutes(RESOLVE_CACHE_TTL_MIN))
+                cached = it->second.first;
+        }
+        if (!cached.empty()) { // no lock held across the network probe
+            std::string again = Network::resolve_redirects(cached);
+            if (!again.empty()) {
+                if (again != cached) { // moved again — keep the cache current
+                    std::lock_guard<std::mutex> lock(resolve_cache_mtx);
+                    resolve_cache[orig_url] = {again, std::chrono::steady_clock::now()};
+                }
+                LOG(fmt::format("[PLAY] stream URL cache hit ({}ms): {} -> {}", ms(),
+                                host_of(orig_url), host_of(again)));
+                return again;
+            }
+            std::lock_guard<std::mutex> lock(resolve_cache_mtx);
+            resolve_cache.erase(orig_url); // stale (403/404/expired) — re-resolve below
+            LOG(fmt::format("[PLAY] cached stream URL stale ({}ms) — re-resolving", ms()));
+        }
+    }
+
+    // 2) Full chain resolve. Failure ("") or a no-redirect answer both return the source URL —
+    //    mpv then does its own (old) thing; the cache entry saves the probe on the next replay.
+    //    Timeout 25s: the 6-hop pdst.fm chain measures 6-11s through the transparent proxy
+    //    (varies by load) and must stay under the 30s BUFFERING timeout so the fallback play
+    //    still starts within the pending window. Validation above (1 direct hop) keeps 15s.
+    std::string final_url = Network::resolve_redirects(orig_url, /*timeout=*/25);
+    if (final_url.empty()) {
+        LOG(fmt::format("[PLAY] redirect resolve failed ({}ms) — playing source URL", ms()));
+        return orig_url;
+    }
+    {
+        std::lock_guard<std::mutex> lock(resolve_cache_mtx);
+        resolve_cache[orig_url] = {final_url, std::chrono::steady_clock::now()};
+    }
+    if (final_url == orig_url)
+        LOG(fmt::format("[PLAY] no redirect chain ({}ms): {}", ms(), host_of(orig_url)));
+    else
+        LOG(fmt::format("[PLAY] redirect chain resolved ({}ms): {} -> {}", ms(),
+                        host_of(orig_url), host_of(final_url)));
+    return final_url;
+}
+
+//   items, so yt-dlp returns an audio-only stream URL → the video stream is never downloaded
 //   (saves bandwidth). Played via play_video with vo=null (no window) so sub_file (lyrics) still
 //   loads. For direct muxed URLs (non-YouTube) this can't apply — see mpv/container limitation.
 std::vector<std::string>
@@ -537,16 +625,34 @@ void PlaybackService::play_current(int idx, AppMode mode, PlayMode play_mode) {
         record_play_history(orig_url, title, duration);
         EVENT_LOG(fmt::format("Play Bilibili (ytdl_hook): idx {} '{}'", idx, orig_url));
     } else {
+        // stream-fix (2026-08-16): finite http(s) episodes (RSS enclosure, duration > 0) resolve
+        //   their redirect chain first via resolve_stream_url_ — see its doc comment for the
+        //   9-77s mpv chain cost this removes. Live streams (duration == 0, radio/IPTV) keep the
+        //   direct path: their redirect targets can be one-time tokens, and a Range probe can
+        //   hang stream endpoints. The resolve runs in a pool task (curl I/O never on the UI
+        //   thread — same shape as the YouTube branch above); BUFFERING stays pending until mpv
+        //   reports media, which is exactly the "buffering…" state the user should see meanwhile.
+        bool resolve_chain = duration > 0 && orig_url.rfind("http", 0) == 0;
         // Y24.17: video subtitle probed+added async; pass "" here.
-        player_.play(orig_url, has_video, "", ""); // Y24.17: video sub added async via sub-add
-        player_.set_keep_open(play_mode == PlayMode::REPEAT);
-        player_.set_loop_file(play_mode == PlayMode::REPEAT);
-        player_.set_pause(false);
-        record_play_history(orig_url, title, duration);
-        // F41: file:// URLs are local files (incl. WSL2 /mnt/ mounts), not "online streaming".
-        const char *play_kind =
-            (orig_url.rfind("file://", 0) == 0) ? "local file" : "online streaming";
-        EVENT_LOG(fmt::format("Play {}: idx {} '{}'", play_kind, idx, orig_url));
+        auto play_resolved = [this, orig_url, has_video, idx, title, duration, play_mode,
+                              resolve_chain]() {
+            std::string play_url = resolve_chain ? resolve_stream_url_(orig_url) : orig_url;
+            player_.play(play_url, has_video, "", ""); // Y24.17: video sub added async via sub-add
+            player_.set_keep_open(play_mode == PlayMode::REPEAT);
+            player_.set_loop_file(play_mode == PlayMode::REPEAT);
+            player_.set_pause(false);
+            record_play_history(orig_url, title, duration);
+            // F41: file:// URLs are local files (incl. WSL2 /mnt/ mounts), not "online streaming".
+            const char *play_kind =
+                (orig_url.rfind("file://", 0) == 0) ? "local file" : "online streaming";
+            EVENT_LOG(fmt::format("Play {}: idx {} '{}'", play_kind, idx, orig_url));
+        };
+        if (resolve_chain) {
+            EVENT_LOG("Resolving stream URL (async)...");
+            pool_->submit(std::move(play_resolved));
+        } else {
+            play_resolved();
+        }
     }
 }
 

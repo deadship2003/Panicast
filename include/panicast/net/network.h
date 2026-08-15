@@ -56,6 +56,13 @@ public:
 
     // SSL compatibility fix: enable ALPN/NPN and automatic TLS negotiation to resolve CDN handshake failures.
     static std::string fetch(const std::string &url, int timeout = DEFAULT_NETWORK_TIMEOUT_SEC);
+    // stream-fix (2026-08-16): resolve a URL's redirect chain WITHOUT downloading the body. A
+    //   1-byte Range GET (some CDNs answer 405 to HEAD) follows the Location hops on curl's
+    //   single connection-reusing handle and returns CURLINFO_EFFECTIVE_URL; "" on transport or
+    //   HTTP 4xx/5xx failure. The play path uses it to hand mpv the final CDN URL — ffmpeg's http
+    //   layer otherwise re-follows the WHOLE tracker chain (pdst.fm/podtrac, 3-6 hops, ~1s/hop
+    //   through the transparent proxy) on every open/probe/duration-seek, costing 9-77s per load.
+    static std::string resolve_redirects(const std::string &url, int timeout = 15);
     // Y01: POST helper for OAuth token endpoint + YouTube API. body is application/x-www-form-urlencoded
     //   when content_type is empty (default), else raw body with the given content-type (e.g.
     //   application/json for InnerTube). extra_headers appended as "Key: Value".

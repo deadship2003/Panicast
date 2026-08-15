@@ -114,6 +114,38 @@ bool Network::download_to_file(const std::string &url, const std::string &dest, 
     return ok;
 }
 
+// stream-fix (2026-08-16): body sink that throws data away. resolve_redirects must never buffer
+//   the episode into memory — a server that ignores the 1-byte Range and answers 200 with the
+//   full body would otherwise append it to a std::string via Network::write_cb.
+static size_t discard_cb(void *, size_t size, size_t nmemb, void *) {
+    return size * nmemb;
+}
+
+std::string Network::resolve_redirects(const std::string &url, int timeout) {
+    // URL safety: same whitelist/private-range guard as every other request path.
+    if (IniConfig::instance().get_reject_unsafe_url() &&
+        UrlGuard::reject(url, "Network::resolve_redirects"))
+        return "";
+    CurlRAII curl_raii;
+    CURL *curl = curl_raii.handle;
+    if (!curl)
+        return "";
+    // configure_curl leaves WRITEDATA at its default when no sink is set — write_cb would cast
+    //   stdout to a std::string*. Override the sink explicitly (see discard_cb note).
+    struct curl_slist *headers = curl_slist_append(nullptr, "Range: bytes=0-0");
+    configure_curl(curl, url, headers, timeout);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_cb);
+    CURLcode res = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    char *eff = nullptr;
+    curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &eff);
+    std::string final_url =
+        (res == CURLE_OK && http_code >= 200 && http_code < 400 && eff) ? eff : "";
+    curl_slist_free_all(headers);
+    return final_url;
+}
+
 std::string Network::fetch_once(const std::string &url, int timeout, std::string *err_out) {
     // CurlRAII auto-releases
     CurlRAII curl_raii;

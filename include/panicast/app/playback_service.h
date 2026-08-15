@@ -153,6 +153,11 @@ private:
     // F23: standalone YouTube `-g` resolve (pool-safe). Y09 1A: returns 1-2 stream URLs (DASH=2).
     // Stateless (uses IniConfig / yt-dlp / Paths only) → const.
     std::vector<std::string> resolve_youtube_url(const std::string &url, bool has_video) const;
+    // stream-fix (2026-08-16): map an episode source URL to its final CDN URL (resolve the
+    //   tracker redirect chain once via Network::resolve_redirects, with a validated session
+    //   cache) so mpv never re-walks the chain. Falls back to the source URL on any failure —
+    //   never worse than the old direct play. Pool-thread only (does network I/O).
+    std::string resolve_stream_url_(const std::string &orig_url);
 
     // ── Injected deps (D8b-2) ────────────────────────────────────────────────
     // Null until attach(); dereferenced only after App::run has wired it.
