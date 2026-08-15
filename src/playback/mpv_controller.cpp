@@ -268,6 +268,31 @@ void MPVController::event_loop() {
                     if (lm->log_level <= MPV_LOG_LEVEL_WARN || logging_load_.load()) {
                         LOG(fmt::format("[MPV/log] {}: {}", lm->prefix ? lm->prefix : "", txt));
                     }
+                    // AO-failure burst detector (2026-08-15): a broken WSLg PulseAudio emits
+                    //   bursts of "ao/pulse: Failed to allocate buffer" (observed 600+/day, 20+
+                    //   within 1ms) while mpv keeps "playing" SILENTLY — position advances,
+                    //   buffering looks healthy, so the user just sees "won't play" with no
+                    //   hint why. Surface it ONCE per track with the actual remedy.
+                    const char *pfx = lm->prefix ? lm->prefix : "";
+                    if (lm->log_level <= MPV_LOG_LEVEL_WARN &&
+                        std::string(pfx).rfind("ao/", 0) == 0 &&
+                        txt.find("Failed to allocate buffer") != std::string::npos) {
+                        auto now_ao = std::chrono::steady_clock::now();
+                        if (ao_fail_window_ == std::chrono::steady_clock::time_point{} ||
+                            now_ao - ao_fail_window_ >= std::chrono::seconds(2)) {
+                            ao_fail_window_ = now_ao;
+                            ao_fail_count_ = 0;
+                        }
+                        ++ao_fail_count_;
+                        if (!ao_fail_reported_ && ao_fail_count_ >= 8) {
+                            ao_fail_reported_ = true;
+                            EVENT_LOG("MPV: Audio output failure (PulseAudio repeatedly failed "
+                                      "to allocate buffer) — playing SILENTLY. Fix: run "
+                                      "'wsl --shutdown' in Windows and reopen WSL (restarts WSLg "
+                                      "PulseAudio), or check the Windows audio device; "
+                                      "alternatively set [mpv] ao=pipewire/alsa and restart.");
+                        }
+                    }
                 }
             }
         }
@@ -283,6 +308,9 @@ void MPVController::event_loop() {
             offair_reported_ = false;
             audio_only_reported_ = false;
             slow_reported_ = false;
+            ao_fail_window_ = {};
+            ao_fail_count_ = 0;
+            ao_fail_reported_ = false; // AO burst detector re-arms per track
             had_playback_started_ = false;
             // Y24.8: log how long mpv took from loadfile → File loaded (helps spot slow local mounts
             //   / network buffering). Steady_clock default-constructed = epoch (timing disabled).

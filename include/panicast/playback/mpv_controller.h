@@ -211,6 +211,13 @@ private:
     bool offair_reported_ = false;     // one-shot: #5 already emitted for this track
     bool audio_only_reported_ = false; // one-shot: #7 already emitted for this track
     bool slow_reported_ = false;       // one-shot: #11 already emitted for this track
+    // AO-failure burst detector (2026-08-15, event-thread only): counts "ao/*: Failed to
+    //   allocate buffer" log lines within a 2s window; >=8 in a window = the AO backend is
+    //   broken (WSLg PulseAudio die-off) while mpv keeps playing silently — emit ONE
+    //   user-visible remedy per track. Re-armed on FILE_LOADED.
+    std::chrono::steady_clock::time_point ao_fail_window_{};
+    int ao_fail_count_ = 0;
+    bool ao_fail_reported_ = false;
     bool had_playback_started_ =
         false; // Y24.55: true once PLAYBACK_RESTART fired → distinguishes #12 (mid-playback drop) from #1-10 (load/init failure)
     std::string classify_iptv_load_error_() const; // -13 → #1/#2/#3/#4 by last_log_text_ keywords
