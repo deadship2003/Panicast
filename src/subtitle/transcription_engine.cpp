@@ -522,6 +522,24 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
         chunk_sec = 120;
     auto stop_pred = [this, gen]() { return realtime_gen_.load() != gen; };
 
+    // ASR-fix (2026-08-15): align the first chunk with where playback actually IS. A track resumed
+    //   deep into the episode (progress resume) would otherwise chunk from 0s/last-SRT-end and the
+    //   LYRIC panel stays blank for many chunks until capture catches up. One chunk of backfill
+    //   gives a little context. Never rewinds below an existing SRT's end (no re-transcribing).
+    if (seekable && mpv_) {
+        auto s = mpv_->get_state();
+        double pos = s.has_media ? s.time_pos : 0.0;
+        if (pos > chunk_sec * 2.0) {
+            double target = pos - chunk_sec; // backfill one chunk
+            if (target > start) {
+                LOG(fmt::format(
+                    "[Transcribe] realtime: aligning start {:.0f}s -> {:.0f}s (playback at {:.0f}s)",
+                    start, target, pos));
+                start = target;
+            }
+        }
+    }
+
     EVENT_LOG(fmt::format("Transcribe (realtime): chunked {}s from {:.0f}s{}", chunk_sec, start,
                           seekable ? "" : " (live stream)"));
     LOG(fmt::format("[Transcribe] realtime chunked: chunk={}s start={:.1f}s dur={} url='{}'",
@@ -599,9 +617,14 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
         // ── capture one bounded chunk → wav (killable via -progress pipe:1) ──
         std::string tmp_wav = temp_basename() + ".wav";
         std::vector<std::string> fargs = {"-y"};
-        fargs.push_back("-timeout");
-        fargs.push_back(
-            "20000000"); // 20s net read timeout (live/network input; ignored for local files)
+        // ASR-fix (2026-08-15): -timeout is an http-protocol option — on a LOCAL input file ffmpeg
+        //   rejects it outright ("Option timeout not found", rc=8), so every local-media capture
+        //   failed at step 0. Only live (non-seekable) media actually reads the network URL here;
+        //   finite media's src is always a local file by then (cache/download above).
+        if (!seekable) {
+            fargs.push_back("-timeout");
+            fargs.push_back("20000000"); // 20s net read timeout (live/network input)
+        }
         if (seekable && start > 0.5) {
             fargs.push_back("-ss");
             fargs.push_back(fmt::format("{:.3f}", start));

@@ -454,8 +454,22 @@ pid_t Utils::spawn_child(const std::string &exe, char *const argv[], int in_fd, 
 #ifdef __linux__
         prctl(PR_SET_PDEATHSIG, SIGKILL); // auto-die when panicast dies (covers SIGKILL of parent)
 #endif
-        if (in_fd >= 0)
+        if (in_fd >= 0) {
             dup2(in_fd, STDIN_FILENO);
+        } else {
+            // ASR-fix (2026-08-15): no stdin given → attach /dev/null. The child inherits the
+            //   parent's terminal stdin otherwise; ffmpeg (interactive 'q' key polling) reads it
+            //   from a BACKGROUND process group → kernel SIGTTIN → child stopped forever (state T,
+            //   zero CPU) — the "LYRIC open but no ASR text ever appears" bug (whisper waits on a
+            //   wav ffmpeg never writes). /dev/null keeps interactive children (yt-dlp prompts,
+            //   ffmpeg keys) at EOF instead of stealing the tty.
+            int nd = open("/dev/null", O_RDONLY);
+            if (nd >= 0) {
+                dup2(nd, STDIN_FILENO);
+                if (nd != STDIN_FILENO)
+                    close(nd);
+            }
+        }
         if (out_fd >= 0)
             dup2(out_fd, STDOUT_FILENO);
         if (err_fd >= 0)

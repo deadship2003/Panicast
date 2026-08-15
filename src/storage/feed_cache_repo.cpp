@@ -583,4 +583,48 @@ DatabaseManager::load_episodes_from_cache(const std::string &feed_url) {
     }
     return episodes;
 }
+
+// ASR-fix (2026-08-15): single-episode transcript-metadata lookup by episode URL. episode_cache has
+//   no lone index on episode_url (the unique index is (feed_url, episode_url)), so this is a scan —
+//   fine at a few thousand rows / once per track begin. Tries the exact URL first, then the
+//   query-stripped form (feeds sometimes append tracking params to the enclosure URL).
+bool DatabaseManager::get_episode_transcript_meta(const std::string &episode_url,
+                                                  bool &has_subtitle, std::string &subtitle_url,
+                                                  bool &has_asr_srt, std::string &asr_srt_path) {
+    has_subtitle = false;
+    subtitle_url.clear();
+    has_asr_srt = false;
+    asr_srt_path.clear();
+    if (!is_ready() || episode_url.empty())
+        return false;
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
+
+    auto lookup = [&](const std::string &key) -> bool {
+        const char *sql =
+            "SELECT has_subtitle, subtitle_url, has_asr_srt, asr_srt_path FROM episode_cache "
+            "WHERE episode_url=? AND (has_subtitle=1 OR has_asr_srt=1) LIMIT 1;";
+        sqlite3_stmt *stmt = nullptr;
+        bool found = false;
+        if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                has_subtitle = sqlite3_column_int(stmt, 0) != 0;
+                const char *su = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+                subtitle_url = su ? su : "";
+                has_asr_srt = sqlite3_column_int(stmt, 2) != 0;
+                const char *ap = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+                asr_srt_path = ap ? ap : "";
+                found = true;
+            }
+            sqlite3_finalize(stmt);
+        }
+        return found;
+    };
+    if (lookup(episode_url))
+        return true;
+    size_t q = episode_url.find('?');
+    if (q != std::string::npos)
+        return lookup(episode_url.substr(0, q));
+    return false;
+}
 } // namespace panicast

@@ -12,6 +12,9 @@
 #include "panicast/core/thread_pool.h"
 #include "panicast/net/url_classifier.h"  // D49: is_local_file — auto-ASR is local-media only
 #include "panicast/playback/mpv_controller.h"
+#include "panicast/storage/cache.h"      // ASR-fix: CacheManager local-cache lookup (maybe_auto_asr_)
+#include "panicast/storage/database.h"   // ASR-fix: episode_cache transcript reattach (begin_track)
+#include "panicast/subtitle/subtitle_parser.h" // ASR-fix: SubtitleParserRegistry::hint_for_url
 #include "panicast/ui/frontend.h" // D12-3b: poll(IFrontend&) — forwards to SubtitleManager::poll
 
 namespace panicast
@@ -91,6 +94,33 @@ void SubtitleService::stop_realtime() {
 }
 
 void SubtitleService::begin_track(TreeNodePtr node, bool has_video) {
+    // ASR-fix (2026-08-15): synthetic playback nodes (history root, search results) are built with
+    //   only url/title/duration — the 📜/📝 transcript metadata the RSS parse attached lives in
+    //   episode_cache. Reattach it here so the online transcript (cheapest source) wins over ASR
+    //   and the LYRIC panel lights without re-parsing the feed. Single indexed-ish row lookup
+    //   (record_play_history already does DB writes on this thread).
+    if (node && !node->has_subtitle && !node->has_asr_srt && node->subtitle_url.empty() &&
+        node->url.rfind("http", 0) == 0) {
+        bool db_sub = false, db_asr = false;
+        std::string db_sub_url, db_asr_path;
+        if (DatabaseManager::instance().get_episode_transcript_meta(node->url, db_sub, db_sub_url,
+                                                                    db_asr, db_asr_path)) {
+            if (db_sub && !db_sub_url.empty()) {
+                node->has_subtitle = true;
+                node->subtitle_url = db_sub_url;
+                node->subtitle_type = SubtitleParserRegistry::hint_for_url(db_sub_url);
+                LOG(fmt::format("[Subtitle] reattached 📜 from episode_cache: {}",
+                                basename_of(db_sub_url)));
+            } else if (db_asr && !db_asr_path.empty()) {
+                node->has_asr_srt = true;
+                node->asr_srt_path = db_asr_path;
+                node->subtitle_url = db_asr_path;
+                node->subtitle_type = "srt";
+                LOG(fmt::format("[Subtitle] reattached 📝 ASR SRT from episode_cache: {}",
+                                basename_of(db_asr_path)));
+            }
+        }
+    }
     // Y24.8: subtitle handling is FULLY ASYNC for audio — play() is called immediately by the caller
     //   with no synchronous fs::exists probe (slow on /mnt/e WSL2 mounts). Method A (mpv sub-file) is
     //   only used for VIDEO (mpv renders in the video window); AUDIO always uses Method B
@@ -160,6 +190,14 @@ void SubtitleService::maybe_auto_asr_(TreeNodePtr node, bool has_video) {
     if (node->has_subtitle && !node->subtitle_url.empty())
         return; // online 📜 transcript
     std::string url = node->local_file.empty() ? node->url : node->local_file;
+    if (!url.empty() && !URLClassifier::is_local_file(url)) {
+        // ASR-fix (2026-08-15): play_current resolves the local cache by SOURCE url (CacheManager),
+        //   but a synthetic node's local_file may be empty even though the played media IS the
+        //   cached file. Mirror the play path so cached/downloaded episodes auto-ASR too.
+        std::string cached = CacheManager::instance().get_local_file(node->url);
+        if (!cached.empty())
+            url = cached;
+    }
     if (url.empty() || !URLClassifier::is_local_file(url))
         return; // streaming URL — stays a deliberate L press (would download the whole episode)
     transcription_engine_.start_realtime(node, url, /*is_streaming=*/false, has_video,

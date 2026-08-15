@@ -183,6 +183,13 @@ public:
     // Y24.23: persist ASR SRT marker (has_asr_srt + asr_srt_path) to episode_cache.
     void update_episode_asr(const std::string &feed_url, const std::string &episode_url,
                             const std::string &asr_srt_path);
+    // ASR-fix (2026-08-15): look up one episode's persisted transcript metadata by episode URL
+    //   (no feed_url needed — synthetic playback nodes only know their own URL). Returns false
+    //   when the row is missing or carries no transcript. Used by SubtitleService::begin_track to
+    //   reattach 📜/📝 info to history/search nodes that lost it at construction.
+    bool get_episode_transcript_meta(const std::string &episode_url, bool &has_subtitle,
+                                     std::string &subtitle_url, bool &has_asr_srt,
+                                     std::string &asr_srt_path);
 
     // Y24.27: bilibili/tiktok account CRUD — moved from app_bilibili.cpp / app_tiktok.cpp
     //   (was direct sqlite3_* calls bypassing DatabaseManager).
