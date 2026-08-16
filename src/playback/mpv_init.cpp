@@ -2,7 +2,7 @@
 //   apply_mpv_options_() applies all user-configurable mpv options (vo/vid/ao/ytdl-format/
 //   keep-open/subtitle/slang/audio-display/tls/cache/user-agent) read from the [mpv]
 //   section of IniConfig, with CLI overrides taking precedence. It remains an MPVController
-//   member (reads ctx_ + the cli_*_override_ statics); only its implementation lives here.
+//   member (takes the ctx handle as a parameter + reads the cli_*_override_ statics); only its
 //   Declaration stays in mpv_controller.h. Mechanical verbatim move from initialize() (mpv_controller.cpp).
 #include "panicast/playback/mpv_controller.h"
 
@@ -52,7 +52,7 @@ static void remap_wslg_wayland_socket_() {
 //   initialize() — single concern: "apply user-configurable mpv options". No control flow leaves
 //   this method (no early return), so calling it once between the fixed-behavior flags and
 //   mpv_initialize() is behavior-identical to the original inline block.
-void MPVController::apply_mpv_options_() {
+void MPVController::apply_mpv_options_(mpv_handle *ctx) {
     // D50: repair the WSLg wayland socket path before any vo is chosen (see helper above).
     remap_wslg_wayland_socket_();
     // F24: vo/vid/ytdl-format/cache/demuxer/tls/user-agent/keep-open from [mpv] section of IniConfig.
@@ -75,30 +75,30 @@ void MPVController::apply_mpv_options_() {
     //   before every loadfile so the -15 audio-only fallback never latches across tracks.
     init_vo_ = mpv_vo;
     init_vid_ = mpv_vid;
-    mpv_set_option_string(ctx_, "vo", mpv_vo.c_str());
-    mpv_set_option_string(ctx_, "vid", mpv_vid.c_str());
+    mpv_set_option_string(ctx, "vo", mpv_vo.c_str());
+    mpv_set_option_string(ctx, "vid", mpv_vid.c_str());
     if (!mpv_ao.empty())
-        mpv_set_option_string(ctx_, "ao", mpv_ao.c_str()); // empty = leave mpv default (auto)
+        mpv_set_option_string(ctx, "ao", mpv_ao.c_str()); // empty = leave mpv default (auto)
     std::string mpv_ytdl_format = IniConfig::instance().get_mpv_ytdl_format();
     init_ytdl_format_ = mpv_ytdl_format; // D50: snapshot for play_video() re-assertion
-    mpv_set_option_string(ctx_, "ytdl-format", mpv_ytdl_format.c_str());
-    mpv_set_option_string(ctx_, "keep-open",
+    mpv_set_option_string(ctx, "ytdl-format", mpv_ytdl_format.c_str());
+    mpv_set_option_string(ctx, "keep-open",
                           IniConfig::instance().get_mpv_keep_open() ? "yes" : "no");
     // Y14: subtitle settings now INI-configurable ([mpv] sub_align_x/y, sub_visibility, sub_ass_override).
     //   Defaults: center/bottom/yes/auto. For VIDEO: subtitles render in the video window (mpv native).
     //   For AUDIO (no video window): TUI lyric panel shows sub-text (gated by !has_video in draw_info).
-    mpv_set_option_string(ctx_, "sub-ass-override",
+    mpv_set_option_string(ctx, "sub-ass-override",
                           IniConfig::instance().get_mpv_sub_ass_override().c_str());
-    mpv_set_option_string(ctx_, "sub-align-x", IniConfig::instance().get_mpv_sub_align_x().c_str());
-    mpv_set_option_string(ctx_, "sub-align-y", IniConfig::instance().get_mpv_sub_align_y().c_str());
-    mpv_set_option_string(ctx_, "sub-visibility",
+    mpv_set_option_string(ctx, "sub-align-x", IniConfig::instance().get_mpv_sub_align_x().c_str());
+    mpv_set_option_string(ctx, "sub-align-y", IniConfig::instance().get_mpv_sub_align_y().c_str());
+    mpv_set_option_string(ctx, "sub-visibility",
                           IniConfig::instance().get_mpv_sub_visibility().c_str());
     // Y24.43: prefer English among multiple embedded subtitle tracks (slang). mpv auto-selects the
     //   matching track → sub-text reflects the English subtitle. INI-configurable, default "en".
-    mpv_set_option_string(ctx_, "slang", IniConfig::instance().get_mpv_sub_lang().c_str());
+    mpv_set_option_string(ctx, "slang", IniConfig::instance().get_mpv_sub_lang().c_str());
     // Y12: audio-display=no — don't open a video window for embedded cover art / pictures when
     //   playing audio files (mp3 with album art). Keeps audio playback windowless (no art popup).
-    mpv_set_option_string(ctx_, "audio-display", "no");
+    mpv_set_option_string(ctx, "audio-display", "no");
     LOG(fmt::format("[MPV] Init: vo={}, vid={}, ao={}, ytdl-format={}, keep-open={}", mpv_vo,
                     mpv_vid, mpv_ao.empty() ? "auto" : mpv_ao, mpv_ytdl_format,
                     IniConfig::instance().get_mpv_keep_open() ? "yes" : "no"));
@@ -112,7 +112,7 @@ void MPVController::apply_mpv_options_() {
 
     // F24: TLS verification from [mpv] section (default true, aligned with libcurl configuration)
     bool mpv_tls_verify = IniConfig::instance().get_mpv_tls_verify();
-    mpv_set_option_string(ctx_, "tls-verify", mpv_tls_verify ? "yes" : "no");
+    mpv_set_option_string(ctx, "tls-verify", mpv_tls_verify ? "yes" : "no");
     LOG(fmt::format("[MPV] TLS verify: {} (streaming {})", mpv_tls_verify ? "enabled" : "disabled",
                     mpv_tls_verify ? "secure" : "compatibility mode"));
 
@@ -121,10 +121,10 @@ void MPVController::apply_mpv_options_() {
     std::string mpv_demuxer_max_bytes = IniConfig::instance().get_mpv_demuxer_max_bytes();
     std::string mpv_demuxer_max_back_bytes = IniConfig::instance().get_mpv_demuxer_max_back_bytes();
     int mpv_cache_secs = IniConfig::instance().get_mpv_cache_secs();
-    mpv_set_option_string(ctx_, "cache", mpv_cache.c_str());
-    mpv_set_option_string(ctx_, "demuxer-max-bytes", mpv_demuxer_max_bytes.c_str());
-    mpv_set_option_string(ctx_, "demuxer-max-back-bytes", mpv_demuxer_max_back_bytes.c_str());
-    mpv_set_option_string(ctx_, "cache-secs", std::to_string(mpv_cache_secs).c_str());
+    mpv_set_option_string(ctx, "cache", mpv_cache.c_str());
+    mpv_set_option_string(ctx, "demuxer-max-bytes", mpv_demuxer_max_bytes.c_str());
+    mpv_set_option_string(ctx, "demuxer-max-back-bytes", mpv_demuxer_max_back_bytes.c_str());
+    mpv_set_option_string(ctx, "cache-secs", std::to_string(mpv_cache_secs).c_str());
     LOG(fmt::format("[MPV] Network buffer: cache={}, demuxer-max-bytes={}, "
                     "demuxer-max-back-bytes={}, cache-secs={}",
                     mpv_cache, mpv_demuxer_max_bytes, mpv_demuxer_max_back_bytes, mpv_cache_secs));
@@ -136,14 +136,14 @@ void MPVController::apply_mpv_options_() {
     //   the app's 30s BUFFERING timeout; it is per network operation (connect/response wait), so
     //   slow-but-alive streams are unaffected. Not INI-exposed — playback robustness, same class
     //   as the cache options above.
-    mpv_set_option_string(ctx_, "network-timeout", "20");
+    mpv_set_option_string(ctx, "network-timeout", "20");
     LOG("[MPV] network-timeout: 20s (bounded stream-open stalls)");
 
     // F24: browser User-Agent from [mpv] section (some CDNs reject default mpv UA).
     //   Applied before mpv_initialize (option-string form). This complements the yt-dlp -g fallback
     //   in the event_loop for sites that still reject the player UA.
     std::string mpv_user_agent = IniConfig::instance().get_mpv_user_agent();
-    mpv_set_option_string(ctx_, "user-agent", mpv_user_agent.c_str());
+    mpv_set_option_string(ctx, "user-agent", mpv_user_agent.c_str());
     LOG(fmt::format("[MPV] user-agent: {}", mpv_user_agent));
 }
 

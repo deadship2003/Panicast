@@ -499,6 +499,17 @@ PlaybackService::resolve_youtube_url(const std::string &url, bool has_video) con
         }
         LOG(fmt::format("[YouTube] yt-dlp error: {}", err));
         EVENT_LOG(fmt::format("YouTube resolve failed: {}", err));
+        // D51: signature hints — the two dominant YouTube-side failures (both observed
+        //   2026-08-16) map to different user remedies, so name them explicitly instead
+        //   of leaving a raw yt-dlp error line.
+        if (err.find("Sign in to confirm") != std::string::npos) {
+            EVENT_LOG("Hint: YouTube bot-wall — cookies missing or expired. Re-export "
+                      "youtube_cookie.txt (see [youtube] comments in config.ini) and retry");
+        } else if (err.find("Requested format is not available") != std::string::npos) {
+            EVENT_LOG("Hint: YouTube served a degraded (storyboard-only) response — exit-IP "
+                      "risk control. Retry later or re-export cookies; playback formats are "
+                      "temporarily unavailable from this network");
+        }
     } else {
         EVENT_LOG(fmt::format("YouTube resolve failed after {} attempt(s) (no yt-dlp output) — "
                               "cookies/proxy/JS-runtime?",

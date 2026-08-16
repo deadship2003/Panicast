@@ -131,7 +131,7 @@ void UI::draw(
                 : fmt::format("[O] ONLINE [{}]", dctx.online_region_name);
         break;
     case AppMode::ACCOUNT:
-        mode_str = use_emoji_title ? "Ｙ ACCOUNT" : "[Y] ACCOUNT";
+        mode_str = use_emoji_title ? "Ｙ YOUTUBE" : "[Y] YOUTUBE";
         break; // Y01 (fullwidth Y: glibc wcwidth=2)
     case AppMode::BILIBILI:
         mode_str = use_emoji_title ? "Ｂ BILIBILI" : "[B] BILIBILI";

@@ -304,6 +304,18 @@ void DownloadService::ytdlp_download(const std::string &url, const std::vector<s
             err_tail = err_tail.substr(prev == std::string::npos ? 0 : prev + 1);
         }
         LOG(fmt::format("[yt-dlp DL] stderr: {}", err_tail));
+        // D51: same signature hints as resolve_youtube_url — bot-wall vs degraded response
+        //   need different user remedies, so say which one it is.
+        if (err_tail.find("Sign in to confirm") != std::string::npos) {
+            EVENT_LOG(fmt::format("Hint ({}): YouTube bot-wall — cookies missing or expired. "
+                                  "Re-export youtube_cookie.txt and retry",
+                                  title));
+        } else if (err_tail.find("Requested format is not available") != std::string::npos) {
+            EVENT_LOG(fmt::format("Hint ({}): YouTube served a degraded (storyboard-only) "
+                                  "response — exit-IP risk control. Retry later or re-export "
+                                  "cookies",
+                                  title));
+        }
     }
     bool success = false;
     if (result.launched && result.exit_code == 0) {

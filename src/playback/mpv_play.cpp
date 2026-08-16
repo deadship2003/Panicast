@@ -29,10 +29,11 @@ namespace panicast
 //   copies). One helper keeps them in lockstep and mirrors set_pause()'s optimistic state_
 //   update so the last-known-good cache doesn't briefly disagree with what was just commanded.
 //   CMD-WORKER ONLY (runs between loadfile and the next enqueued command, preserving FIFO order).
-void MPVController::ensure_playing_() {
+// D51: takes the caller's ctx snapshot — never reads the member (jam-recovery handoff).
+void MPVController::ensure_playing_(mpv_handle *h) {
     { std::lock_guard<std::mutex> lock(mtx_); state_.paused = false; } // optimistic UI update
     int pause_val = 0;
-    int rc_pause = mpv_set_property(ctx_, "pause", MPV_FORMAT_FLAG, &pause_val);
+    int rc_pause = mpv_set_property(h, "pause", MPV_FORMAT_FLAG, &pause_val);
     if (rc_pause < 0)
         LOG(fmt::format("[MPV] WARNING: set pause failed (rc={})", rc_pause));
     LOG("[MPV] Ensured playing (pause=no)");
@@ -85,18 +86,18 @@ void MPVController::play_audio(const std::string &url) {
     last_loadfile_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now().time_since_epoch())
                             .count(); // Y24.8: loadfile→File loaded timing
-    enqueue_cmd_([this, url, cache_secs, demux_max, demux_back, pause_wait] {
-        mpv_set_option_string(ctx_, "cache-secs", cache_secs.c_str());
-        mpv_set_option_string(ctx_, "demuxer-max-bytes", demux_max.c_str());
-        mpv_set_option_string(ctx_, "demuxer-max-back-bytes", demux_back.c_str());
-        mpv_set_option_string(ctx_, "cache-pause-wait", pause_wait.c_str());
+    enqueue_cmd_([this, url, cache_secs, demux_max, demux_back, pause_wait](mpv_handle *h) {
+        mpv_set_option_string(h, "cache-secs", cache_secs.c_str());
+        mpv_set_option_string(h, "demuxer-max-bytes", demux_max.c_str());
+        mpv_set_option_string(h, "demuxer-max-back-bytes", demux_back.c_str());
+        mpv_set_option_string(h, "cache-pause-wait", pause_wait.c_str());
 
         const char *cmd[] = {"loadfile", url.c_str(), "replace", nullptr};
-        int result = mpv_command(ctx_, cmd);
+        int result = mpv_command(h, cmd);
         LOG(fmt::format("[MPV] loadfile result: {}", result));
 
-        ensure_playing_();
-    });
+        ensure_playing_(h);
+    }, "play_audio");
 }
 
 void MPVController::play_video(const std::string &url, const std::string &audio_file,
@@ -157,35 +158,35 @@ void MPVController::play_video(const std::string &url, const std::string &audio_
     last_loadfile_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now().time_since_epoch())
                             .count(); // Y24.8: loadfile→File loaded timing
-    enqueue_cmd_([this, url, opts, cache_secs, demux_max, demux_back] {
+    enqueue_cmd_([this, url, opts, cache_secs, demux_max, demux_back](mpv_handle *h) {
         // D50 (vo-fix): undo any -15 audio-only latch (vo=null/vid=no/bestaudio) from a
         //   previous track BEFORE this loadfile — see the F24→D50 note above. Idempotent
         //   no-ops when the options are already at their init values.
         if (!init_vo_.empty())
-            mpv_set_property_string(ctx_, "vo", init_vo_.c_str());
+            mpv_set_property_string(h, "vo", init_vo_.c_str());
         if (!init_vid_.empty())
-            mpv_set_property_string(ctx_, "vid", init_vid_.c_str());
+            mpv_set_property_string(h, "vid", init_vid_.c_str());
         if (!init_ytdl_format_.empty())
-            mpv_set_property_string(ctx_, "ytdl-format", init_ytdl_format_.c_str());
+            mpv_set_property_string(h, "ytdl-format", init_ytdl_format_.c_str());
 
-        mpv_set_option_string(ctx_, "cache-secs", cache_secs.c_str());
-        mpv_set_option_string(ctx_, "demuxer-max-bytes", demux_max.c_str());
-        mpv_set_option_string(ctx_, "demuxer-max-back-bytes", demux_back.c_str());
-        mpv_set_option_string(ctx_, "cache-pause-wait", "10");
+        mpv_set_option_string(h, "cache-secs", cache_secs.c_str());
+        mpv_set_option_string(h, "demuxer-max-bytes", demux_max.c_str());
+        mpv_set_option_string(h, "demuxer-max-back-bytes", demux_back.c_str());
+        mpv_set_option_string(h, "cache-pause-wait", "10");
 
         int result;
         if (!opts.empty()) {
             const char *cmd[] = {"loadfile", url.c_str(), "replace", "-1", opts.c_str(), nullptr};
-            result = mpv_command(ctx_, cmd);
+            result = mpv_command(h, cmd);
             LOG(fmt::format("[MPV] loadfile (+{}) result: {}", opts, result));
         } else {
             const char *cmd[] = {"loadfile", url.c_str(), "replace", nullptr};
-            result = mpv_command(ctx_, cmd);
+            result = mpv_command(h, cmd);
             LOG(fmt::format("[MPV] loadfile result: {}", result));
         }
 
-        ensure_playing_();
-    });
+        ensure_playing_(h);
+    }, "play_video");
 }
 
 void MPVController::play(const std::string &url, bool force_video, const std::string &audio_file,
@@ -253,8 +254,8 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
             f << url << "\n";
         f.close();
 
-        enqueue_cmd_([this, tmp, start_idx, is_video] {
-            int rc_keep_open = mpv_set_property_string(ctx_, "keep-open", "no");
+        enqueue_cmd_([this, tmp, start_idx, is_video](mpv_handle *h) {
+            int rc_keep_open = mpv_set_property_string(h, "keep-open", "no");
             if (rc_keep_open < 0)
                 LOG(fmt::format("[MPV] WARNING: set property keep-open failed (rc={})", rc_keep_open));
 
@@ -263,19 +264,19 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
             //   vo choice like wlshm. Also re-assert when the -15 fallback latched vo=null
             //   mid-playlist (its audio-only retry advances the list without play_video()).
             bool vo_null_latched = false;
-            if (char *cur = mpv_get_property_string(ctx_, "vo")) {
+            if (char *cur = mpv_get_property_string(h, "vo")) {
                 vo_null_latched = (std::string(cur) == "null");
                 mpv_free(cur);
             }
             if (is_video && (!vo_gpu_ || vo_null_latched)) {
-                mpv_set_property_string(ctx_, "vo",
+                mpv_set_property_string(h, "vo",
                                         init_vo_.empty() ? "auto" : init_vo_.c_str());
                 vo_gpu_ = true;
             }
 
             // Load the playlist
             const char *cmd[] = {"loadlist", tmp.c_str(), "replace", nullptr};
-            int rc_loadlist = mpv_command(ctx_, cmd); // P3-C5: check return (was ignored)
+            int rc_loadlist = mpv_command(h, cmd); // P3-C5: check return (was ignored)
             if (rc_loadlist < 0)
                 LOG(fmt::format("[MPV] WARNING: loadlist failed (rc={})", rc_loadlist));
             SafeTmpFile::remove(tmp); // Clean up temp file after loading
@@ -283,11 +284,11 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
             // Set playback position to the specified start index
             int64_t pos = start_idx;
             if (rc_loadlist >= 0)
-                mpv_set_property(ctx_, "playlist-pos", MPV_FORMAT_INT64, &pos);
+                mpv_set_property(h, "playlist-pos", MPV_FORMAT_INT64, &pos);
             LOG(fmt::format("[MPV] play_list_from: Set playlist-pos to {}", start_idx));
 
-            ensure_playing_();
-        });
+            ensure_playing_(h);
+        }, "play_list_from");
     } else
         play(urls[static_cast<size_t>(start_idx)], is_video);
 }

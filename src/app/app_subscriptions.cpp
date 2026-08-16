@@ -408,7 +408,7 @@ void App::add_favourites_batch(int marked_count) {
         source_mode_name = "HISTORY";
         break;
     case AppMode::ACCOUNT:
-        source_mode_name = "ACCOUNT";
+        source_mode_name = "YOUTUBE";
         break;
     case AppMode::BILIBILI:
         source_mode_name = "BILIBILI";
@@ -510,7 +510,7 @@ void App::add_favourite() {
         source_mode_name = "HISTORY";
         break;
     case AppMode::ACCOUNT:
-        source_mode_name = "ACCOUNT";
+        source_mode_name = "YOUTUBE";
         break;
     case AppMode::BILIBILI:
         source_mode_name = "BILIBILI";

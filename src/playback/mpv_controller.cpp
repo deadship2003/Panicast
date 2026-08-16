@@ -3,6 +3,7 @@
 
 #include <clocale> // setlocale
 #include <chrono>  // steady_clock (bounded join in stop())
+#include <cstdlib> // getenv, atoi (D51 jam_threshold_ms_)
 #include <cstring> // strlen
 #include <thread>  // std::this_thread::sleep_for (bounded VO-teardown wait in stop())
 #include <fcntl.h> // open, O_WRONLY (Y24.55: stderr redirect)
@@ -33,20 +34,53 @@ std::string MPVController::cli_ao_override_;
 
 MPVController::~MPVController() {
     running_ = false;
+    jam_running_.store(false); // D51: stop the watchdog; detached (a wedged engine is abandoned
+    if (jam_thread_.joinable()) //   by design, so the dtor must not block on any join either)
+        jam_thread_.detach();
     // Async: detach the event thread (don't join — could hang on WSLg VO teardown). ctx_ is left
     //   valid (not destroyed) so the detached thread can use it until it exits. OS reclaims on exit.
     if (mpv_thread_.joinable())
         mpv_thread_.detach();
+    // D51-test: same for the cmd worker — a worker parked on cmd_cv_ would make the member's
+    //   condition_variable destructor block forever (pthread_cond_destroy waits out waiters).
+    //   Normal shutdown goes through stop() (which reaps it); this is the never-stopped safety net.
+    cmd_running_.store(false);
+    cmd_cv_.notify_all();
+    if (cmd_thread_.joinable())
+        cmd_thread_.detach();
 }
 
 bool MPVController::initialize() {
+    if (!create_context_())
+        return false;
+
+    running_ = true;
+    mpv_thread_ = std::thread(&MPVController::event_loop, this);
+    cmd_running_ = true;
+    cmd_done_ = false;
+    cmd_thread_ = std::thread(&MPVController::cmd_loop_, this);
+    jam_running_.store(true); // D51: engine-wedge watchdog (own thread — the only detector that
+    jam_thread_ = std::thread(&MPVController::jam_loop_, this); // survives a wedged worker/event loop)
+    return true;
+}
+
+// D51 (jam-recovery): ctx creation + full option configuration, verbatim from the old
+//   initialize() body. Called once at startup and again by recover_from_jam_() after the
+//   engine is wedged (the event/worker loops pick the new ctx_ up on their next iteration).
+bool MPVController::create_context_() {
+    // D51-test fix: build on a LOCAL handle; publish to ctx_ only after full init. The old code
+    //   assigned ctx_ = mpv_create() as its first action — during a jam recovery the fresh
+    //   worker/event loop could grab the half-initialized handle and issue calls concurrent with
+    //   mpv_initialize (the jam-recovery functional test caught exactly this: the post-recovery
+    //   roundtrip ran pre-init and read back nothing). ctx_ stays null (both loops park) until
+    //   the engine is fully up.
     // Only switch LC_NUMERIC, preserve LC_CTYPE wide-char environment
     // mpv_create() detects locale and prints warnings, but only LC_NUMERIC needs to be "C"
     setlocale(LC_NUMERIC, "C");
-    ctx_ = mpv_create();
+    mpv_handle *ctx = mpv_create();
     setlocale(LC_NUMERIC, ""); // restore
 
-    if (!ctx_) {
+    if (!ctx) {
         LOG("[MPV] Failed to create context");
         return false;
     }
@@ -62,11 +96,11 @@ bool MPVController::initialize() {
     // F24: all user-configurable mpv params (vo/vid/ytdl-format/cache/demuxer/tls/user-agent/keep-open)
     //   are read from the [mpv] section of IniConfig (single source of truth). CLI overrides
     //   (--vo/--vid/--quiet) take precedence over INI values.
-    mpv_set_option_string(ctx_, "idle", "yes");
+    mpv_set_option_string(ctx, "idle", "yes");
     // Center the video window (WSLg Weston doesn't auto-center) + keep on top (avoid being covered by terminal).
     //   Only effective when opening a window with vo=gpu; no-op when audio vo=null.
-    mpv_set_option_string(ctx_, "geometry", "+50%+50%");
-    mpv_set_option_string(ctx_, "ontop", "yes");
+    mpv_set_option_string(ctx, "geometry", "+50%+50%");
+    mpv_set_option_string(ctx, "ontop", "yes");
 
     // F25: terminal=no is the single correct mpv terminal option. It disables mpv's entire
     //   terminal output system (status line + log messages) AND terminal input — the input part
@@ -74,26 +108,26 @@ bool MPVController::initialize() {
     //   ncurses for keyboard control. Since terminal=no already fully suppresses mpv's own
     //   terminal writes, the former msg-level / quiet options were pure redundancy and are removed.
     //   terminal=no does NOT affect vo=gpu/vo=auto video windows.
-    mpv_set_option_string(ctx_, "terminal", "no");
+    mpv_set_option_string(ctx, "terminal", "no");
     // The TUI (ncurses) owns all keyboard/mouse input. Disable mpv's own key bindings so its
     //   video window never interprets keys (prevents conflicts / the "No key binding found for
     //   key X" key-eating seen in logs when the video window has focus).
-    mpv_set_option_string(ctx_, "input-default-bindings", "no");
+    mpv_set_option_string(ctx, "input-default-bindings", "no");
 
-    mpv_set_option_string(ctx_, "ytdl", "yes");
+    mpv_set_option_string(ctx, "ytdl", "yes");
     if (ytdl_available_) {
         // mpv >=0.36 removed the --ytdl-path option; the ytdl_hook now reads the path from script-opts
         //   (ytdl_hook-ytdl_path). Set it explicitly so playback finds the same yt-dlp that parsing uses
         //   (YtdlpRunner/which_binary), even when it isn't on $PATH. On older mpv that still has ytdl-path
         //   this is simply ignored and the PATH fallback applies — strictly additive, no regression.
         std::string so = "ytdl_hook-ytdl_path=" + ytdl_path_;
-        mpv_set_option_string(ctx_, "script-opts", so.c_str());
+        mpv_set_option_string(ctx, "script-opts", so.c_str());
     }
 
     // D47: apply all [mpv]-section options (vo/vid/ao/subtitles/tls/cache/user-agent) —
     //   extracted to apply_mpv_options_() (mpv_init.cpp). CLI overrides take precedence over INI.
     //   (No proxy here: mpv is playback-only — network/transparent proxy is the user's concern.)
-    apply_mpv_options_();
+    apply_mpv_options_(ctx);
 
     // F25: removed F23's process-global dup2(stderr → /dev/null) around mpv_initialize().
     //   Root cause of the F24 VO/AO init failure: dup2 mutated fd 2 / TTY state process-wide
@@ -105,10 +139,10 @@ bool MPVController::initialize() {
     //   ALSA is never probed, so the library noise dup2 guarded against does not occur. Removing
     //   dup2 is a pure subtractive fix: no fd/TTY mutation, no save/restore. NOTE: VO/AO=null right
     //   after mpv_initialize() is the NORMAL lazy-init behavior of vo=auto+idle=yes, NOT a failure.
-    if (mpv_initialize(ctx_) < 0) {
-        // Must release ctx on init failure to avoid handle leak
-        mpv_terminate_destroy(ctx_);
-        ctx_ = nullptr;
+    if (mpv_initialize(ctx) < 0) {
+        // Must release ctx on init failure to avoid handle leak. ctx_ was never published —
+        //   stays null (loops keep parking).
+        mpv_terminate_destroy(ctx);
         return false;
     }
 
@@ -116,11 +150,11 @@ bool MPVController::initialize() {
     //   (AO init, demuxer probe/index, cache fill). "info" = INFO+ (warn/error). INFO is logged only
     //   during the load window (logging_load_, set on play, cleared on FILE_LOADED) to avoid spam;
     //   WARN/ERROR always.
-    mpv_request_log_messages(ctx_, "info");
+    mpv_request_log_messages(ctx, "info");
 
     // Log actual VO/AO after init
-    const char *vo_actual = mpv_get_property_string(ctx_, "current-vo");
-    const char *ao_actual = mpv_get_property_string(ctx_, "current-ao");
+    const char *vo_actual = mpv_get_property_string(ctx, "current-vo");
+    const char *ao_actual = mpv_get_property_string(ctx, "current-ao");
     LOG(fmt::format("[MPV] Actual VO={}, AO={}", vo_actual ? vo_actual : "null",
                     ao_actual ? ao_actual : "null"));
     // Y24.8: warn prominently if the audio output driver failed to init — playback cannot produce
@@ -152,17 +186,52 @@ bool MPVController::initialize() {
     //   PROPERTY_CHANGE events (all via update_state() polling); registering them is pure waste and
     //   pollutes the event queue; volume was also erroneously observed as INT64 (actually double).
 
-    running_ = true;
-    mpv_thread_ = std::thread(&MPVController::event_loop, this);
-    cmd_running_ = true;
-    cmd_done_ = false;
-    cmd_thread_ = std::thread(&MPVController::cmd_loop_, this);
+
+    {
+        std::lock_guard<std::mutex> lock(ctx_swap_mtx_);
+        ctx_ = ctx; // fully initialized — publish (worker + event loop pick it up now)
+    }
     return true;
 }
 
 void MPVController::stop() {
-    if (!ctx_)
-        return; // idempotent
+    if (!ctx_ && !jam_recovering_.load())
+        return; // idempotent (never initialized, or a failed recovery already cleaned up)
+
+    // D51: stop the jam watchdog FIRST so it cannot fire a recovery mid-shutdown. Bounded join
+    //   (the loop wakes at least every ~2s; a recovery in flight adds its own bounded steps).
+    jam_running_.store(false);
+    if (jam_thread_.joinable()) {
+        for (int i = 0; i < 300 && jam_recovering_.load(); ++i) // let an in-flight recovery finish
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (jam_thread_.joinable())
+            jam_thread_.join();
+    }
+
+    // D51: a failed engine restart leaves ctx_ null with live (parked) threads — no mpv commands
+    //   to send, only thread shutdown. Same bounded-join pattern as below, inlined for both.
+    if (!ctx_) {
+        running_.store(false);
+        cmd_running_.store(false);
+        cmd_cv_.notify_all();
+        if (mpv_thread_.joinable()) {
+            for (int i = 0; i < 120 && !mpv_thread_done_.load(); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (mpv_thread_done_.load())
+                mpv_thread_.join();
+            else
+                mpv_thread_.detach();
+        }
+        if (cmd_thread_.joinable()) {
+            for (int i = 0; i < 120 && !cmd_done_.load(); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (cmd_done_.load())
+                cmd_thread_.join();
+            else
+                cmd_thread_.detach();
+        }
+        return;
+    }
 
     // Signal mpv to release resources: stop the stream + quit the core (async). "quit" triggers mpv
     //   core shutdown → AO/VO uninit; VO uninit destroys the wl_surface, which is what actually
@@ -212,10 +281,12 @@ void MPVController::stop() {
     }
 }
 
-void MPVController::enqueue_cmd_(std::function<void()> fn) {
+// D51 (jam-recovery): label identifies the command in jam diagnostics ("worker stuck in
+//   'play_audio' for 52s"); it travels with the fn through the queue.
+void MPVController::enqueue_cmd_(std::function<void(mpv_handle *)> fn, const char *label) {
     {
         std::lock_guard<std::mutex> lock(cmd_mtx_);
-        cmd_queue_.push(std::move(fn));
+        cmd_queue_.emplace(std::move(fn), label ? label : "");
     }
     cmd_cv_.notify_one();
 }
@@ -225,26 +296,223 @@ void MPVController::cmd_loop_() {
     //   timeout on pause) cannot freeze the TUI. Commands run one-at-a-time in submission order;
     //   a blocked command blocks only this worker (the UI keeps running on optimistically-updated
     //   state_, refreshed by update_state on the event thread).
+    // D51: generation guard — recover_from_jam_() replaces a worker that is stuck inside a call.
+    //   The abandoned loop must never drain the NEW queue (it would drop commands: its ctx
+    //   snapshot is null after the swap), so it exits as soon as it observes a stale generation.
+    const uint32_t my_gen = cmd_generation_;
     while (cmd_running_.load()) {
-        std::function<void()> fn;
+        if (my_gen != cmd_generation_)
+            break; // superseded by a hard recovery — this loop is the abandoned worker
+        std::function<void(mpv_handle *)> fn;
+        std::string label;
         {
             std::unique_lock<std::mutex> lock(cmd_mtx_);
-            cmd_cv_.wait(lock, [this] { return !cmd_running_.load() || !cmd_queue_.empty(); });
+            cmd_cv_.wait(lock, [this, my_gen] {
+                return !cmd_running_.load() || my_gen != cmd_generation_ || !cmd_queue_.empty();
+            });
+            if (my_gen != cmd_generation_)
+                break;
             if (!cmd_queue_.empty()) {
-                fn = std::move(cmd_queue_.front());
+                fn = std::move(cmd_queue_.front().first);
+                label = std::move(cmd_queue_.front().second);
                 cmd_queue_.pop();
+                // D51: mark in-flight for the jam watchdog (under the same lock — the watchdog
+                //   reads cmd_active_/cmd_start_/cmd_label_ together).
+                cmd_active_ = true;
+                cmd_start_ = std::chrono::steady_clock::now();
+                cmd_label_ = label;
             }
         }
-        if (fn)
-            fn();
+        if (!fn)
+            continue;
+        mpv_handle *h;
+        {
+            std::lock_guard<std::mutex> lock(ctx_swap_mtx_);
+            h = ctx_;
+        }
+        if (!h) {
+            // D51: engine mid-recovery — drop the command (the queue is flushed at recovery
+            //   anyway; anything that slipped in between is stale by construction).
+            LOG(fmt::format("[MPV] dropped cmd '{}' (engine restarting)", label));
+            {
+                std::lock_guard<std::mutex> lock(cmd_mtx_);
+                if (my_gen == cmd_generation_)
+                    cmd_active_ = false;
+            }
+            continue;
+        }
+        fn(h);
+        {
+            std::lock_guard<std::mutex> lock(cmd_mtx_);
+            // D51: only the CURRENT generation owns the in-flight flag — an abandoned worker
+            //   finishing its stuck call after a recovery must not clobber the fresh worker's
+            //   bookkeeping (recover_from_jam_ already re-armed it for the new generation).
+            if (my_gen == cmd_generation_)
+                cmd_active_ = false;
+        }
     }
-    cmd_done_.store(true);
+    // D51: same for the lifecycle signal — an abandoned loop must never mark the worker done
+    //   while its replacement is running (stop()'s bounded join would act on the wrong thread).
+    if (my_gen == cmd_generation_)
+        cmd_done_.store(true);
+}
+
+// D51 (jam-recovery) — see the header block comment for the failure shape and design.
+int MPVController::jam_threshold_ms_() {
+    static const int ms = [] {
+        const char *e = std::getenv("PANICAST_JAM_MS"); // test override (short watchdog cycles)
+        int v = e ? std::atoi(e) : 0;
+        return v > 500 ? v : 50000;
+    }();
+    return ms;
+}
+
+void MPVController::jam_loop_() {
+    const int threshold = jam_threshold_ms_();
+    while (jam_running_.load()) {
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(std::max(500, threshold / 10)));
+        if (!jam_running_.load() || jam_recovering_.load())
+            continue;
+        const auto now = std::chrono::steady_clock::now();
+        const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   now.time_since_epoch())
+                                   .count();
+        bool wedged = false;
+        int64_t stuck_ms = 0;
+        std::string where;
+        {
+            std::lock_guard<std::mutex> lock(cmd_mtx_);
+            if (cmd_active_) {
+                stuck_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - cmd_start_)
+                               .count();
+                if (stuck_ms > threshold) {
+                    wedged = true;
+                    where = "worker:'" + cmd_label_ + "'";
+                }
+            }
+        }
+        if (!wedged && running_.load()) {
+            // Event-loop heartbeat: a handler blocked >threshold on the wedged core freezes all
+            //   state updates AND the BUFFERING timeout (which reads cached has_media) — the exact
+            //   21:57:53 session symptom (eternal silence, no error, no timeout).
+            int64_t hb = evt_hb_ms_.load();
+            if (hb != 0 && now_ms - hb > threshold) {
+                wedged = true;
+                where = "event-loop";
+                stuck_ms = now_ms - hb;
+            }
+        }
+        if (wedged)
+            recover_from_jam_(where, stuck_ms);
+    }
+}
+
+void MPVController::recover_from_jam_(const std::string &where, int64_t stuck_ms) {
+    jam_recovering_.store(true); // one-shot: jam_loop_ skips while this is set
+    LOG(fmt::format("[MPV] JAM RECOVERY: {} wedged for {}ms (threshold {}ms) — hard-restarting "
+                    "the playback engine",
+                    where, stuck_ms, jam_threshold_ms_()));
+    EVENT_LOG("MPV: playback engine wedged (network/audio deadlock) — auto-restarting engine...");
+
+    mpv_handle *old = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(ctx_swap_mtx_);
+        old = ctx_;
+        ctx_ = nullptr; // event loop parks; cmd worker drops new commands
+    }
+    if (!old) {         // lost a race with stop()/another recovery — nothing to do
+        jam_recovering_.store(false);
+        return;
+    }
+
+    // Flush queued commands (they address the dying engine) and retire the worker generation so
+    //   the abandoned loop can never drain the fresh queue.
+    {
+        std::lock_guard<std::mutex> lock(cmd_mtx_);
+        if (!cmd_queue_.empty()) {
+            LOG(fmt::format("[MPV] JAM RECOVERY: dropped {} queued command(s)", cmd_queue_.size()));
+            cmd_queue_ = {};
+        }
+        ++cmd_generation_;
+    }
+
+    // Give the event loop a moment to leave the old handle (wait_event ≤50ms; handler tails short).
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    // Best-effort kill of the wedged core, off-thread. mpv_terminate_destroy is NOT used: it
+    //   blocks on a wedged core, and same-handle concurrency during destroy is documented-unsafe —
+    //   the stuck worker call still references this handle. The old engine is ABANDONED (leaked
+    //   until process exit; one wedged engine per jam, a rare event) and merely ASKED to quit: if
+    //   it ever unwedges, stop+quit silence it instead of resuming zombie audio.
+    std::thread(
+        [](mpv_handle *h) {
+            const char *stop_cmd[] = {"stop", nullptr};
+            mpv_command(h, stop_cmd);
+            const char *quit_cmd[] = {"quit", nullptr};
+            mpv_command(h, quit_cmd);
+        },
+        old)
+        .detach();
+
+    // If the worker is STILL inside its call, it will never drain again — replace the thread.
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    bool worker_still_stuck = false;
+    {
+        std::lock_guard<std::mutex> lock(cmd_mtx_);
+        worker_still_stuck = cmd_active_;
+        cmd_active_ = false; // re-arm bookkeeping for the fresh worker
+    }
+    if (worker_still_stuck && cmd_thread_.joinable()) {
+        LOG("[MPV] JAM RECOVERY: cmd worker still wedged — replacing worker thread");
+        cmd_thread_.detach();
+        cmd_running_.store(true);
+        cmd_done_.store(false);
+        cmd_thread_ = std::thread(&MPVController::cmd_loop_, this);
+    }
+
+    // Same for a wedged event loop (its heartbeat stalled). Worker-only wedges keep the live
+    //   event thread — it simply picks up the fresh ctx_ on its next iteration.
+    if (where == "event-loop" && mpv_thread_.joinable()) {
+        LOG("[MPV] JAM RECOVERY: event loop wedged — replacing event thread");
+        ++evt_generation_;
+        mpv_thread_.detach();
+        mpv_thread_ = std::thread(&MPVController::event_loop, this);
+    }
+
+    if (create_context_()) {
+        LOG("[MPV] JAM RECOVERY: fresh engine initialized — engine restarted");
+        EVENT_LOG("MPV: engine restarted OK — press play again if playback stopped");
+    } else {
+        LOG("[MPV] JAM RECOVERY: fresh context creation FAILED — playback disabled this session");
+        EVENT_LOG("MPV: engine restart FAILED — playback disabled; restart PaniCast");
+        jam_running_.store(false); // don't loop on a dead engine
+    }
+    jam_recovering_.store(false);
 }
 
 void MPVController::event_loop() {
     mpv_thread_done_.store(false); // reset for this run (for bounded join in stop())
+    const uint32_t my_gen = evt_generation_; // D51: recovery replaces a wedged event loop
     while (running_) {
-        mpv_event *event = mpv_wait_event(ctx_, 0.05);
+        if (my_gen != evt_generation_)
+            break; // superseded by a hard recovery — this loop is the abandoned event thread
+        mpv_handle *h;
+        {
+            std::lock_guard<std::mutex> lock(ctx_swap_mtx_);
+            h = ctx_;
+        }
+        if (!h) { // D51: engine mid-recovery — park until the fresh context is up
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            evt_hb_ms_.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now().time_since_epoch())
+                                 .count());
+            continue;
+        }
+        mpv_event *event = mpv_wait_event(h, 0.05);
+        evt_hb_ms_.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now().time_since_epoch())
+                             .count()); // D51: event-loop heartbeat for the jam watchdog
         if (event->event_id == MPV_EVENT_SHUTDOWN)
             break;
 

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint> // uint32_t (D51 jam-recovery generations)
 #include <functional>
 #include <mutex>
 #include <queue>
@@ -156,15 +157,47 @@ private:
     std::thread cmd_thread_;
     std::mutex cmd_mtx_;
     std::condition_variable cmd_cv_;
-    std::queue<std::function<void()>> cmd_queue_;
+    // D51 (jam-recovery): fn receives the ctx snapshot taken at EXECUTION time (never reads the
+    //   member mid-flight) — after a hard recovery the old handle is abandoned, and a fn that was
+    //   blocked inside it on the wedged core finishes against that snapshot only.
+    std::queue<std::pair<std::function<void(mpv_handle *)>, std::string>> cmd_queue_;
     std::atomic<bool> cmd_running_{false};
     std::atomic<bool> cmd_done_{false};
-    void enqueue_cmd_(std::function<void()> fn);
+    void enqueue_cmd_(std::function<void(mpv_handle *)> fn, const char *label = "");
     void cmd_loop_();
+    // D51 (jam-recovery): in-flight bookkeeping for the worker — label + start time, written by
+    //   cmd_loop_ under cmd_mtx_, read by the jam watchdog. Also a generation counter: each hard
+    //   recovery increments it; a loop whose captured generation is stale exits instead of
+    //   draining the (new) queue — the abandoned worker must never consume fresh commands.
+    std::chrono::steady_clock::time_point cmd_start_;
+    bool cmd_active_ = false;
+    std::string cmd_label_;
+    uint32_t cmd_generation_ = 0;
+    // D51 (jam-recovery): engine-wedge watchdog. The 2026-08-16 21:57 session proved the failure
+    //   shape: ONE mpv call on the worker never returned (worker FIFO jammed → every later play
+    //   silently queued forever; the UI survived on cached state with no timeout able to fire).
+    //   Root causes are environment-side (WSLg pulse / proxy black-holes inside the mpv core) and
+    //   not reproducible in vitro — so the controller now detects a wedge mechanism-independently
+    //   (worker stuck in one call > threshold, or the event loop not heartbeating) and hard-restarts
+    //   the engine: old ctx abandoned (best-effort quit; never destroyed from under a stuck call —
+    //   libmpv documents same-handle concurrency during destroy as unsafe), fresh ctx + fresh
+    //   worker/event threads. Threshold 50s: above the 30s BUFFERING timeout and every legitimate
+    //   mpv call measured (<1s; the ~30s ytdl_hook runs inside the core's load chain, not a worker
+    //   call). Override for tests: PANICAST_JAM_MS.
+    std::thread jam_thread_;
+    std::atomic<bool> jam_running_{false};
+    std::atomic<bool> jam_recovering_{false};
+    std::mutex ctx_swap_mtx_; // serializes ctx_ reads (event/cmd loops) vs the recovery swap
+    std::atomic<int64_t> evt_hb_ms_{0}; // event-loop heartbeat (steady-clock ms)
+    uint32_t evt_generation_ = 0;       // event_loop's own generation guard (see cmd_generation_)
+    void jam_loop_();
+    void recover_from_jam_(const std::string &where, int64_t stuck_ms);
+    bool create_context_(); // D51: ctx create+configure (split out of initialize() for recovery)
+    static int jam_threshold_ms_();
     // Freeze-fix review (2026-08-16): shared "ensure playing (pause=no)" epilogue for the
     //   play_audio/play_video/play_list_from cmd-worker lambdas (was 3 copy-pasted blocks).
     //   CMD-WORKER ONLY — must run FIFO between loadfile and the next enqueued command.
-    void ensure_playing_();
+    void ensure_playing_(mpv_handle *h);
     // D50 (vo-fix): one-shot per-track VO verification at PLAYBACK_RESTART — detects a video
     //   load that reached playback with NO active vo (mpv silently drops the video track and
     //   continues audio when VO init fails: unreachable wayland socket, ssh without DISPLAY)
@@ -254,7 +287,7 @@ private:
     // D47: apply all [mpv]-section IniConfig options (vo/vid/ao/ytdl-format/keep-open/subtitle/
     //   slang/audio-display/tls/cache/user-agent) to ctx_ before mpv_initialize, with CLI
     //   overrides taking precedence. Impl in mpv_init.cpp; extracted verbatim from initialize().
-    void apply_mpv_options_();
+    void apply_mpv_options_(mpv_handle *ctx);
 
     void event_loop();
     void update_state();
@@ -267,6 +300,10 @@ private:
     void handle_end_file_(mpv_event_end_file *ef);
     // D41: Extract Method — END_FILE reason=4 error path (human msg + VO-fallback + IPTV msg).
     void handle_playback_error_(int error_code);
+    // D51-test: the jam-recovery functional test (job-local, not in the tree) wedges the worker
+    //   deterministically (a sleeping enqueue_cmd_ lambda) and inspects the recovery handoff.
+    //   Test-only surface; never used by the app.
+    friend struct JamRecoveryTest;
 };
 
 } // namespace panicast
