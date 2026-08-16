@@ -1,205 +1,132 @@
-# ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║                    PaniCast CI/CD Pipeline                                ║
-# ║              Multi-platform Build & Release Automation                    ║
-# ║   Supports: Linux x64/ARM64, macOS x64/ARM64, Windows x64                  ║
-# ╚═══════════════════════════════════════════════════════════════════════════╝
+# ╔═════════════════════════════════════════════════════════════════════════╗
+# ║                    PaniCast CI/CD Pipeline                              ║
+# ║          Linux x64 · Build → Test → Package → Release                    ║
+# ╚═════════════════════════════════════════════════════════════════════════╝
+#
+# 2026-08-16 rebuild: the old 4-platform matrix (macOS brew / Windows vcpkg /
+#   ARM64 cross) never produced a green run — Windows lacked a manifest-driven
+#   dep set, macOS keg-only paths were invisible to CMake, and ARM64 had no
+#   cross sysroot for mpv/curl/sqlite/…. PaniCast is a Linux ncurses TUI built
+#   against system libmpv; releases are Linux x64 only (built on Ubuntu 24.04,
+#   matching the reference dev environment: libmpv2 / libfmt10 / ncursesw6).
+#
+# Flow:
+#   push main / workflow_dispatch → build + ctest + upload artifact (CI check)
+#   push tag v*                   → same build; if tests pass, publish a
+#                                  GitHub Release with the tarball + sha256.
 
-name: PaniCast Build Pipeline
+name: Build & Release
 
 on:
   push:
-    branches: [ main, master, develop, 'release/**' ]
+    branches: [ main ]
     tags: [ 'v*' ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   BUILD_TYPE: Release
 
 jobs:
   # ===========================================================================
-  # Linux x86_64 Build
+  # Build & Test — Linux x64 (Ubuntu 24.04)
   # ===========================================================================
-  build-linux-x64:
-    runs-on: ubuntu-22.04
+  build-linux:
+    name: Build & Test (Linux x64)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake ninja-build pkg-config \
-            libmpv-dev libncurses5-dev libncursesw5-dev \
-            libcurl4-openssl-dev libsqlite3-dev libxml2-dev \
-            libfmt-dev nlohmann-json3-dev libgtest-dev clang-format
+            libmpv-dev libncurses-dev libcurl4-openssl-dev \
+            libsqlite3-dev libxml2-dev libfmt-dev nlohmann-json3-dev \
+            libqrencode-dev libssl-dev libgtest-dev
 
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTING=ON
 
       - name: Build
-        run: cmake --build build --parallel $(nproc)
+        run: cmake --build build --parallel "$(nproc)"
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
-
-      - name: Format check (advisory — legacy not yet clang-formatted)
-        continue-on-error: true
-        run: find src include tests \( -iname '*.cpp' -o -iname '*.h' \) -print0 | xargs -0 -r clang-format --dry-run --Werror
 
       - name: Package
         run: |
           cd build
           cpack -G TGZ
+          src_tar=$(ls PaniCast-*.tar.gz | head -n1)
+          cd ..
+          dest="panicast-${GITHUB_REF_NAME}-linux-x64.tar.gz"
+          mv "build/$src_tar" "$dest"
+          sha256sum "$dest" > "$dest.sha256"
+          ls -la panicast-*
 
       - uses: actions/upload-artifact@v4
         with:
           name: panicast-linux-x64
-          path: build/*.tar.gz
+          path: |
+            panicast-*.tar.gz
+            panicast-*.sha256
+          if-no-files-found: error
 
   # ===========================================================================
-  # Linux ARM64 Build (via cross-compilation)
-  # ===========================================================================
-  build-linux-arm64:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install cross-compilation toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake ninja-build \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            libncurses5-dev:arm64 libncursesw5-dev:arm64 || true
-
-      - name: Configure
-        run: |
-          cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-aarch64-linux.cmake
-
-      - name: Build
-        run: cmake --build build --parallel $(nproc)
-
-      - name: Package
-        run: cd build && cpack -G TGZ
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: panicast-linux-arm64
-          path: build/*.tar.gz
-
-  # ===========================================================================
-  # macOS x86_64 / ARM64 Build
-  # ===========================================================================
-  build-macos:
-    strategy:
-      matrix:
-        include:
-          - arch: x64
-            runner: macos-13
-          - arch: arm64
-            runner: macos-14
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install dependencies
-        run: |
-          brew update
-          brew install cmake ninja pkg-config mpv ncurses curl sqlite libxml2 fmt nlohmann-json
-
-      - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
-
-      - name: Build
-        run: cmake --build build --parallel $(sysctl -n hw.ncpu)
-
-      - name: Package
-        run: cd build && cpack -G TGZ
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: panicast-macos-${{ matrix.arch }}
-          path: build/*.tar.gz
-
-  # ===========================================================================
-  # Windows x64 Build
-  # ===========================================================================
-  build-windows:
-    runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: 'a34c873a9717a888f58dc05268dea15592c2f0ff'
-
-      - name: Configure
-        run: |
-          cmake -B build -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
-            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake"
-
-      - name: Build
-        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
-
-      - name: Package
-        run: cd build && cpack -G ZIP
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: panicast-windows-x64
-          path: build/*.zip
-
-  # ===========================================================================
-  # Release
+  # Release — publish automatically when a v* tag is pushed AND tests passed
   # ===========================================================================
   release:
-    needs: [build-linux-x64, build-linux-arm64, build-macos, build-windows]
-    runs-on: ubuntu-latest
+    name: Publish Release
+    needs: build-linux
     if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: panicast-linux-x64
+          path: release
 
-      - name: Prepare release
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
-          mkdir -p release
-          find artifacts -name "*.tar.gz" -exec cp {} release/ \;
-          find artifacts -name "*.zip" -exec cp {} release/ \;
-          ls -la release/
+          cat > notes.md <<'EOF'
+          ## PaniCast ${{ github.ref_name }}
 
-      - uses: softprops/action-gh-release@v1
-        with:
-          name: PaniCast ${{ github.ref_name }}
-          body: |
-            ## PaniCast ${{ github.ref_name }}
-            
-            ### 🎵 Features
-            - Terminal-based podcast and radio player
-            - TuneIn radio streaming support
-            - RSS podcast subscription
-            - YouTube channel/video playback
-            - Local file playback
-            
-            ### 📥 Downloads
-            | Platform | Architecture | Download |
-            |----------|-------------|----------|
-            | Linux | x64 | `panicast-linux-x64.tar.gz` |
-            | Linux | ARM64 | `panicast-linux-arm64.tar.gz` |
-            | macOS | x64 | `panicast-macos-x64.tar.gz` |
-            | macOS | ARM64 | `panicast-macos-arm64.tar.gz` |
-            | Windows | x64 | `panicast-windows-x64.zip` |
-          files: release/*
-          draft: false
+          Linux x64 release build (Ubuntu 24.04). 自动发布：CI 构建并通过全部单元测试后由 GitHub Actions 生成。
+          完整变更记录见仓库 `CHANGELOG.md`。
+
+          ### Runtime requirements (Ubuntu 24.04 / Debian 13+)
+
+          ```bash
+          sudo apt install mpv libmpv2 libncursesw6 libfmt10 libcurl4 \
+                           libxml2 libsqlite3-0 libqrencode4
+          # 可选：ffmpeg yt-dlp（在线节目解析/下载）、whisper.cpp（AI 字幕）
+          ```
+
+          ### Install
+
+          ```bash
+          sha256sum -c panicast-*-linux-x64.tar.gz.sha256
+          tar xf panicast-*-linux-x64.tar.gz
+          sudo cp PaniCast-*/bin/panicast /usr/local/bin/
+          ```
+          EOF
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release for $TAG already exists — uploading assets (clobber)."
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* \
+              --title "PaniCast $TAG" \
+              --notes-file notes.md
+          fi
