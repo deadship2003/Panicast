@@ -165,6 +165,11 @@ private:
     //   play_audio/play_video/play_list_from cmd-worker lambdas (was 3 copy-pasted blocks).
     //   CMD-WORKER ONLY — must run FIFO between loadfile and the next enqueued command.
     void ensure_playing_();
+    // D50 (vo-fix): one-shot per-track VO verification at PLAYBACK_RESTART — detects a video
+    //   load that reached playback with NO active vo (mpv silently drops the video track and
+    //   continues audio when VO init fails: unreachable wayland socket, ssh without DISPLAY)
+    //   and surfaces it on-screen + in the log instead of failing silently. Event-loop thread.
+    void check_video_vo_();
     std::mutex mtx_;
     State state_;
     bool ytdl_available_ = false;
@@ -196,6 +201,20 @@ private:
     //    by resolve_youtube_url before reaching mpv, so mpv never gets a watch URL.)
     std::string last_load_url_;
     bool vo_fallback_done_ = false;
+
+    // D50 (vo-fix): the effective vo/vid/ytdl-format applied at init (CLI override > INI [mpv]).
+    //   play_video() re-asserts all three before loadfile so the -15 audio-only fallback
+    //   (vo=null + vid=no + ytdl-format=bestaudio/best) never latches across tracks — one
+    //   VO failure used to silently downgrade every later video of the session to audio.
+    std::string init_vo_;
+    std::string init_vid_;
+    std::string init_ytdl_format_;
+    // D50: video_load_ — the current load was routed through play_video()/a video playlist
+    //   (a window is expected); gates check_video_vo_(). vo_check_done_ — one-shot per-track
+    //   guard for the PLAYBACK_RESTART check (re-armed at FILE_LOADED like restart_info_logged_).
+    //   Plain bools, one-way flags, same benign-race practice as restart_info_logged_.
+    bool video_load_ = false;
+    bool vo_check_done_ = false;
 
     // Y11: unified playback-state refresh timer. update_state() returns early until
     //   state_refresh_ms (INI [display] state_refresh_ms, default 100) elapses, so codec/bitrate/

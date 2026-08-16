@@ -79,6 +79,7 @@ void MPVController::play_audio(const std::string &url) {
         std::lock_guard<std::mutex> lock(cb_mtx_);
         last_load_url_ = url; // record for END_FILE -15 VO fallback
         vo_fallback_done_ = false;
+        video_load_ = false; // D50: audio load — no window expected, skip the vo check
     }
 
     last_loadfile_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -113,13 +114,13 @@ void MPVController::play_video(const std::string &url, const std::string &audio_
 
     // F20: keep-open NOT set here — play_current controls it (same as play_audio).
 
-    // F24: do NOT set vo/vid here — mpv handles VO activation automatically using the init config.
-    // Y09/Y10 (1A DASH) + Y11 (subtitles): attach external audio (DASH) and/or subtitle streams as
-    //   per-file options via loadfile's <options> arg (comma-separated `key=value`). mpv has no
-    //   `audio-file`/`sub-file` runtime PROPERTY (only the list forms) — the per-file OPTIONS string
-    //   (loadfile 4th arg; 3rd arg = index "-1" since mpv 0.38) is the correct mechanism. vtt subs
-    //   loaded this way respond to sub-scale/sub-pos/sub-delay and are centered by default.
-    LOG("[MPV] Video mode: loading (vo/vid from init config)");
+    // F24 → D50: mpv activates the VO from the init config automatically — BUT the -15
+    //   VO_INIT_FAILED fallback (handle_playback_error_) rewrites vo=null + vid=no +
+    //   ytdl-format=bestaudio/best and nothing restored them, so ONE failure silently
+    //   downgraded every later video of the session to audio ("vo=wlshm configured but
+    //   playback shows vo=null"). The cmd worker now re-asserts the init values before
+    //   each loadfile (idempotent no-op when nothing latched).
+    LOG("[MPV] Video mode: loading (vo/vid re-asserted from init config)");
 
     // Y24.12: restore the larger [mpv] video cache (play_audio() shrinks it for podcast fast-start;
     //   options are process-global last-set-wins, so video must reset them to avoid rebuffers on
@@ -138,9 +139,15 @@ void MPVController::play_video(const std::string &url, const std::string &audio_
         std::lock_guard<std::mutex> lock(cb_mtx_);
         last_load_url_ = url; // record for END_FILE -15 VO fallback
         vo_fallback_done_ = false;
+        video_load_ = true; // D50: a window is expected → arm the PLAYBACK_RESTART vo check
     }
 
     // Build the per-file options string: audio-file=<a>,sub-file=<s> (whichever are present).
+    // Y09/Y10 (1A DASH) + Y11 (subtitles): attach external audio (DASH) and/or subtitle streams as
+    //   per-file options via loadfile's <options> arg (comma-separated `key=value`). mpv has no
+    //   `audio-file`/`sub-file` runtime PROPERTY (only the list forms) — the per-file OPTIONS string
+    //   (loadfile 4th arg; 3rd arg = index "-1" since mpv 0.38) is the correct mechanism. vtt subs
+    //   loaded this way respond to sub-scale/sub-pos/sub-delay and are centered by default.
     std::string opts;
     if (!audio_file.empty())
         opts += "audio-file=" + audio_file;
@@ -151,6 +158,16 @@ void MPVController::play_video(const std::string &url, const std::string &audio_
                             std::chrono::steady_clock::now().time_since_epoch())
                             .count(); // Y24.8: loadfile→File loaded timing
     enqueue_cmd_([this, url, opts, cache_secs, demux_max, demux_back] {
+        // D50 (vo-fix): undo any -15 audio-only latch (vo=null/vid=no/bestaudio) from a
+        //   previous track BEFORE this loadfile — see the F24→D50 note above. Idempotent
+        //   no-ops when the options are already at their init values.
+        if (!init_vo_.empty())
+            mpv_set_property_string(ctx_, "vo", init_vo_.c_str());
+        if (!init_vid_.empty())
+            mpv_set_property_string(ctx_, "vid", init_vid_.c_str());
+        if (!init_ytdl_format_.empty())
+            mpv_set_property_string(ctx_, "ytdl-format", init_ytdl_format_.c_str());
+
         mpv_set_option_string(ctx_, "cache-secs", cache_secs.c_str());
         mpv_set_option_string(ctx_, "demuxer-max-bytes", demux_max.c_str());
         mpv_set_option_string(ctx_, "demuxer-max-back-bytes", demux_back.c_str());
@@ -213,6 +230,7 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
         start_idx = static_cast<int>(urls.size()) - 1;
     logging_load_ = true; // Y24.17: start the load window (play() sets it too; loadlist path missed it)
     reset_iptv_detection_(); // Y24.55: re-arm per-track IPTV diagnostics
+    video_load_ = is_video; // D50: arm the vo check only when a window is expected
 
     // Playlist mode settings
     // Freeze-fix (2026-08-15): all mpv interaction on the cmd worker (same rationale as
@@ -240,8 +258,18 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
             if (rc_keep_open < 0)
                 LOG(fmt::format("[MPV] WARNING: set property keep-open failed (rc={})", rc_keep_open));
 
-            if (is_video && !vo_gpu_) {
-                mpv_set_property_string(ctx_, "vo", "auto");
+            // D50 (vo-fix): honor the configured vo (CLI/INI via init_vo_) instead of hardcoded
+            //   "auto" — auto probes gpu/x11 first and silently overrides an explicit software
+            //   vo choice like wlshm. Also re-assert when the -15 fallback latched vo=null
+            //   mid-playlist (its audio-only retry advances the list without play_video()).
+            bool vo_null_latched = false;
+            if (char *cur = mpv_get_property_string(ctx_, "vo")) {
+                vo_null_latched = (std::string(cur) == "null");
+                mpv_free(cur);
+            }
+            if (is_video && (!vo_gpu_ || vo_null_latched)) {
+                mpv_set_property_string(ctx_, "vo",
+                                        init_vo_.empty() ? "auto" : init_vo_.c_str());
                 vo_gpu_ = true;
             }
 

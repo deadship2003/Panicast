@@ -351,6 +351,7 @@ void MPVController::event_loop() {
                 state_.hwdec_current.clear();
                 restart_info_logged_ =
                     false; // F28: re-arm one-shot decode-info log (fires on PLAYBACK_RESTART)
+                vo_check_done_ = false; // D50: re-arm one-shot vo verification (same cadence)
             }
             // Resume playback - restore to last position after file is loaded
             // time-pos must be set after FILE_LOADED; setting it too early mpv will ignore
@@ -395,6 +396,14 @@ void MPVController::event_loop() {
             if (!restart_info_logged_) {
                 restart_info_logged_ = true;
                 log_track_codec_info_();
+            }
+            // D50 (vo-fix): verify the VO actually initialized for a video load. When VO init
+            //   fails silently (mpv drops the video track and continues audio — unreachable
+            //   wayland socket, ssh session, missing X server), the user gets audio with no
+            //   window and no explanation. Say so once per track.
+            if (!vo_check_done_) {
+                vo_check_done_ = true;
+                check_video_vo_();
             }
         }
 
@@ -458,6 +467,67 @@ void MPVController::log_track_codec_info_() {
         LOG(fmt::format("[MPV] {}", aline));
         EVENT_LOG(aline);
     }
+}
+
+// D50 (vo-fix): one-shot VO verification for video loads, from event_loop's PLAYBACK_RESTART
+//   branch (decoder + VO are up by then, unlike FILE_LOADED). Surfaces the silent failure mode
+//   where mpv can't initialize the configured vo, drops the video track, and continues audio —
+//   the user hears sound, never sees a window, and gets no hint why.
+void MPVController::check_video_vo_() {
+    if (!ctx_ || !video_load_)
+        return; // audio load (or shutdown race) — nothing to verify
+
+    // current-vo: the ACTIVE vo ("wlshm"/"x11"/...); empty when no vo ever initialized.
+    char *vo = mpv_get_property_string(ctx_, "current-vo");
+    std::string active_vo = (vo && vo[0]) ? vo : "";
+    if (vo)
+        mpv_free(vo);
+    if (!active_vo.empty())
+        return; // windowed VO is live — nothing to report
+
+    // vo=null is the deliberate -15 audio-only fallback; its own EVENT_LOG already explained.
+    char *cv = mpv_get_property_string(ctx_, "vo");
+    std::string conf_vo = (cv && cv[0]) ? cv : "";
+    if (cv)
+        mpv_free(cv);
+    if (conf_vo == "null")
+        return;
+
+    // Only complain when the file really has a video track (track-list) — a video-routed
+    // context playing an audio-only file (force_video / mixed playlist) is not a VO failure.
+    bool has_video_track = false;
+    mpv_node tracks{};
+    if (mpv_get_property(ctx_, "track-list", MPV_FORMAT_NODE, &tracks) >= 0 &&
+        tracks.format == MPV_FORMAT_NODE_ARRAY) {
+        for (int i = 0; i < tracks.u.list->num; ++i) {
+            mpv_node &entry = tracks.u.list->values[i];
+            if (entry.format != MPV_FORMAT_NODE_MAP)
+                continue;
+            std::string type;
+            for (int k = 0; k < entry.u.list->num; ++k) {
+                if (std::string(entry.u.list->keys[k]) == "type" &&
+                    entry.u.list->values[k].format == MPV_FORMAT_STRING) {
+                    type = entry.u.list->values[k].u.string;
+                    break;
+                }
+            }
+            if (type == "video") {
+                has_video_track = true;
+                break;
+            }
+        }
+        mpv_free_node_contents(&tracks);
+    }
+    if (!has_video_track)
+        return;
+
+    LOG(fmt::format("[MPV] Video track present but no VO initialized (vo='{}') — playing "
+                    "audio only. Check [mpv] vo / display (WSLg: WAYLAND_DISPLAY, "
+                    "XDG_RUNTIME_DIR)",
+                    conf_vo.empty() ? "auto" : conf_vo));
+    EVENT_LOG(fmt::format(
+        "MPV: no video window (vo '{}' failed) — audio only; check [mpv] vo / display",
+        conf_vo.empty() ? "auto" : conf_vo));
 }
 
 
@@ -540,6 +610,8 @@ void MPVController::handle_playback_error_(int error_code) {
         mpv_set_property_string(ctx_, "vo", "null");
         mpv_set_property_string(ctx_, "vid", "no");
         mpv_set_property_string(ctx_, "ytdl-format", "bestaudio/best");
+        video_load_ = false; // D50: this load is now deliberately audio-only — the retry must
+                             //   not re-trigger the PLAYBACK_RESTART vo notice above this message
         const char *retry_cmd[] = {"loadfile", load_url.c_str(), "replace",
                                    nullptr};
         int rc = mpv_command(ctx_, retry_cmd);

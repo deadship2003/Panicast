@@ -6,7 +6,9 @@
 //   Declaration stays in mpv_controller.h. Mechanical verbatim move from initialize() (mpv_controller.cpp).
 #include "panicast/playback/mpv_controller.h"
 
+#include <cstdlib> // getenv, setenv (WSLg wayland remap)
 #include <string>
+#include <unistd.h> // access (WSLg wayland remap)
 
 #include <fmt/format.h>
 
@@ -16,12 +18,43 @@
 namespace panicast
 {
 
+// D50 (vo-fix): WSLg wayland-socket remap. On the Debian 13 (trixie) upgrade the systemd
+//   user session owns XDG_RUNTIME_DIR (/run/user/<uid>) while WSLg's wayland socket stays in
+//   /mnt/wslg/runtime-dir — nothing bridges it, so libwayland cannot resolve $WAYLAND_DISPLAY
+//   and every wayland vo (wlshm/dmabuf-wayland/gpu-on-wayland) fails VO_INIT_FAILED: audio
+//   plays, no video window (mpv 0.40 logs only "Error opening/initializing the selected
+//   video_out (--vo) device"). libwayland accepts an absolute socket path in WAYLAND_DISPLAY,
+//   so when the configured name is missing under XDG_RUNTIME_DIR but present under WSLg's
+//   runtime dir, repoint it. No-op when the socket resolves normally (native wayland, fixed
+//   WSLg bridging) or WAYLAND_DISPLAY is unset/absolute.
+static void remap_wslg_wayland_socket_() {
+    const char *wd = std::getenv("WAYLAND_DISPLAY");
+    if (!wd || !wd[0] || wd[0] == '/')
+        return;
+    const char *xdg = std::getenv("XDG_RUNTIME_DIR");
+    std::string dir = (xdg && xdg[0]) ? xdg : "";
+    while (!dir.empty() && dir.back() == '/')
+        dir.pop_back(); // trim trailing '/' — keep the log path clean ('/run/user/1000/wayland-0')
+    std::string cur = dir.empty() ? std::string(wd) : dir + "/" + wd;
+    if (::access(cur.c_str(), F_OK) == 0)
+        return; // resolves fine — leave the session untouched
+    std::string wslg = std::string("/mnt/wslg/runtime-dir/") + wd;
+    if (::access(wslg.c_str(), F_OK) == 0) {
+        LOG(fmt::format("[MPV] WSLg: wayland socket '{}' not found under XDG_RUNTIME_DIR; "
+                        "remapping WAYLAND_DISPLAY to '{}'",
+                        cur, wslg));
+        ::setenv("WAYLAND_DISPLAY", wslg.c_str(), 1);
+    }
+}
+
 // D47: apply all [mpv]-section IniConfig options to the context before mpv_initialize.
 //   CLI overrides (--vo/--vid/--ao) take precedence over INI values. Extracted verbatim from
 //   initialize() — single concern: "apply user-configurable mpv options". No control flow leaves
 //   this method (no early return), so calling it once between the fixed-behavior flags and
 //   mpv_initialize() is behavior-identical to the original inline block.
 void MPVController::apply_mpv_options_() {
+    // D50: repair the WSLg wayland socket path before any vo is chosen (see helper above).
+    remap_wslg_wayland_socket_();
     // F24: vo/vid/ytdl-format/cache/demuxer/tls/user-agent/keep-open from [mpv] section of IniConfig.
     //   CLI overrides (--vo, --vid, --ao, --quiet = --vo=null --vid=no) take precedence over INI values.
     std::string mpv_vo = IniConfig::instance().get_mpv_vo();
@@ -38,11 +71,16 @@ void MPVController::apply_mpv_options_() {
         mpv_vid = cli_vid_override_;
     if (!cli_ao_override_.empty())
         mpv_ao = cli_ao_override_;
+    // D50 (vo-fix): remember the effective vo/vid/ytdl-format — play_video() re-asserts them
+    //   before every loadfile so the -15 audio-only fallback never latches across tracks.
+    init_vo_ = mpv_vo;
+    init_vid_ = mpv_vid;
     mpv_set_option_string(ctx_, "vo", mpv_vo.c_str());
     mpv_set_option_string(ctx_, "vid", mpv_vid.c_str());
     if (!mpv_ao.empty())
         mpv_set_option_string(ctx_, "ao", mpv_ao.c_str()); // empty = leave mpv default (auto)
     std::string mpv_ytdl_format = IniConfig::instance().get_mpv_ytdl_format();
+    init_ytdl_format_ = mpv_ytdl_format; // D50: snapshot for play_video() re-assertion
     mpv_set_option_string(ctx_, "ytdl-format", mpv_ytdl_format.c_str());
     mpv_set_option_string(ctx_, "keep-open",
                           IniConfig::instance().get_mpv_keep_open() ? "yes" : "no");
