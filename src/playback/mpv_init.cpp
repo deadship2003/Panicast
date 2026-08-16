@@ -91,6 +91,16 @@ void MPVController::apply_mpv_options_() {
                     "demuxer-max-back-bytes={}, cache-secs={}",
                     mpv_cache, mpv_demuxer_max_bytes, mpv_demuxer_max_back_bytes, mpv_cache_secs));
 
+    // Wedge-fix (2026-08-16): bound stream-open/read stalls. A half-open CDN connection (proxy
+    //   black-hole) under mpv's default 60s network-timeout holds the core hostage — measured
+    //   2026-08-16 11:20: a dead megaphone stream blocked EVERY queued loadfile (local files
+    //   included, 8-20s each) for exactly 60.1s until the timeout fired. 20s caps the wedge below
+    //   the app's 30s BUFFERING timeout; it is per network operation (connect/response wait), so
+    //   slow-but-alive streams are unaffected. Not INI-exposed — playback robustness, same class
+    //   as the cache options above.
+    mpv_set_option_string(ctx_, "network-timeout", "20");
+    LOG("[MPV] network-timeout: 20s (bounded stream-open stalls)");
+
     // F24: browser User-Agent from [mpv] section (some CDNs reject default mpv UA).
     //   Applied before mpv_initialize (option-string form). This complements the yt-dlp -g fallback
     //   in the event_loop for sites that still reject the player UA.
