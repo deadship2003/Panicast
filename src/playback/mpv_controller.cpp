@@ -275,7 +275,7 @@ void MPVController::event_loop() {
                     //   hint why. Surface it ONCE per track with the actual remedy.
                     const char *pfx = lm->prefix ? lm->prefix : "";
                     if (lm->log_level <= MPV_LOG_LEVEL_WARN &&
-                        std::string(pfx).rfind("ao/", 0) == 0 &&
+                        std::strncmp(pfx, "ao/", 3) == 0 && // no std::string alloc per log line
                         txt.find("Failed to allocate buffer") != std::string::npos) {
                         auto now_ao = std::chrono::steady_clock::now();
                         if (ao_fail_window_ == std::chrono::steady_clock::time_point{} ||
@@ -335,6 +335,11 @@ void MPVController::event_loop() {
                 std::lock_guard<std::mutex> slock(mtx_);
                 state_.current_vo = "null";
                 state_.current_ao = "null";
+                // review-fix (2026-08-16): same bleed-through as the fields below — has_sub_track
+                //   is refreshed by update_state()'s 100ms gate only, so without this reset the
+                //   PREVIOUS track's embedded-sub answer stays readable for up to ~100ms after the
+                //   new track loads (has_active_subtitle consumers: L-key resolver, auto-ASR gate).
+                state_.has_sub_track = false;
                 state_.video_width = 0;
                 state_.video_height = 0;
                 state_.video_bitrate = 0;
@@ -484,6 +489,18 @@ void MPVController::handle_end_file_(mpv_event_end_file *ef) {
     } else if (reason == 5) {
         EVENT_LOG("MPV: Redirected");
     }
+
+    // ASR-fix (2026-08-16 review): reason=2 while a load is in flight is OUR OWN supersede
+    //   (play_current / on_playback_ended issued loadfile/loadlist — logging_load_ is exactly
+    //   "a new load is in flight"). The supersede path already published PlaybackTrackEnded;
+    //   re-running the end-file callback for it would (a) run on_playback_ended's "not advancing"
+    //   branch and clear the BUFFERING state the new load just set, and (b) publish Ended a
+    //   SECOND time — stop_realtime() then kills the newborn track's auto-ASR (D49) whenever the
+    //   begin_track pool task won the race. Genuine stops (no load in flight) and redirects
+    //   (reason 5 — mpv itself continues with the playlist contents, the media genuinely changes)
+    //   still fire the callback.
+    if (reason == 2 && logging_load_.load())
+        return;
 
     // Call end-file callback (call outside lock to avoid executing user callback while holding lock)
     EndFileCallback cb;

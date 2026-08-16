@@ -1,6 +1,7 @@
 #include "panicast/app/subtitle_service.h"
 
 #include <cctype>
+#include <filesystem> // review-fix: fs::exists staleness guard (maybe_auto_asr_)
 #include <string>
 
 #include <fmt/format.h>
@@ -181,24 +182,37 @@ void SubtitleService::maybe_auto_asr_(TreeNodePtr node, bool has_video) {
         return;
     if (transcription_engine_.realtime_running())
         return;
+    // Review-fix (2026-08-16): cheapest-first ordering. The online-📜 check is a PURE memory
+    //   read (node fields) and is the most common suppressor, so it runs BEFORE any filesystem
+    //   work — the old order paid the whisper PATH walk + model stat + /mnt/e sidecar probe on
+    //   every track start of an episode that already had a transcript, only to bail here.
+    if (node->has_subtitle && !node->subtitle_url.empty())
+        return; // online 📜 transcript — the cheapest source, decided without I/O
     // Availability pre-check (quiet LOG, no EVENT_LOG popup per track — see resolve_* in the header).
     if (TranscriptionEngine::resolve_whisper_bin().empty() ||
         TranscriptionEngine::resolve_model().empty())
         return;
-    // Cheaper sources win (same chain as resolve_subtitle_source).
-    if (has_video && mpv_ && mpv_->has_active_subtitle())
-        return; // embedded track — mpv already renders it
-    if (!subtitle_mgr_.find_local_subtitle(node).empty())
-        return; // local sidecar (incl. a previous ASR SRT) — load_async picks it up
-    if (node->has_subtitle && !node->subtitle_url.empty())
-        return; // online 📜 transcript
+    // Review-fix (2026-08-16): cheaper sources win via the SAME central resolver the L key uses
+    //   (D11-3a) — the previous inline copy of the embedded>sidecar>online chain could drift from
+    //   resolve_subtitle_source (a new source kind or a priority change here would keep firing
+    //   background whisper on tracks that already have subtitles). has_video only gates whether
+    //   an embedded sub can render; the resolver's embedded check is a cached state read either way.
+    if (resolve_subtitle_source(node).kind != ResolvedSubtitle::None)
+        return; // embedded track / local sidecar (incl. a previous ASR SRT) — load_async picks it up
     std::string url = node->local_file.empty() ? node->url : node->local_file;
+    // review-fix (2026-08-16): a node local_file / cached path can be STALE (the file was deleted
+    //   outside the app — media_cache keeps the row; play_current guards its lookups with
+    //   fs::exists). Passing a dead path on would make the worker attempt a download of a
+    //   schemeless path (fails fast but logs a misleading "check [network] proxy" EVENT and writes
+    //   a bogus mark_partial row keyed by the dead path). Mirror the play path: verify existence.
+    if (URLClassifier::is_local_file(url) && !std::filesystem::exists(url))
+        url = node->url; // dead local path — fall back to the source URL (re-gated below)
     if (!url.empty() && !URLClassifier::is_local_file(url)) {
         // ASR-fix (2026-08-15): play_current resolves the local cache by SOURCE url (CacheManager),
         //   but a synthetic node's local_file may be empty even though the played media IS the
         //   cached file. Mirror the play path so cached/downloaded episodes auto-ASR too.
         std::string cached = CacheManager::instance().get_local_file(node->url);
-        if (!cached.empty())
+        if (!cached.empty() && std::filesystem::exists(cached))
             url = cached;
     }
     if (url.empty() || !URLClassifier::is_local_file(url))

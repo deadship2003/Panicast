@@ -5,11 +5,17 @@
 #include <cctype>
 #include <charconv>
 #include <string>
+#include <vector>
+
+#include <ncurses.h> // KEY_BACKSPACE / KEY_ENTER (multi-encoding aliases below)
 
 namespace {
 // D44-prof: was std::atoi — no error detection and UB on overflow ("99999999999"). from_chars
 //   reports failure and clamps nothing; we reject unparsed/out-of-range tokens explicitly.
 bool parse_keycode(const std::string &digits, int &out) {
+    if (!digits.empty() && (digits.front() == '-' || digits.front() == '+'))
+        return false; // review-fix: from_chars accepts signs ("-0" → 0 would pass the range check
+                       //   below); keycodes are unsigned — reject signed tokens outright.
     int v = 0;
     auto [end, ec] = std::from_chars(digits.data(), digits.data() + digits.size(), v);
     if (ec != std::errc() || end != digits.data() + digits.size())
@@ -54,16 +60,33 @@ int Keymap::parse_token(const std::string &raw) {
         return 127;
     if (t.size() == 1)
         return static_cast<int>(static_cast<unsigned char>(t[0]));
-    bool all_digit = true;
-    for (char c : t)
-        if (!std::isdigit(static_cast<unsigned char>(c))) {
-            all_digit = false;
-            break;
-        }
+    // Numeric keycode path. parse_keycode alone decides validity: from_chars rejects non-digit
+    //   tokens ("ctrl+y" fails at 'c'), trailing garbage ("12x" parses 12 but end != last), signs
+    //   (v < 0), and overflow ("99999999999" → result_out_of_range) — the old pre-scan for
+    //   all-digits (from the std::atoi era, which silently truncated "12x"→12) duplicated that.
     int code = -1;
-    if (all_digit && parse_keycode(t, code))
+    if (parse_keycode(t, code))
         return code;
     return -1;
+}
+
+// D44-audit: see keymap.h. Trim+lowercase mirrors parse_token's own normalization (kept as a
+//   local twin so parse_token itself stays untouched — behavior-equivalence of the rebind
+//   parser is locked by the KeymapParseToken tests).
+std::vector<int> Keymap::parse_token_all(const std::string &raw) {
+    int primary = parse_token(raw);
+    if (primary < 0)
+        return {};
+    std::string low;
+    for (char c : raw)
+        low.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    low.erase(0, low.find_first_not_of(" \t\r\n")); // all-space input → erases everything
+    low.erase(low.find_last_not_of(" \t\r\n") + 1); // already-trimmed-at-front, safe here
+    if (low == "backspace" || low == "bs")
+        return {127, 8, KEY_BACKSPACE};
+    if (low == "enter" || low == "return")
+        return {'\n', '\r', KEY_ENTER};
+    return {primary};
 }
 
 } // namespace panicast

@@ -161,6 +161,10 @@ private:
     std::atomic<bool> cmd_done_{false};
     void enqueue_cmd_(std::function<void()> fn);
     void cmd_loop_();
+    // Freeze-fix review (2026-08-16): shared "ensure playing (pause=no)" epilogue for the
+    //   play_audio/play_video/play_list_from cmd-worker lambdas (was 3 copy-pasted blocks).
+    //   CMD-WORKER ONLY — must run FIFO between loadfile and the next enqueued command.
+    void ensure_playing_();
     std::mutex mtx_;
     State state_;
     bool ytdl_available_ = false;

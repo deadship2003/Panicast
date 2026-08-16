@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
+#include <sstream>
 #include <thread>
 
 #include "panicast/core/event_log.h"
@@ -27,13 +28,25 @@ using json = nlohmann::json;
 void Network::init_proxy_routing() {
     ProxyManager &pm = ProxyManager::instance();
     pm.setGlobalSource([] { return ProxyConfig{IniConfig::instance().get_proxy()}; });
-    // D45: bilibili is CN-domestic — routing it through a foreign proxy slows/breaks access.
-    //   Seed a domain rule forcing *.bilibili.com direct even when a global proxy is set, gated by
-    //   [network] bilibili_direct (default on; takes effect at startup, restart after changing).
-    //   youtube/googlevideo need NO rule: they fall through to the global proxy by default. Domain
-    //   rule covers both the curl path (api.bilibili.com) and the yt-dlp path (www.bilibili.com).
-    if (IniConfig::instance().get_bool("network", "bilibili_direct", true))
-        pm.setDomain("*.bilibili.com", ProxyConfig{""});
+    // D45 → D44-audit ⑦: direct-connection domain list generalizes the old hardcoded bilibili
+    //   rule — [network] direct_domains holds comma-separated globs (default "*.bilibili.com";
+    //   CN-domestic sites a foreign proxy would only slow down); the legacy bilibili_direct
+    //   switch removes *.bilibili.com from the set. Called explicitly from App's ctor after
+    //   IniConfig::load() (the D45-fix — never a static initializer), read once at startup;
+    //   restart applies. Covers both the curl path and yt-dlp (host-glob domain rule).
+    const bool bili_direct = IniConfig::instance().get_bool("network", "bilibili_direct", true);
+    std::stringstream list(
+        IniConfig::instance().get("network", "direct_domains", "*.bilibili.com"));
+    std::string tok;
+    while (std::getline(list, tok, ',')) {
+        const size_t b = tok.find_first_not_of(" \t");
+        if (b == std::string::npos)
+            continue; // empty segment (trailing comma / spaced list)
+        tok = tok.substr(b, tok.find_last_not_of(" \t") - b + 1);
+        if (tok == "*.bilibili.com" && !bili_direct)
+            continue;
+        pm.setDomain(tok, ProxyConfig{""});
+    }
 }
 
 void apply_network_proxy(CURL *curl, const std::string &url, const std::string &platform) {

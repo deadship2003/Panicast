@@ -553,10 +553,14 @@ void App::shutdown() {
         // Align the save guard with the read-side resume guard (playback_service.cpp
         //   `ut != RADIO_STREAM || duration > 0`). RADIO_STREAM covers radio live streams, online
         //   podcast .mp3, AND local audio files (classify() folds local files into RADIO_STREAM).
-        //   ASR-fix (2026-08-15): finite-duration items (RSS enclosure/local file — mpv reports
-        //   media_duration) DO resume now, so persist them; open-ended live streams (duration 0)
-        //   stay skipped — persisting their progress only accumulates dead rows.
-        bool finite = player_state.media_duration > 0.0;
+        //   review-fix (2026-08-16): the read side's `duration > 0` is the NODE's duration (feed
+        //   metadata; 0 for feeds without itunes:duration, search/local nodes), NOT mpv's measured
+        //   media_duration — a save guard on the latter wrote rows the read side still refused to
+        //   resume (exactly the dead-row accumulation this guard exists to prevent). Use the same
+        //   source: playback_node() is the node now_playing() derived canonical_url from.
+        //   Open-ended live streams (duration 0) stay skipped.
+        TreeNodePtr pn = playback_.playback_node();
+        bool finite = pn && pn->duration > 0;
         if (URLClassifier::classify(canonical_url) != URLType::RADIO_STREAM || finite) {
             bool completed = (player_state.media_duration > 0 &&
                               player_state.time_pos >= player_state.media_duration - 5.0);

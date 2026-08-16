@@ -4,6 +4,7 @@
 //   cmake -DBUILD_TESTING=ON -B build && cmake --build build && ctest --test-dir build
 
 #include <gtest/gtest.h>
+#include <algorithm> // std::find (parse_token_all membership checks)
 #include <string>
 #include <vector>
 #include <cstring>
@@ -56,6 +57,27 @@ TEST(KeymapParseToken, NumericBounds) {
     EXPECT_EQ(Keymap::parse_token("99999999999"), -1); // overflow → rejected, no UB
     EXPECT_EQ(Keymap::parse_token("12x"), -1);         // trailing garbage → rejected
     EXPECT_EQ(Keymap::parse_token("-5"), -1);          // sign not a digit → unparseable
+}
+
+// D44-audit ⑤: alias names bind EVERY terminal encoding (backspace = 127/8/KEY_BACKSPACE,
+//   enter = '\n'/'\r'/KEY_ENTER across terminfos — popups defend the same trio). Numeric-keycode
+//   values are platform ncurses constants, so assert membership/count, not literals.
+TEST(KeymapParseToken, AliasNamesBindAllEncodings) {
+    const auto bs = Keymap::parse_token_all("backspace");
+    EXPECT_EQ(bs.size(), 3u);
+    EXPECT_NE(std::find(bs.begin(), bs.end(), 127), bs.end());
+    EXPECT_NE(std::find(bs.begin(), bs.end(), 8), bs.end());
+    const auto en = Keymap::parse_token_all("enter");
+    EXPECT_EQ(en.size(), 3u);
+    EXPECT_NE(std::find(en.begin(), en.end(), '\n'), en.end());
+    EXPECT_NE(std::find(en.begin(), en.end(), '\r'), en.end());
+}
+TEST(KeymapParseToken, NonAliasTokensStaySingle) {
+    EXPECT_EQ(Keymap::parse_token_all("p"), (std::vector<int>{'p'}));
+    EXPECT_EQ(Keymap::parse_token_all("  bs  ").size(), 3u); // trim applies to aliases too
+    EXPECT_EQ(Keymap::parse_token_all("25").size(), 1u);
+    EXPECT_TRUE(Keymap::parse_token_all("ctrl+y").empty()); // unparseable → empty (build_keymap logs)
+    EXPECT_TRUE(Keymap::parse_token_all("").empty());
 }
 
 // ─── URLClassifier test cases ───

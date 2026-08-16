@@ -412,6 +412,19 @@ void TranscriptionEngine::stop_realtime() {
     EVENT_LOG("Transcribe: real-time stopped");
 }
 
+// review-fix (2026-08-16): worker teardown — clear realtime_active_ ONLY while this worker still
+//   owns the generation. A superseded worker's exit used to store false unconditionally, landing
+//   AFTER the newborn start's `= true` (the old worker only exits BECAUSE it saw the gen bump), so
+//   realtime_running() went false while worker N+1 was alive — the L-key "already running" check
+//   and maybe_auto_asr_'s guard then let a SECOND worker start next to the live one, and
+//   stop_realtime()'s `if (!realtime_active_) return;` early-exit made the clobbered worker
+//   unkillable (it transcribed the old file to end-of-media). D49 auto-ASR made supersede
+//   overlaps routine (a worker runs per local track), so every exit path goes through here now.
+void TranscriptionEngine::finish_realtime_(unsigned gen) {
+    if (realtime_gen_.load() == gen)
+        realtime_active_ = false;
+}
+
 // Y24.20 / ASR-fix: real-time transcription. The OLD design decoded the ENTIRE source via a single
 //   blocking, non-killable `ffmpeg -i <url>` call BEFORE invoking whisper-cli. For live radio streams
 //   that ffmpeg call never returns (infinite capture) → whisper-cli was never reached; for finite
@@ -437,12 +450,12 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
     std::string model = resolve_model();
     if (whisper_bin.empty()) {
         EVENT_LOG("Transcribe: whisper-cli not found — install whisper-cpp");
-        realtime_active_ = false;
+        finish_realtime_(gen);
         return;
     }
     if (model.empty()) {
         EVENT_LOG("Transcribe: model not found — set [transcription] model");
-        realtime_active_ = false;
+        finish_realtime_(gen);
         return;
     }
 
@@ -462,9 +475,15 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
         duration = s.has_media ? s.media_duration : -1.0;
     }
     // D49 (auto-ASR gate): an AUTO start must never rolling-capture a live stream (endless CPU).
-    //   At play time mpv may not have reported the duration yet, so wait briefly (≤10s) for it;
-    //   still unknown ⇒ treat as live and bow out quietly — the user can still force ASR with L.
-    if (auto_started && duration <= 0.0) {
+    //   review-fix (2026-08-16): the initial state read above can describe the PREVIOUS track —
+    //   begin_track (which spawns this worker) runs BEFORE play() issues the loadfile, so on a
+    //   fast mount the worker can win the race against mpv's load + the update_state refresh. A
+    //   stale positive duration would then truncate the chunk loop at the OLD track's length (and
+    //   wrongly judge the new partial SRT complete below). Discard it and ALWAYS wait (≤10s) for
+    //   the NEW media's duration; still unknown ⇒ treat as live and bow out quietly — the user
+    //   can still force ASR with L.
+    if (auto_started) {
+        duration = -1.0;
         for (int i = 0; i < 20 && realtime_gen_.load() == gen; ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             if (!mpv_)
@@ -478,7 +497,7 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
         if (duration <= 0.0) {
             LOG(fmt::format(
                 "[Transcribe] auto ASR skipped (live/unknown-duration media): {}", url.substr(0, 80)));
-            realtime_active_ = false;
+            finish_realtime_(gen);
             return;
         }
     }
@@ -501,7 +520,7 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
                     node->asr_srt_path = srt_path;
                 }
                 persist_subtitle_marker(node);
-                realtime_active_ = false;
+                finish_realtime_(gen);
                 return;
             }
             start = last_end;
@@ -592,11 +611,11 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
                 EVENT_LOG(
                     "Transcribe: source download failed — check [network] proxy / connectivity");
                 CacheManager::instance().mark_partial(url);
-                realtime_active_ = false;
+                finish_realtime_(gen);
                 return;
             }
             if (realtime_gen_.load() != gen) {
-                realtime_active_ = false;
+                finish_realtime_(gen);
                 return;
             } // stopped during fetch
             CacheManager::instance().mark_downloaded(url, path); // persist + reuse (+ highlight)
@@ -699,7 +718,7 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
     // NOTE: src is the episode's persistent cache (dl_dir) — do NOT delete it; it's reused by
     //   playback + future ASR (registered via CacheManager). Only tmp_wav chunks are removed above.
 
-    realtime_active_ = false;
+    finish_realtime_(gen);
     if (segs.empty()) {
         if (!stopped)
             EVENT_LOG("Transcribe: real-time produced no segments");

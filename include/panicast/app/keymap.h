@@ -8,6 +8,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "panicast/app/actions.h"
 
@@ -25,11 +26,21 @@ public:
 
     // D44: parse a [keys] INI token → ncurses keycode (int). Returns -1 if unparseable.
     //   Supports: space/enter/esc/tab/backspace names, a single printable char, or a numeric
-    //   keycode (e.g. 25 = Ctrl+Y). The single-char path returns the char AS-IS — case matters
+    //   keycode (e.g. 259 = KEY_UP). The single-char path returns the char AS-IS — case matters
     //   ('r' and 'R' are different keys), matching wget_wch which returns exactly what is typed.
+    //   Single DIGITS are therefore characters, not keycodes ("5" = the '5' key, not keycode 5).
+    //   Note 25 (Ctrl+Y) and KEY_MOUSE are intercepted before the keymap (clipboard/mouse) —
+    //   build_keymap rejects bindings there; see its comment.
     //   Exposed static so build_keymap + unit tests share one parser.
     //   Impl in src/app/keymap.cpp (D44-prof: was inline here — recompiled in every TU).
     static int parse_token(const std::string &raw);
+
+    // D44-audit: every keycode a token means on real terminals. With keypad(stdscr, TRUE) —
+    //   this app's mode — backspace arrives as 127 (DEL) / 8 (Ctrl+H) / KEY_BACKSPACE and
+    //   enter as '\n' / '\r' / KEY_ENTER depending on terminfo (popups.cpp already defends
+    //   this trio for text input). build_keymap binds ALL encodings so a rebind fires on
+    //   every terminal; other tokens return {parse_token(raw)}; unparseable → empty.
+    static std::vector<int> parse_token_all(const std::string &raw);
 
 private:
     std::unordered_map<int, Action> map_;

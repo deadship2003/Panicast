@@ -90,6 +90,9 @@ private:
     void transcribe_one(TreeNodePtr node); // offline: ffmpeg + whisper-cli → <file>.srt
     void realtime_worker(TreeNodePtr node, std::string url, bool is_streaming, bool is_video,
                          unsigned gen, bool auto_started);
+    // review-fix (2026-08-16): gen-guarded worker teardown — a superseded worker must NOT clear
+    //   realtime_active_ (the newborn worker owns it now); see impl for the failure it fixes.
+    void finish_realtime_(unsigned gen);
 
     // Y24.20 path resolution moved to public (D49 — see above).
     // Save segments as SRT; local → <file>.srt next to media; streaming → <data_dir>/transcripts/<hash>.srt.

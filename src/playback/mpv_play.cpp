@@ -24,6 +24,20 @@
 namespace panicast
 {
 
+// Freeze-fix review (2026-08-16): the "ensure playback starts (pause=no)" epilogue was
+//   copy-pasted inside the play_audio / play_video / play_list_from cmd-worker lambdas (3
+//   copies). One helper keeps them in lockstep and mirrors set_pause()'s optimistic state_
+//   update so the last-known-good cache doesn't briefly disagree with what was just commanded.
+//   CMD-WORKER ONLY (runs between loadfile and the next enqueued command, preserving FIFO order).
+void MPVController::ensure_playing_() {
+    { std::lock_guard<std::mutex> lock(mtx_); state_.paused = false; } // optimistic UI update
+    int pause_val = 0;
+    int rc_pause = mpv_set_property(ctx_, "pause", MPV_FORMAT_FLAG, &pause_val);
+    if (rc_pause < 0)
+        LOG(fmt::format("[MPV] WARNING: set pause failed (rc={})", rc_pause));
+    LOG("[MPV] Ensured playing (pause=no)");
+}
+
 void MPVController::play_audio(const std::string &url) {
     if (url.empty()) {
         LOG("[MPV] Error: Empty URL");
@@ -80,12 +94,7 @@ void MPVController::play_audio(const std::string &url) {
         int result = mpv_command(ctx_, cmd);
         LOG(fmt::format("[MPV] loadfile result: {}", result));
 
-        // Ensure playback starts (not paused)
-        int pause_val = 0;
-        int rc_pause = mpv_set_property(ctx_, "pause", MPV_FORMAT_FLAG, &pause_val);
-        if (rc_pause < 0)
-            LOG(fmt::format("[MPV] WARNING: set pause failed (rc={})", rc_pause));
-        LOG("[MPV] Ensured playing (pause=no)");
+        ensure_playing_();
     });
 }
 
@@ -158,12 +167,7 @@ void MPVController::play_video(const std::string &url, const std::string &audio_
             LOG(fmt::format("[MPV] loadfile result: {}", result));
         }
 
-        // Ensure playback starts (not paused)
-        int pause_val = 0;
-        int rc_pause = mpv_set_property(ctx_, "pause", MPV_FORMAT_FLAG, &pause_val);
-        if (rc_pause < 0)
-            LOG(fmt::format("[MPV] WARNING: set pause failed (rc={})", rc_pause));
-        LOG("[MPV] Ensured playing (pause=no)");
+        ensure_playing_();
     });
 }
 
@@ -216,11 +220,13 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
     //   written on the caller thread but removed INSIDE the worker, after loadlist has consumed it.
     LOG(fmt::format("[MPV] Playlist mode: keep-open=no, start from idx {}", start_idx));
 
-    bool want_vo_auto = is_video && !vo_gpu_;
-    if (want_vo_auto)
-        vo_gpu_ = true;
-    // else: don't change vo back to null (see vo_gpu_ note) — avoids segfault on video->audio
-    //   switch, so an empty branch is intentional here (kept as a comment).
+    // Freeze-fix review (2026-08-16): vo=auto + the vo_gpu_ flag are decided INSIDE the cmd
+    //   worker. Marking vo_gpu_ on the caller thread but issuing vo=auto in the worker split
+    //   check/act/mark across threads — if the m3u write below failed, the fallback play() ran
+    //   with vo_gpu_ already true but vo never set, and every later video playlist then skipped
+    //   the vo switch (no video window). The worker is a single FIFO thread, so read+act+mark
+    //   there is atomic. Don't change vo back to null otherwise (see vo_gpu_ note) — avoids
+    //   segfault on video->audio switch.
 
     std::string tmp = SafeTmpFile::create(".m3u");
     std::ofstream f(tmp);
@@ -229,13 +235,15 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
             f << url << "\n";
         f.close();
 
-        enqueue_cmd_([this, tmp, start_idx, want_vo_auto] {
+        enqueue_cmd_([this, tmp, start_idx, is_video] {
             int rc_keep_open = mpv_set_property_string(ctx_, "keep-open", "no");
             if (rc_keep_open < 0)
                 LOG(fmt::format("[MPV] WARNING: set property keep-open failed (rc={})", rc_keep_open));
 
-            if (want_vo_auto)
+            if (is_video && !vo_gpu_) {
                 mpv_set_property_string(ctx_, "vo", "auto");
+                vo_gpu_ = true;
+            }
 
             // Load the playlist
             const char *cmd[] = {"loadlist", tmp.c_str(), "replace", nullptr};
@@ -250,12 +258,7 @@ void MPVController::play_list_from(const std::vector<std::string> &urls, int sta
                 mpv_set_property(ctx_, "playlist-pos", MPV_FORMAT_INT64, &pos);
             LOG(fmt::format("[MPV] play_list_from: Set playlist-pos to {}", start_idx));
 
-            // Ensure playback starts (not paused)
-            int pause_val = 0;
-            int rc_pause = mpv_set_property(ctx_, "pause", MPV_FORMAT_FLAG, &pause_val);
-            if (rc_pause < 0)
-                LOG(fmt::format("[MPV] WARNING: set pause failed (rc={})", rc_pause));
-            LOG("[MPV] play_list_from: Ensured playing (pause=no)");
+            ensure_playing_();
         });
     } else
         play(urls[static_cast<size_t>(start_idx)], is_video);

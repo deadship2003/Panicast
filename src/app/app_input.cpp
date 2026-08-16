@@ -5,7 +5,9 @@
 #include <cctype>
 #include <cstdlib>
 #include <map>
+#include <set>
 #include <sstream>
+#include <vector>
 
 #include "panicast/net/tiktok_region.h" // Y24.11: T-mode region name in the T-key status line
 #include "panicast/net/url_classifier.h" // D14-3b: is_local_file() for ASR streaming/local + offline-transcription gate
@@ -385,6 +387,19 @@ void App::build_keymap() {
     };
     const IniConfig &ini = IniConfig::instance();
     std::map<int, const char *> bound_by; // D44-prof: key → owning action name (collision log)
+    // D44-audit ①: keycodes owned by PRE-keymap intercepts in handle_input (Ctrl+Y clipboard,
+    //   mouse) — a [keys] binding there can never fire (handle_input returns before the
+    //   lookup). Skip + log instead of installing a dead binding.
+    const std::set<int> intercepted_before_keymap = {25, KEY_MOUSE};
+    // D44-audit ③: keys still handled by the legacy switch (stateful flows). The keymap lookup
+    //   runs FIRST, so binding any of these silently kills that flow's key (play 'l' / search
+    //   '/' / quit 'q' ...). The defaults table never touches them (verified), so a hit is
+    //   always a user override — allow it (power users may want it) but WARN so a dead 'l' is
+    //   diagnosable from panicast.log. KEEP IN SYNC with handle_input's switch.
+    const std::set<int> legacy_switch_keys = {
+        'q', 'Q', 27, '?', 'M', 'N', 'b', 14, 2, 'r', ':', 'l', '\n', 'h', ']', '[',
+        KEY_BACKSPACE, '\\', 'g', 'G', KEY_PPAGE, KEY_NPAGE, KEY_RESIZE, 'a', 'A', 'e', 'f',
+        'd', 'D', 'm', 'v', 'V', 'C', 'T', 'S', 'L', 'U', 12, 'o', '/', 'J', 'K'};
     for (const Def &d : defs) {
         // D44-fix (BUG-2): IniConfig::get returns "" for a present-but-empty value (NOT the
         //   default) — without this fallback the action would lose ALL its keys, contradicting
@@ -396,21 +411,38 @@ void App::build_keymap() {
         std::string part;
         std::stringstream ss(tok);
         while (std::getline(ss, part, ',')) {
-            int k = Keymap::parse_token(part);
-            if (k < 0) {
+            // D44-audit ⑤: bind EVERY encoding the token can mean (backspace = 127/8/
+            //   KEY_BACKSPACE, enter = '\n'/'\r'/KEY_ENTER across terminfos) — see keymap.h.
+            std::vector<int> codes = Keymap::parse_token_all(part);
+            if (codes.empty()) {
                 // D44-prof: silent skip left typos ("ctrl+y") invisible — log so a dead rebind
                 //   is diagnosable from panicast.log.
                 LOG(fmt::format("[keys] ignored unparseable token '{}' for action '{}'", part,
                                 d.name));
                 continue;
             }
-            // D44-prof: bind is map_[key]=a — two actions on one key previously overwrote
-            //   silently (later defs win). Warn so the losing action is visible, not a dead key.
-            if (auto it = bound_by.find(k); it != bound_by.end())
-                LOG(fmt::format("[keys] WARNING: key {} bound to both '{}' and '{}' — '{}' wins",
-                                k, it->second, d.name, d.name));
-            bound_by[k] = d.name;
-            keymap_.bind(k, d.act);
+            for (int k : codes) {
+                if (intercepted_before_keymap.count(k)) {
+                    LOG(fmt::format("[keys] token '{}' for '{}' resolves to keycode {} which is "
+                                    "intercepted before the keymap (Ctrl+Y clipboard / mouse) — "
+                                    "binding skipped",
+                                    part, d.name, k));
+                    continue;
+                }
+                if (legacy_switch_keys.count(k))
+                    LOG(fmt::format("[keys] WARNING: '{}' bound to keycode {} shadows a legacy "
+                                    "flow key — that flow's original key stops working",
+                                    d.name, k));
+                // D44-prof: bind is map_[key]=a — two actions on one key previously overwrote
+                //   silently (later defs win). Warn so the losing action is visible, not a
+                //   dead key.
+                if (auto it = bound_by.find(k); it != bound_by.end())
+                    LOG(fmt::format("[keys] WARNING: key {} bound to both '{}' and '{}' — '{}' "
+                                    "wins",
+                                    k, it->second, d.name, d.name));
+                bound_by[k] = d.name;
+                keymap_.bind(k, d.act);
+            }
         }
     }
 }
@@ -457,11 +489,16 @@ void App::handle_input(int ch, int marked_count) {
 
     // Help display handled directly, without using a flag
     if (visual_mode_) {
-        if (ch == 'j')
-            nav_down();
-        else if (ch == 'k')
-            nav_up();
-        else if (ch == 'v')
+        // D44-audit ②: cursor moves go through the keymap — the old hardcoded j/k made an INI
+        //   nav rebind silently dead inside visual mode (worked in normal lists, died here).
+        //   Defaults unchanged: j/k still bind nav_down/nav_up, so behavior is identical unless
+        //   the user rebound nav. Other actions stay swallowed (select mode owns the keyboard).
+        if (const Action *ka = keymap_.lookup(ch)) {
+            if (std::holds_alternative<NavUpAction>(*ka))
+                nav_up();
+            else if (std::holds_alternative<NavDownAction>(*ka))
+                nav_down();
+        } else if (ch == 'v')
             confirm_visual_selection();
         else if (ch == 'V') {
             visual_mode_ = false;

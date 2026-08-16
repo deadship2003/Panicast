@@ -176,10 +176,14 @@ bool PlaybackService::advance_buffering(bool mpv_has_media) {
 //   front and refills it.
 void PlaybackService::on_playback_ended(int reason, AppMode mode, PlayMode play_mode) {
     // D11-1: track ended → SubtitleService stop_realtime (was a direct call — playback no longer
-    //   touches subtitles). reason=5 (redirect) means the outgoing track was superseded by a new
-    //   load (play_current already published Ended on supersede) — republishing here would race
-    //   and kill the newborn track's auto-ASR (D49), so skip it.
-    if (reason != 5)
+    //   touches subtitles). review-fix (2026-08-16): the supersede reason is 2 (STOP — "stopped
+    //   by an external action", i.e. our loadfile/loadlist replace; there is no other in-session
+    //   "stop" producer — remote stop is pause, exit is covered by shutdown), and play_current
+    //   already published Ended on supersede. Republishing there would race and kill the newborn
+    //   track's auto-ASR (D49): the pool task's start_realtime can beat the END_FILE drain by a
+    //   frame. reason=5 (REDIRECT — the file was a playlist; playback continues with its entries)
+    //   is a continuation, not an end. Skip both; every other reason is a real end.
+    if (reason != 2 && reason != 5)
         EventBus::instance().publish(PlaybackTrackEnded{});
     std::lock_guard<std::mutex> pl_lock(playlist_mutex_);
     if (reason != 0) {

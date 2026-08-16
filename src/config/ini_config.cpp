@@ -624,12 +624,16 @@ reject_unsafe_url = true
 # Takes effect immediately, no restart needed. mpv playback NEVER uses this proxy — mpv is
 # playback-only; the network for streaming is the user's concern (transparent proxy / env).
 proxy =
-# Bilibili 直连（默认开启）/ Bilibili direct connection (default on)
-# Bilibili 是国内站点，经境外代理反而变慢/失败；此项让 *.bilibili.com 绕过上面的全局代理直连。
-# 注意：此项在启动时读取，改后需重启（与上面 proxy 的立即生效不同）。
-# Bilibili is CN-domestic; a foreign proxy slows/breaks it. This routes *.bilibili.com direct,
-# bypassing the global proxy above. Set false to route bilibili through the proxy too.
-# NOTE: read once at startup — restart after changing (unlike `proxy` above, which is live). (D45)
+# 直连域名列表 / Direct-connection domain list (D45 → 泛化)
+# 不需要走全局代理的站点（国内站等），逗号分隔通配符，如 *.bilibili.com,*.example.cn。
+# 留空 = 全部走代理。启动时读取，改后需重启。同时作用于 curl 抓取与 yt-dlp。
+# Domains that bypass the global proxy and connect directly (CN-domestic sites etc.),
+# comma-separated globs. Empty = none. Read once at startup — restart after editing.
+# Applies to both curl fetches and yt-dlp.
+direct_domains = *.bilibili.com
+# Bilibili 直连兼容开关 / Bilibili direct toggle (legacy, D45)
+# false = 从上面列表剔除 *.bilibili.com，让 bilibili 也走代理。
+# Set false to drop *.bilibili.com from direct_domains and route bilibili through the proxy.
 bilibili_direct = true
 
 # ============================================================
@@ -906,15 +910,23 @@ discovery_port = 18430
 # ============================================================
 # 在此重绑可重绑热键；留空或删整行 = 用默认值；改后重启生效。
 # 键值写法：键名(space/enter/esc/tab/backspace) 或 单个字符(如 p + - k) 或 数字 keycode。
+# backspace/enter 键名会同时绑定各终端编码(127/8/KEY_BACKSPACE、'\n'/KEY_ENTER)，任何终端都生效。
+# 单个数字是字符本身('5' = 数字键5)，数字 keycode 仅用于特殊键(如 259 = 方向键上)。
 # 同一动作绑多个键用逗号分隔(如 play_pause = space,p)。仅无状态命令 + 模式切换键可重绑；
-# 复杂有状态流(play 'l'/搜索 '/'/下载/标记)保留在程序内不可重绑。
-# 两个动作绑到同一键时后者生效并在日志留 WARNING；无法解析的键值会被忽略并记日志。
+# 复杂有状态流(play 'l'/搜索 '/'/下载/标记)保留在程序内——把动作绑到这些键上会覆盖原功能
+# (启动日志留 WARNING，原键失效)。
+# 两个动作绑到同一键时后者生效并在日志留 WARNING；无法解析或被前置拦截(Ctrl+Y/鼠标)的键值
+# 会被跳过并记日志。
 # Rebind hotkeys here; empty/deleted line = default; restart after editing.
 # Value: a key name (space/enter/esc/tab/backspace), a single char (p + - k), or a numeric keycode.
+# backspace/enter names bind every terminal encoding (127/8/KEY_BACKSPACE, '\n'/KEY_ENTER).
+# A single digit is the character itself ('5' = the 5 key); numeric keycodes are for special
+# keys only (e.g. 259 = KEY_UP).
 # Multiple keys per action: comma-separate (play_pause = space,p). Only stateless + mode-switch
-# keys are rebindable; complex stateful flows (play/search/download/mark) are not.
-# If two actions share a key the later one wins (WARNING logged); unparseable tokens are
-# skipped and logged.
+# keys are rebindable; complex stateful flows (play 'l' / search '/' / download / mark) stay
+# in-app — binding onto their keys OVERRIDES that flow (WARNING logged; the flow's key dies).
+# If two actions share a key the later one wins (WARNING logged); unparseable or pre-intercepted
+# (Ctrl+Y / mouse) tokens are skipped and logged.
 [keys]
 play_pause = space,p
 volume_up = +

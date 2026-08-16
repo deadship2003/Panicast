@@ -249,6 +249,16 @@ bool DatabaseManager::init() {
         CREATE INDEX IF NOT EXISTS idx_search_query ON search_cache(query, region);
         CREATE INDEX IF NOT EXISTS idx_podcast_feed ON podcast_cache(feed_url);
         CREATE INDEX IF NOT EXISTS idx_episode_feed ON episode_cache(feed_url);
+        -- Review-fix (2026-08-16): lone index on episode_url. get_episode_transcript_meta looks an
+        --   episode up by episode_url ALONE (synthetic history/search nodes carry no feed_url) and
+        --   runs on EVERY begin_track — the only covering index was (feed_url, episode_url), so each
+        --   lookup was a full-table scan (twice when the URL has a query string), on the UI thread.
+        --   Predicate is IS NOT NULL ONLY: SQLite's partial-index implication check can prove
+        --   `episode_url=? ⟹ IS NOT NULL` but NOT `⟹ != ''` (EXPLAIN QUERY PLAN verified — with the
+        --   != '' term the planner fell back to SCAN even for a literal), so the leaner predicate is
+        --   what actually makes the query SEARCH this index.
+        CREATE INDEX IF NOT EXISTS idx_episode_url ON episode_cache(episode_url)
+            WHERE episode_url IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_favourites_url ON favourites(url);
         CREATE TABLE IF NOT EXISTS bilibili_accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
