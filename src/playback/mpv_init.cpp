@@ -77,6 +77,15 @@ void MPVController::apply_mpv_options_(mpv_handle *ctx) {
     init_vid_ = mpv_vid;
     mpv_set_option_string(ctx, "vo", mpv_vo.c_str());
     mpv_set_option_string(ctx, "vid", mpv_vid.c_str());
+    // Embed the video output into an external window when configured ([mpv]
+    // wid = host window id, e.g. a Qt/X11 host supplies its surface) — unset
+    // keeps mpv's own window. Generic host-embedding hook, applied before
+    // mpv_initialize as vo setup requires.
+    {
+        std::string mpv_wid = IniConfig::instance().get("mpv", "wid", "");
+        if (!mpv_wid.empty())
+            mpv_set_option_string(ctx, "wid", mpv_wid.c_str());
+    }
     if (!mpv_ao.empty())
         mpv_set_option_string(ctx, "ao", mpv_ao.c_str()); // empty = leave mpv default (auto)
     std::string mpv_ytdl_format = IniConfig::instance().get_mpv_ytdl_format();
