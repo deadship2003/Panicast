@@ -40,6 +40,32 @@ namespace panicast
 std::string Utils::which_binary(const std::string &name) {
     if (name.empty())
         return "";
+#ifdef PANICAST_WINDOWS
+    // Windows: PATH is ';'-separated and executables carry suffixes (PATHEXT
+    // probe order). Executability is not a filesystem bit there — existence of
+    // a regular file is the check. A name already carrying a suffix is tried
+    // as-is first (kExts[0] == "").
+    static const char *const kExts[] = {"", ".exe", ".cmd", ".bat", ".ps1"};
+    const char *path_env = std::getenv("PATH");
+    std::string pe = path_env ? path_env : "";
+    size_t start = 0;
+    while (start <= pe.size()) {
+        size_t semi = pe.find(';', start);
+        std::string dir = pe.substr(start, semi == std::string::npos
+                                               ? std::string::npos
+                                               : semi - start);
+        start = (semi == std::string::npos) ? pe.size() + 1 : semi + 1;
+        if (dir.empty())
+            continue;
+        for (const char *ext : kExts) {
+            std::string candidate = dir + "\\" + name + ext;
+            struct stat st;
+            if (stat(candidate.c_str(), &st) == 0 && S_ISREG(st.st_mode))
+                return candidate;
+        }
+    }
+    return "";
+#else
     const char *path_env = std::getenv("PATH");
     std::string pe = path_env ? path_env : "";
     std::istringstream ss(pe);
@@ -64,6 +90,7 @@ std::string Utils::which_binary(const std::string &name) {
         }
     }
     return "";
+#endif
 }
 
 // Copy text to the system clipboard. Looks up an available tool by priority (wl-copy/xclip/xsel/pbcopy/clip.exe),
@@ -444,6 +471,97 @@ void Utils::kill_all_child_processes() {
 //   — the kernel delivers the parent-death signal even though no handler can run.
 pid_t Utils::spawn_child(const std::string &exe, char *const argv[], int in_fd, int out_fd,
                          int err_fd, bool new_pgroup) {
+#ifdef PANICAST_WINDOWS
+    // Windows port: CreateProcessW with the std handles wired from the CRT
+    //   descriptors. The parent-death guarantee comes from a Job Object with
+    //   JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE assigned to this process on first
+    //   use — children inherit the job, so they die with the parent (the
+    //   PDEATHSIG equivalent). new_pgroup has no direct analogue; group kills
+    //   resolve through the job.
+    static HANDLE s_job = []() -> HANDLE {
+        HANDLE job = CreateJobObjectW(nullptr, nullptr);
+        if (job) {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+            info.BasicLimitInformation.LimitFlags =
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info,
+                                    sizeof(info));
+            AssignProcessToJobObject(job, GetCurrentProcess());
+        }
+        return job;
+    }();
+
+    auto handle_of = [](int fd) -> HANDLE {
+        if (fd < 0)
+            return nullptr;
+        intptr_t osf = _get_osfhandle(fd);
+        if (osf == -1)
+            return nullptr;
+        HANDLE h = reinterpret_cast<HANDLE>(osf);
+        SetHandleInformation(h, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+        return h;
+    };
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    if (in_fd >= 0) {
+        si.hStdInput = handle_of(in_fd);
+    } else {
+        // No stdin given → attach NUL (the /dev/null rule below: interactive
+        // children must see EOF, not a shared console).
+        si.hStdInput = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   nullptr, OPEN_EXISTING, 0, nullptr);
+    }
+    si.hStdOutput = handle_of(out_fd);
+    si.hStdError = handle_of(err_fd);
+
+    // Windows command line: MSVCRT quoting (spaces/quotes/doubled backslashes
+    // before quotes). Same rules as the compat posix_spawn implementation.
+    auto wide = [](const char *s) -> std::wstring {
+        int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+        std::wstring w(size_t(n > 0 ? n - 1 : 0), L'\0');
+        if (n > 0)
+            MultiByteToWideChar(CP_UTF8, 0, s, -1, w.data(), n);
+        return w;
+    };
+    auto quote = [](const std::wstring &arg) -> std::wstring {
+        if (!arg.empty() && arg.find_first_of(L" \t\"") == std::wstring::npos)
+            return arg;
+        std::wstring out = L"\"";
+        size_t backslashes = 0;
+        for (wchar_t c : arg) {
+            if (c == L'\\') {
+                ++backslashes;
+                continue;
+            }
+            if (c == L'"')
+                out.append(backslashes * 2 + 1, L'\\');
+            else
+                out.append(backslashes, L'\\');
+            backslashes = 0;
+            out.push_back(c);
+        }
+        out.append(backslashes * 2, L'\\');
+        out.push_back(L'"');
+        return out;
+    };
+    std::wstring cmd = quote(wide(exe.c_str()));
+    for (int i = 0; argv && argv[i]; ++i) {
+        cmd.push_back(L' ');
+        cmd += quote(wide(argv[i]));
+    }
+
+    PROCESS_INFORMATION pi{};
+    BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
+                             CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    if (in_fd < 0 && si.hStdInput && si.hStdInput != INVALID_HANDLE_VALUE)
+        CloseHandle(si.hStdInput); // NUL handle is ours, not inherited-needed
+    if (!ok)
+        return -1;
+    CloseHandle(pi.hThread);
+    return static_cast<pid_t>(pi.dwProcessId);
+#else
     pid_t pid = fork();
     if (pid < 0)
         return -1;
@@ -488,5 +606,6 @@ pid_t Utils::spawn_child(const std::string &exe, char *const argv[], int in_fd, 
     if (new_pgroup)
         setpgid(pid, pid);
     return pid;
+#endif
 }
 } // namespace panicast
