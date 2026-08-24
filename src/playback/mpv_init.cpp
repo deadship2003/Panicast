@@ -86,6 +86,13 @@ void MPVController::apply_mpv_options_(mpv_handle *ctx) {
         if (!mpv_wid.empty())
             mpv_set_option_string(ctx, "wid", mpv_wid.c_str());
     }
+    // Hardware decoding ([mpv] hwdec, default auto-safe; empty = leave mpv's
+    // own default "no" — embedders that want GPU decode set it explicitly).
+    {
+        std::string mpv_hwdec = IniConfig::instance().get("mpv", "hwdec", "");
+        if (!mpv_hwdec.empty())
+            mpv_set_option_string(ctx, "hwdec", mpv_hwdec.c_str());
+    }
     if (!mpv_ao.empty())
         mpv_set_option_string(ctx, "ao", mpv_ao.c_str()); // empty = leave mpv default (auto)
     std::string mpv_ytdl_format = IniConfig::instance().get_mpv_ytdl_format();
