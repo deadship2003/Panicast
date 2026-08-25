@@ -93,6 +93,14 @@ void MPVController::apply_mpv_options_(mpv_handle *ctx) {
         if (!mpv_hwdec.empty())
             mpv_set_option_string(ctx, "hwdec", mpv_hwdec.c_str());
     }
+    // d3d11 swap effect for vo=gpu ([mpv] d3d11_swap_effect: f=flip (default),
+    // b=bitblt). Embedded hosts overlapped by other windows flicker with the
+    // flip model — bitblt composites cleanly through DWM occlusion.
+    {
+        std::string mpv_swap = IniConfig::instance().get("mpv", "d3d11_swap_effect", "");
+        if (!mpv_swap.empty())
+            mpv_set_option_string(ctx, "d3d11-swap-effect", mpv_swap.c_str());
+    }
     if (!mpv_ao.empty())
         mpv_set_option_string(ctx, "ao", mpv_ao.c_str()); // empty = leave mpv default (auto)
     std::string mpv_ytdl_format = IniConfig::instance().get_mpv_ytdl_format();
