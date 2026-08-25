@@ -10,8 +10,16 @@
 #include <cstdio>
 #include <iostream>
 
+#ifdef PANICAST_WINDOWS
+// compat bridge (PaniCast-Windows): see definition in the win32 compat layer.
+namespace panicast {
+void panicast_win_set_command_bus(RemoteCommandBus *bus);
+}
+#endif
+
 namespace panicast
 {
+
 
 App::App() {
     Logger::instance().init();
@@ -503,6 +511,13 @@ void App::startup() {
     // N01: start the remote control server if [remote] enable=true (opt-in). Default off →
     //   zero impact on the local TUI. The server thread pushes RemoteCommands into remote_bus_;
     //   the main loop drains them below each frame.
+#ifdef PANICAST_WINDOWS
+    // Qt port: hand the command bus to the frontend bridge so host-side
+    // controls (volume/seek) ride the exact same dispatch path as the
+    // network server. Harmless no-op when remote is disabled.
+    panicast_win_set_command_bus(&remote_bus_);
+#endif
+
     if (IniConfig::instance().get_remote_enabled()) {
         if (remote_server_.start(IniConfig::instance().get_remote_bind(),
                                  IniConfig::instance().get_remote_port(), this)) {
