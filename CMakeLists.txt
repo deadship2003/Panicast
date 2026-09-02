@@ -203,7 +203,33 @@ find_package(nlohmann_json QUIET)
 #   CURSES_NEED_WIDE makes find_package(Curses) pick libncursesw; the fallback also prefers ncursesw.
 if(UNIX)
     set(CURSES_NEED_WIDE TRUE)
-    find_package(Curses QUIET)
+    if(APPLE)
+        # macOS: Apple's system ncurses 5.7 is narrow-only — no wget_wch / wide-char support the TUI
+        #   needs (CURSES_NEED_WIDE). Homebrew ships a wide-enabled ncurses but keg-only (under
+        #   <brew --prefix ncurses>, NOT linked into the default prefix), so find_package(Curses) with
+        #   a plain CMAKE_PREFIX_PATH can't see it. Resolve the keg directly: point the include dir at
+        #   the wide-header subdir (ncursesw/) so #include <ncurses.h> resolves wget_wch, and link libncursesw.
+        execute_process(COMMAND brew --prefix ncurses
+                        OUTPUT_VARIABLE BREW_NCURSES_PREFIX
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
+                        ERROR_QUIET)
+        if(BREW_NCURSES_PREFIX AND IS_DIRECTORY "${BREW_NCURSES_PREFIX}")
+            if(EXISTS "${BREW_NCURSES_PREFIX}/include/ncursesw/ncurses.h")
+                set(CURSES_INCLUDE_DIR "${BREW_NCURSES_PREFIX}/include/ncursesw")
+            elseif(EXISTS "${BREW_NCURSES_PREFIX}/include/ncurses.h")
+                set(CURSES_INCLUDE_DIR "${BREW_NCURSES_PREFIX}/include")
+            endif()
+            find_library(BREW_NCURSES_LIBRARY NAMES ncursesw ncurses
+                         PATHS "${BREW_NCURSES_PREFIX}/lib" NO_DEFAULT_PATH)
+            if(BREW_NCURSES_LIBRARY AND CURSES_INCLUDE_DIR)
+                set(CURSES_FOUND TRUE)
+                set(CURSES_LIBRARIES ${BREW_NCURSES_LIBRARY})
+            endif()
+        endif()
+    endif()
+    if(NOT CURSES_FOUND)
+        find_package(Curses QUIET)
+    endif()
     if(NOT CURSES_FOUND)
         find_library(NCURSES_LIBRARY NAMES ncursesw ncurses)
         if(NCURSES_LIBRARY)
