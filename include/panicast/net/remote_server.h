@@ -10,9 +10,7 @@
 //     iteration so the worker list stays bounded.
 //   - stop() closes the listen socket to unblock accept(), then joins everything.
 //
-// Platform: POSIX sockets (Linux / macOS). On Windows the .cpp compiles to stubs so the project
-//   still links; remote control is Linux-first (mirrors the mpv dependency, which is also
-//   linux|osx only).
+// Platform: POSIX sockets (Linux / macOS).
 #pragma once
 
 #include <atomic>

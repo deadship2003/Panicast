@@ -8,7 +8,7 @@
 
 [![Version](https://img.shields.io/badge/version-Panicast-V0.0.1-blue.svg)](https://github.com/deadship2003/Panicast)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/deadship2003/Panicast)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/deadship2003/Panicast)
 [![C++](https://img.shields.io/badge/C++-17-orange.svg)](https://isocpp.org/)
 [![JS runtime](https://img.shields.io/badge/yt--dlp%20nsig-quickjs--ng-2ea44f.svg)](https://github.com/quickjs-ng/quickjs)
 
@@ -135,19 +135,6 @@ brew install mpv ncurses curl sqlite libxml2 fmt nlohmann-json qrencode cmake ni
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel $(sysctl -n hw.ncpu)
 sudo cmake --install build
-```
-
-### Windows (vcpkg + MSVC)
-
-```powershell
-# 安装vcpkg
-git clone https://github.com/microsoft/vcpkg.git
-.\vcpkg\bootstrap-vcpkg.bat
-
-# 编译
-cmake -B build -G "Visual Studio 17 2022" -A x64 `
-    -DCMAKE_TOOLCHAIN_FILE="vcpkg\scripts\buildsystems\vcpkg.cmake"
-cmake --build build --config Release
 ```
 
 ---
@@ -384,33 +371,6 @@ file build/panicast
 # 输出应为: build/panicast: ELF 64-bit LSB executable, ARM aarch64...
 ```
 
-### Windows MinGW - 从 Linux 交叉编译
-
-```bash
-# 1. 安装 MinGW-w64
-sudo apt-get install -y mingw-w64
-
-# 2. 安装 Windows 依赖 (通过 vcpkg 或手动下载)
-# 方式A: 使用 vcpkg 交叉编译依赖
-git clone https://github.com/microsoft/vcpkg.git
-cd vcpkg
-./bootstrap-vcpkg.sh
-./vcpkg install curl sqlite3 libxml2 fmt nlohmann-json --triplet=x64-mingw-static
-
-# 3. 配置并编译
-cmake -B build -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-windows-mingw.cmake \
-    -DCMAKE_PREFIX_PATH=/path/to/vcpkg/installed/x64-mingw-static
-cmake --build build --parallel $(nproc)
-
-# 4. 验证生成的二进制文件
-file build/panicast.exe
-# 输出应为: build/panicast.exe: PE32+ executable (console) x86-64...
-
-# 注意: 运行时需要 mpv.dll 和其他 DLL 文件
-```
-
 ### macOS Universal Binary - 同时支持 Intel 和 M1/M2
 
 ```bash
@@ -423,7 +383,7 @@ xcode-select --install
 # 3. 配置并编译
 cmake -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-aarch64-linux.cmake 或 cmake/toolchain-windows-mingw.cmake
+    -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-aarch64-linux.cmake
 cmake --build build --parallel $(sysctl -n hw.ncpu)
 
 # 4. 验证生成的二进制文件
@@ -474,9 +434,6 @@ cmake --build --preset linux-release
 cmake --preset macos-release
 cmake --build --preset macos-release
 
-# Windows Release
-cmake --preset windows-release
-cmake --build --preset windows-release
 ```
 
 ---
@@ -594,8 +551,7 @@ Panicast/
 ├── man/
 │   └── panicast.1              # man 手册页
 ├── cmake/
-│   ├── toolchain-aarch64-linux.cmake  # Linux ARM64 交叉编译
-│   └── toolchain-windows-mingw.cmake  # Windows MinGW 交叉编译
+│   └── toolchain-aarch64-linux.cmake  # Linux ARM64 交叉编译
 ├── .github/
 │   └── workflows/
 │       └── build.yml           # GitHub Actions CI/CD

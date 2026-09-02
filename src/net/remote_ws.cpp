@@ -14,7 +14,6 @@
 #include <thread>
 #include <vector>
 
-#if defined(__linux__) || defined(__APPLE__)
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
@@ -22,12 +21,10 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#endif
 
 namespace panicast
 {
 
-#if defined(__linux__) || defined(__APPLE__)
 
 namespace
 {
@@ -341,10 +338,5 @@ void ws_serve_connection(int client_fd, RemoteServer &server, bool localhost) {
     ::close(client_fd);
 }
 
-#else // Windows stub (WS frontend is POSIX-only; remote_server ws_accept_loop is also stubbed)
-
-void ws_serve_connection(int, RemoteServer &, bool) {}
-
-#endif
 
 } // namespace panicast

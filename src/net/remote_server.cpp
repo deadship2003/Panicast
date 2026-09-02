@@ -18,7 +18,6 @@
 #include <thread>
 #include <vector>
 
-#if defined(__linux__) || defined(__APPLE__)
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
@@ -26,12 +25,10 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#endif
 
 namespace panicast
 {
 
-#if defined(__linux__) || defined(__APPLE__)
 
 RemoteServer::RemoteServer(RemoteCommandBus &bus) : bus_(bus) {}
 
@@ -402,28 +399,5 @@ void RemoteServer::diff_loop() {
     }
 }
 
-#else // Windows stubs (remote control is Linux-first; mpv is also linux|osx only)
-
-RemoteServer::RemoteServer(RemoteCommandBus &bus) : bus_(bus) {}
-RemoteServer::~RemoteServer() = default;
-bool RemoteServer::start(const std::string &, int, RemoteControlInterface *) {
-    LOG("[REMOTE] remote control server is not available on this platform (Linux/macOS only)");
-    return false;
-}
-void RemoteServer::stop() {}
-void RemoteServer::accept_loop() {}
-void RemoteServer::ws_accept_loop() {}
-void RemoteServer::handle_client(int, int64_t, bool) {}
-void RemoteServer::diff_loop() {}
-void RemoteServer::discovery_loop(int) {}
-void RemoteServer::reap_workers() {}
-void RemoteServer::register_session(RemoteSession *) {}
-void RemoteServer::unregister_session(RemoteSession *) {}
-void RemoteServer::notify(const std::string &) {}
-std::string RemoteServer::regenerate_pin() {
-    return "0000";
-}
-
-#endif
 
 } // namespace panicast

@@ -180,32 +180,6 @@ YtdlpRunner::Result YtdlpRunner::run(const std::vector<std::string> &args,
 }
 
 std::string YtdlpRunner::find_ytdlp() {
-#ifdef PANICAST_WINDOWS
-    // Windows: ';' separated PATH + PATHEXT probe (executability is not a
-    // filesystem bit there — existence of a regular file is the check).
-    auto is_exec_file = [](const std::string &p) -> bool {
-        struct stat st;
-        return stat(p.c_str(), &st) == 0 && S_ISREG(st.st_mode);
-    };
-    static const char *const kExts[] = {"", ".exe", ".cmd", ".bat"};
-    std::string path_env = std::getenv("PATH") ? std::getenv("PATH") : "";
-    size_t start = 0;
-    while (start <= path_env.size()) {
-        size_t semi = path_env.find(';', start);
-        std::string dir =
-            path_env.substr(start, semi == std::string::npos ? std::string::npos
-                                                              : semi - start);
-        start = (semi == std::string::npos) ? path_env.size() + 1 : semi + 1;
-        if (dir.empty())
-            continue;
-        for (const char *ext : kExts) {
-            std::string candidate = dir + "\\yt-dlp" + ext;
-            if (is_exec_file(candidate))
-                return candidate;
-        }
-    }
-    return "";
-#else
     // Add a regular-file check (access X_OK is also true for directories)
     auto is_exec_file = [](const std::string &p) -> bool {
         struct stat st;
@@ -226,7 +200,6 @@ std::string YtdlpRunner::find_ytdlp() {
     if (is_exec_file("/usr/local/bin/yt-dlp"))
         return "/usr/local/bin/yt-dlp";
     return "";
-#endif
 }
 
 } // namespace panicast

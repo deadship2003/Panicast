@@ -77,29 +77,12 @@ void MPVController::apply_mpv_options_(mpv_handle *ctx) {
     init_vid_ = mpv_vid;
     mpv_set_option_string(ctx, "vo", mpv_vo.c_str());
     mpv_set_option_string(ctx, "vid", mpv_vid.c_str());
-    // Embed the video output into an external window when configured ([mpv]
-    // wid = host window id, e.g. a Qt/X11 host supplies its surface) — unset
-    // keeps mpv's own window. Generic host-embedding hook, applied before
-    // mpv_initialize as vo setup requires.
-    {
-        std::string mpv_wid = IniConfig::instance().get("mpv", "wid", "");
-        if (!mpv_wid.empty())
-            mpv_set_option_string(ctx, "wid", mpv_wid.c_str());
-    }
     // Hardware decoding ([mpv] hwdec, default auto-safe; empty = leave mpv's
     // own default "no" — embedders that want GPU decode set it explicitly).
     {
         std::string mpv_hwdec = IniConfig::instance().get("mpv", "hwdec", "");
         if (!mpv_hwdec.empty())
             mpv_set_option_string(ctx, "hwdec", mpv_hwdec.c_str());
-    }
-    // d3d11 swap effect for vo=gpu ([mpv] d3d11_swap_effect: f=flip (default),
-    // b=bitblt). Embedded hosts overlapped by other windows flicker with the
-    // flip model — bitblt composites cleanly through DWM occlusion.
-    {
-        std::string mpv_swap = IniConfig::instance().get("mpv", "d3d11_swap_effect", "");
-        if (!mpv_swap.empty())
-            mpv_set_option_string(ctx, "d3d11-swap-effect", mpv_swap.c_str());
     }
     if (!mpv_ao.empty())
         mpv_set_option_string(ctx, "ao", mpv_ao.c_str()); // empty = leave mpv default (auto)

@@ -13,7 +13,7 @@
 - **定位**：基于 ncurses + libmpv 的终端播客/电台播放器（C++17）。
 - **线程模型**：UI（主）/ worker 池（10）/ mpv 事件线程，三处跨线程穿越点（RemoteCommandBus / RemoteStateSnapshot / pending_select_）。
 - **架构状态**：已完成 M1（UI 解耦，`IFrontend` 契约，UI 可换）、M2（Media 收敛 + Provider 化）；god-object 已抽取 4 个 Application Service（Playback/Subtitle/Search/Library/Download）+ 多处机械拆分。仍有 App / DatabaseManager / app_input.cpp 等残余 god-object（见技术债）。
-- **平台**：Linux（推荐）/ macOS / Windows（进行中）。
+- **平台**：Linux（推荐）/ macOS。
 
 ---
 
@@ -83,7 +83,7 @@
 
 ### 2.8 CLI / 跨平台
 
-`-a/-i/-e/-t/--purge/--quiet/--vid/--vo/--ao/-h/-v`；Linux（推荐）/ macOS / Windows（vcpkg+MSVC / MinGW / ARM64 交叉编译）。
+`-a/-i/-e/-t/--purge/--quiet/--vid/--vo/--ao/-h/-v`；Linux（推荐）/ macOS。
 
 ---
 
@@ -127,7 +127,6 @@
 | ID | 缺口 | 优先级 | 状态 | 反馈/备注 |
 |---|---|---|---|---|
 | G12 | 测试覆盖薄：50 个单测集中在纯函数，下载/播放/远程/字幕/ASR 靠手动冒烟；缺端到端自动化 | P1 | 待实现 | |
-| G13 | Windows 支持收尾：posix_spawn/HOME 路径等（README 已标 Windows，最近 5 个 commit 都是 win32 工作） | P3 | 进行中 | |
 
 ### 3.6 数据库 / 存储专项
 

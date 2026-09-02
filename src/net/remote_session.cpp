@@ -14,12 +14,10 @@
 #include <sstream>
 #include <string>
 
-#if defined(__linux__) || defined(__APPLE__)
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#endif
 
 namespace panicast
 {
@@ -69,7 +67,6 @@ std::string fmt1(double v) {
 
 } // namespace
 
-#if defined(__linux__) || defined(__APPLE__)
 
 RemoteSession::RemoteSession(int read_fd, int write_fd, int64_t client_id, RemoteCommandBus &bus,
                              RemoteControlInterface *control, bool open_access,
@@ -391,30 +388,5 @@ void RemoteSession::run() {
     }
 }
 
-#else // Windows stub
-
-RemoteSession::RemoteSession(int, int, int64_t, RemoteCommandBus &, RemoteControlInterface *, bool,
-                             const std::string &, const std::string &) {}
-RemoteSession::~RemoteSession() = default;
-void RemoteSession::run() {}
-void RemoteSession::notify_change(const std::string &) {}
-bool RemoteSession::send_str(const std::string &) {
-    return false;
-}
-void RemoteSession::send_ok() {}
-void RemoteSession::send_ack(int, const std::string &, const std::string &) {}
-void RemoteSession::forward(std::string, std::vector<std::string>) {}
-void RemoteSession::cmd_status() {}
-void RemoteSession::cmd_currentsong() {}
-bool RemoteSession::poll_line(std::string &, int) {
-    return false;
-}
-void RemoteSession::emit_idle_response() {}
-bool RemoteSession::handle_idle(const std::vector<std::string> &) {
-    return false;
-}
-void RemoteSession::handle_line(const std::string &) {}
-
-#endif
 
 } // namespace panicast

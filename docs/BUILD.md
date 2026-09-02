@@ -44,7 +44,7 @@ yt-dlp 2026.07+ 求解 YouTube nsig 挑战需要一个 JS 运行时：
 产物：`build/panicast`。
 
 - `build.sh` 按内存自适应并行度（约 1 GiB/编译单元，留 2 GiB 余量，封顶 `nproc`），防低内存机 OOM。覆盖：`PANICAST_BUILD_JOBS=N ./build.sh linux`。
-- 跨平台：`./build.sh arm64` / `./build.sh windows`（需对应交叉工具链；Windows 当前为已知损坏，见 `DECISIONS_LOG` / AUDIT）。
+- 跨平台：`./build.sh arm64`（需 aarch64-linux-gnu 交叉工具链）。
 - 手动：`cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel $(nproc)`。
 
 ## 3. 测试（需 GTest）
@@ -68,7 +68,7 @@ ctest --test-dir build --output-on-failure
 ## 5. 清理
 
 ```bash
-./build.sh clean            # 删 build/ build-arm64/ build-windows/
+./build.sh clean            # 删 build/ build-arm64/
 ```
 
 ## 6. OAuth 客户端（Google 登录，Y 模式）

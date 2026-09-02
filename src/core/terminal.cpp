@@ -58,11 +58,7 @@ TerminalDetector::TerminalType TerminalDetector::do_detect() {
             return TerminalType::APPLE_TERMINAL;
         }
         if (s == "vscode") {
-#ifdef _WIN32
-            return TerminalType::WINDOWS_TERMINAL;
-#else
             return TerminalType::XTERM;
-#endif
         }
     }
     const char *term = std::getenv("TERM");

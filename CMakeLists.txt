@@ -5,7 +5,7 @@
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 #
 # V0.05B9n3e5g3p: Engineering audit comprehensive fix release
-# Cross-platform support: Windows / Linux / macOS
+# Platform support: Linux / macOS
 #
 # P3-10: Single source of truth for version - authoritative definition here; constants.h and vcpkg.json must stay in sync
 
@@ -95,10 +95,7 @@ message(STATUS "Panicast version: ${PANICAST_FULL_VERSION}")
 # =============================================================================
 # V0.05B9n3e5g3p P3-9: Use target_compile_definitions instead of deprecated add_definitions
 # Platform macros will be defined on the panicast target (see below)
-if(WIN32)
-    set(PANICAST_PLATFORM "Windows")
-    set(PANICAST_PLATFORM_DEFINE PANICAST_WINDOWS)
-elseif(APPLE)
+if(APPLE)
     set(PANICAST_PLATFORM "macOS")
     set(PANICAST_PLATFORM_DEFINE PANICAST_MACOS)
 elseif(UNIX)
@@ -221,18 +218,13 @@ endif()
 # V0.05B9n3e5g3p P3-9: Use target_compile_options + generator expressions
 # Old code: add_compile_options(-O3) unconditionally overrode build type, so Debug was effectively -O3 -g
 # =============================================================================
-if(MSVC)
-    set(COMPILER_FLAGS /W4 /utf-8)
-    set(COMPILER_DEFS _CRT_SECURE_NO_WARNINGS)
-else()
-    set(COMPILER_FLAGS -Wall -Wextra -Wpedantic)
-    # Distinguish build type via generator expressions
-    set(COMPILER_FLAGS ${COMPILER_FLAGS}
-        $<$<CONFIG:Release>:-O2>
-        $<$<CONFIG:RelWithDebInfo>:-O2;-g>
-        $<$<CONFIG:Debug>:-O0;-g>
-    )
-endif()
+set(COMPILER_FLAGS -Wall -Wextra -Wpedantic)
+# Distinguish build type via generator expressions
+set(COMPILER_FLAGS ${COMPILER_FLAGS}
+    $<$<CONFIG:Release>:-O2>
+    $<$<CONFIG:RelWithDebInfo>:-O2;-g>
+    $<$<CONFIG:Debug>:-O0;-g>
+)
 
 # =============================================================================
 # Executable
@@ -342,7 +334,7 @@ add_executable(panicast
 set_target_properties(panicast PROPERTIES OUTPUT_NAME "panicast")
 
 target_compile_options(panicast PRIVATE ${COMPILER_FLAGS})
-target_compile_definitions(panicast PRIVATE ${PANICAST_PLATFORM_DEFINE} ${COMPILER_DEFS})
+target_compile_definitions(panicast PRIVATE ${PANICAST_PLATFORM_DEFINE})
 
 target_include_directories(panicast PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -485,8 +477,6 @@ if(UNIX AND NOT APPLE)
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "mpv,libsqlite3-0,libcurl4,libxml2,libncursesw6,libfmt9,nlohmann-json3")
 elseif(APPLE)
     set(CPACK_GENERATOR "TGZ")
-elseif(WIN32)
-    set(CPACK_GENERATOR "ZIP")
 endif()
 
 include(CPack)
