@@ -215,7 +215,10 @@ if(UNIX)
                         ERROR_QUIET)
         if(BREW_NCURSES_PREFIX AND IS_DIRECTORY "${BREW_NCURSES_PREFIX}")
             if(EXISTS "${BREW_NCURSES_PREFIX}/include/ncursesw/ncurses.h")
-                set(CURSES_INCLUDE_DIR "${BREW_NCURSES_PREFIX}/include/ncursesw")
+                # Wide-header dir FIRST so bare <ncurses.h> resolves to the wide header (exposes
+                #   wget_wch); then the include root so the wide header's own
+                #   <ncursesw/ncurses_dll.h> resolves (Homebrew prefixes the dll include).
+                set(CURSES_INCLUDE_DIR "${BREW_NCURSES_PREFIX}/include/ncursesw;${BREW_NCURSES_PREFIX}/include")
             elseif(EXISTS "${BREW_NCURSES_PREFIX}/include/ncurses.h")
                 set(CURSES_INCLUDE_DIR "${BREW_NCURSES_PREFIX}/include")
             endif()
