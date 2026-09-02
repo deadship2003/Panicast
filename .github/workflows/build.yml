@@ -206,12 +206,18 @@ jobs:
       - name: Delete previous completed runs (keep only this run)
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           # `concurrency: cancel-in-progress` only cancels IN-PROGRESS runs of the same
           # ref; completed runs still pile up. Delete every previously-completed run of
           # this workflow, leaving only the current one (in-flight runs are spared, so a
           # parallel tag release is never killed mid-build).
-          gh run list --workflow "$GITHUB_WORKFLOW" --limit 500 --json databaseId,status \
-            --jq '.[] | select(.status == "completed") | .databaseId' \
-            | grep -vx "$GITHUB_RUN_ID" \
-            | xargs -r -n1 gh run delete
+          # GH_REPO is required: this job never checks out the repo, so gh cannot infer
+          # the repository from a .git dir ("failed to determine base repo" otherwise).
+          gh run list --workflow "$GITHUB_WORKFLOW" --limit 500 \
+            --json databaseId,status \
+            --jq '.[] | select(.status == "completed") | .databaseId' > /tmp/runs.txt
+          if grep -vx "$GITHUB_RUN_ID" /tmp/runs.txt > /tmp/to_delete.txt; then
+            xargs -r -n1 gh run delete < /tmp/to_delete.txt
+          fi
