@@ -1,19 +1,27 @@
 # ╔═════════════════════════════════════════════════════════════════════════╗
 # ║                    Panicast CI/CD Pipeline                              ║
-# ║          Linux x64 · Build → Test → Package → Release                    ║
+# ║        Linux x64 / Linux arm64 / macOS arm64 / macOS x64               ║
+# ║             Build → Test → Package → Release (native)                   ║
 # ╚═════════════════════════════════════════════════════════════════════════╝
 #
-# 2026-08-16 rebuild: the old 4-platform matrix (macOS brew / Windows vcpkg /
-#   ARM64 cross) never produced a green run — Windows lacked a manifest-driven
-#   dep set, macOS keg-only paths were invisible to CMake, and ARM64 had no
-#   cross sysroot for mpv/curl/sqlite/…. Panicast is a Linux ncurses TUI built
-#   against system libmpv; releases are Linux x64 only (built on Ubuntu 24.04,
-#   matching the reference dev environment: libmpv2 / libfmt10 / ncursesw6).
+# Native multi-arch build matrix — no cross-compilation. Each job runs on a
+# GitHub-hosted runner that IS the target arch, and compiles natively for it
+# (uname -m / the runner's own toolchain decides the arch). This mirrors the
+# local model: every platform builds itself with `cmake -B build ...`.
+#
+#   Linux x64   → ubuntu-24.04      (AMD64)
+#   Linux arm64 → ubuntu-24.04-arm  (ARM64, hosted runner)
+#   macOS arm64 → macos-14          (Apple Silicon)
+#   macOS x64   → macos-13          (Intel; deprecated by GitHub — drop if retired)
+#
+# Tests (GTest) run on Linux only — the reference dev environment. macOS jobs
+# build + package the tarball (brew keg-only libs are made visible via
+# -DCMAKE_PREFIX_PATH="$(brew --prefix)").
 #
 # Flow:
-#   push main / workflow_dispatch → build + ctest + upload artifact (CI check)
-#   push tag v*                   → same build; if tests pass, publish a
-#                                  GitHub Release with the tarball + sha256.
+#   push main / workflow_dispatch → build each arch + ctest(Linux) + upload artifacts
+#   push tag v*                   → same; if all builds pass, publish a
+#                                  GitHub Release with every platform tarball.
 
 name: Build & Release
 
@@ -32,15 +40,29 @@ env:
 
 jobs:
   # ===========================================================================
-  # Build & Test — Linux x64 (Ubuntu 24.04)
+  # Build & Test — native matrix across 4 platforms
   # ===========================================================================
-  build-linux:
-    name: Build & Test (Linux x64)
-    runs-on: ubuntu-24.04
+  build:
+    name: Build (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            label: linux-x64
+          - os: ubuntu-24.04-arm
+            label: linux-arm64
+          - os: macos-14
+            label: macos-arm64
+          - os: macos-13
+            label: macos-x64
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -49,13 +71,25 @@ jobs:
             libsqlite3-dev libxml2-dev libfmt-dev nlohmann-json3-dev \
             libqrencode-dev libssl-dev libgtest-dev
 
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install mpv ncurses libxml2 fmt nlohmann-json qrencode cmake ninja pkg-config
+
       - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTING=ON
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+              -DBUILD_TESTING=OFF -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+          else
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTING=ON
+          fi
 
       - name: Build
-        run: cmake --build build --parallel "$(nproc)"
+        run: cmake --build build --parallel "$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
 
-      - name: Test
+      - name: Test (Linux)
+        if: runner.os == 'Linux'
         run: ctest --test-dir build --output-on-failure
 
       - name: Package
@@ -64,25 +98,25 @@ jobs:
           cpack -G TGZ
           src_tar=$(ls Panicast-*.tar.gz | head -n1)
           cd ..
-          dest="panicast-${GITHUB_REF_NAME}-linux-x64.tar.gz"
+          dest="panicast-${GITHUB_REF_NAME}-${{ matrix.label }}.tar.gz"
           mv "build/$src_tar" "$dest"
           sha256sum "$dest" > "$dest.sha256"
           ls -la panicast-*
 
       - uses: actions/upload-artifact@v4
         with:
-          name: panicast-linux-x64
+          name: panicast-${{ matrix.label }}
           path: |
             panicast-*.tar.gz
             panicast-*.sha256
           if-no-files-found: error
 
   # ===========================================================================
-  # Release — publish automatically when a v* tag is pushed AND tests passed
+  # Release — publish automatically when a v* tag is pushed AND all builds pass
   # ===========================================================================
   release:
     name: Publish Release
-    needs: build-linux
+    needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -92,8 +126,8 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: panicast-linux-x64
           path: release
+          merge-multiple: true
 
       - name: Publish GitHub Release
         env:
@@ -103,24 +137,41 @@ jobs:
           cat > notes.md <<'EOF'
           ## Panicast ${{ github.ref_name }}
 
-          Linux x64 release build (Ubuntu 24.04). 自动发布：CI 构建并通过全部单元测试后由 GitHub Actions 生成。
-          完整变更记录见仓库 `CHANGELOG.md`。
+          原生多平台构建（无交叉编译）：每个平台在对应架构的 runner 上各自编译。
+          自动发布：CI 全部平台构建（Linux 含单元测试）通过后由 GitHub Actions 生成。
 
-          ### Runtime requirements (Ubuntu 24.04 / Debian 13+)
+          ### 平台产物
 
-          ```bash
-          sudo apt install mpv libmpv2 libncursesw6 libfmt10 libcurl4 \
-                           libxml2 libsqlite3-0 libqrencode4
-          # 可选：ffmpeg yt-dlp（在线节目解析/下载）、whisper.cpp（AI 字幕）
-          ```
+          | 文件 | 平台 / 架构 |
+          |---|---|
+          EOF
+          for f in release/panicast-*.tar.gz; do
+            name=$(basename "$f")
+            case "$name" in
+              *linux-x64*)    plat="Linux x86_64" ;;
+              *linux-arm64*)  plat="Linux arm64" ;;
+              *macos-arm64*)  plat="macOS arm64 (Apple Silicon)" ;;
+              *macos-x64*)    plat="macOS x86_64 (Intel)" ;;
+              *)              plat="" ;;
+            esac
+            echo "| \`$name\` | $plat |" >> notes.md
+          done
+          cat >> notes.md <<'EOF'
 
           ### Install
 
           ```bash
-          sha256sum -c panicast-*-linux-x64.tar.gz.sha256
-          tar xf panicast-*-linux-x64.tar.gz
+          sha256sum -c panicast-*-<你的平台>.tar.gz.sha256
+          tar xf panicast-*-<你的平台>.tar.gz
           sudo cp Panicast-*/bin/panicast /usr/local/bin/
           ```
+
+          ### Runtime requirements
+
+          - **Linux (Debian/Ubuntu)**：`sudo apt install mpv libmpv2 libncursesw6 libfmt10 libcurl4 libxml2 libsqlite3-0 libqrencode4`
+          - **Linux (Arch)**：`sudo pacman -S mpv ncurses curl libxml2 sqlite fmt nlohmann-json qrencode`
+          - **macOS**：`brew install mpv ncurses libxml2 fmt nlohmann-json qrencode`
+          - 可选：`ffmpeg yt-dlp`（在线节目解析/下载）、`whisper.cpp`（AI 字幕）、quickjs-ng/deno（YouTube nsig）
           EOF
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "Release for $TAG already exists — uploading assets (clobber)."
