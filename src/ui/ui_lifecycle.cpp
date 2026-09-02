@@ -71,14 +71,19 @@ static void restore_terminal_state() {
 }
 
 // Async-signal-safe termios restore for the force-exit signal paths. tcsetattr() is NOT
-// POSIX async-signal-safe; ioctl(TCSETS) is the underlying syscall and works on Linux inside a
-// signal handler. Without this, a forced _exit (2nd SIGINT, or a crash signal) leaves the line
-// discipline in cbreak/raw mode → the shell then echoes ESC as "^[" and Ctrl+C as "^C" (ISIG off),
-// and the terminal feels broken. RIS (\033c) only resets the terminal's internal state, NOT the
-// kernel line discipline — so termios must be restored explicitly here.
+// POSIX async-signal-safe; ioctl() is the underlying syscall and works inside a signal handler.
+// The ioctl command is OS-specific: Linux uses TCSETS, macOS/BSD uses TIOCSETA. Without this, a
+// forced _exit (2nd SIGINT, or a crash signal) leaves the line discipline in cbreak/raw mode →
+// the shell then echoes ESC as "^[" and Ctrl+C as "^C" (ISIG off), and the terminal feels broken.
+// RIS (\033c) only resets the terminal's internal state, NOT the kernel line discipline — so
+// termios must be restored explicitly here.
 static void restore_termios_async() {
     if (g_termios_saved) {
-        ioctl(STDIN_FILENO, TCSETS, &g_original_termios);
+#ifdef __APPLE__
+        ioctl(STDIN_FILENO, TIOCSETA, &g_original_termios); // BSD name (macOS)
+#else
+        ioctl(STDIN_FILENO, TCSETS, &g_original_termios);   // Linux
+#endif
         tcflush(STDIN_FILENO, TCIFLUSH); // discard typeahead so it doesn't carry to the shell
     }
 }
@@ -252,7 +257,11 @@ void UI::init(float ratio) {
         30); //30ms poll (≈33FPS) — snappy input response; heavy work is on pool_ (10 workers), not the main loop
     // Enable mouse: left-click to select and expand/play node, wheel to page up/down
     //   Register only button events (not REPORT_MOUSE_POSITION, to avoid event flooding).
-    mousemask(BUTTON1_CLICKED | BUTTON1_PRESSED | BUTTON4_PRESSED | BUTTON5_PRESSED, nullptr);
+    mmask_t mouse_events = BUTTON1_CLICKED | BUTTON1_PRESSED | BUTTON4_PRESSED;
+#ifdef BUTTON5_PRESSED
+    mouse_events |= BUTTON5_PRESSED; // wheel-down; ncurses 5.7 (macOS) has no BUTTON5
+#endif
+    mousemask(mouse_events, nullptr);
     start_color();
     use_default_colors();
 

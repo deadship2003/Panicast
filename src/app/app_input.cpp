@@ -59,10 +59,12 @@ void App::handle_mouse_event() {
         nav_page_up();
         return;
     }
+#ifdef BUTTON5_PRESSED
     if (ev.bstate & BUTTON5_PRESSED) {
         nav_page_down();
         return;
     }
+#endif
 
     // Left click: only respond to clicks in the left-panel content area
     if (!(ev.bstate & (BUTTON1_CLICKED | BUTTON1_PRESSED)))
