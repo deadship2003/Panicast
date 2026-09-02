@@ -44,7 +44,7 @@
 #include <mpv/client.h>
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <fmt/chrono.h>
 
 #include "panicast/core/types.h"

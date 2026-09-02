@@ -21,7 +21,7 @@
 #include "panicast/ui/theme_manager.h" // Y24.30: extracted from UI   // Y11: 12-palette table (struct Theme, themes(), THEME_COUNT)
 
 #include <ncurses.h>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <fmt/chrono.h>
 
 #include "panicast/core/types.h"

@@ -22,7 +22,7 @@
 
 #include <mpv/client.h>
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 
 #include <algorithm>
 #include <cstdlib>

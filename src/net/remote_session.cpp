@@ -5,7 +5,7 @@
 #include "panicast/core/constants.h"
 #include "panicast/core/logger.h"
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 
 #include <algorithm>
 #include <cerrno>

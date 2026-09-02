@@ -9,7 +9,7 @@
 #include "panicast/net/remote_session.h"
 #include "panicast/net/remote_ws.h"
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 
 #include <algorithm>
 #include <chrono>
