@@ -1,4 +1,4 @@
-# PaniCast 源码审计报告
+# Panicast 源码审计报告
 
 - **目标**：`src/panicast.cpp`（13912 行，单文件）+ `tests/test_units.cpp`
 - **版本**：V0.5.0-B9n3f3

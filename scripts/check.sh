@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PaniCast 本地预检（与 CI 对齐）：clang-format 自检（咨询）+ 构建 + ctest。
+# Panicast 本地预检（与 CI 对齐）：clang-format 自检（咨询）+ 构建 + ctest。
 # 用法：./scripts/check.sh      （可设 PANICAST_BUILD_JOBS=N 限制并行度）
 # 退出码：configure/build 失败 → 非 0；格式/测试为咨询，不阻断（仅打印）。
 set -uo pipefail

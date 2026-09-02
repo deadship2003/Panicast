@@ -162,7 +162,7 @@ void Persistence::export_opml(const std::string &filename,
     };
     f << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
     f << "<opml version=\"1.0\">\n";
-    f << "<head><title>PANICAST Export</title></head>\n";
+    f << "<head><title>Panicast Export</title></head>\n";
     f << "<body>\n";
     int count = 0;
     for (const auto &p : podcasts) {

@@ -9,11 +9,10 @@
 #include "panicast/core/event_log.h"
 #include "panicast/core/logger.h"
 #include "panicast/core/thread_pool.h"
-#include "panicast/core/utils.h" // D11-3a: Utils::get_download_dir/sanitize_filename (find_local_subtitle)
 #include "panicast/config/ini_config.h"
 #include "panicast/net/network.h"
 #include "panicast/parsers/transcript_parser.h" // TranscriptParser::load (facade → registry)
-#include "panicast/storage/cache.h"             // D11-3a: CacheManager::get_local_file (find_local_subtitle)
+#include "panicast/subtitle/transcription_engine.h" // D11-3a: TranscriptionEngine::transcript_path (find_local_subtitle)
 #include "panicast/ui/frontend.h" // D12-3b: poll(IFrontend&) — set_transcript/set_lyric_bar_active are on the contract
 
 namespace panicast
@@ -91,31 +90,18 @@ static std::string find_sidecar(const std::string &local_file) {
     return "";
 }
 
-// D11-3a: unified local-subtitle finder. Checks the download dir (<sanitize(title)>.srt — the ASR
-//   batch output, or <localbase>.srt when the URL is a cached local file) FIRST, then falls back to
-//   a same-name sidecar next to local_file (any ext, via find_sidecar). Mirrors the former app_input
-//   find_local_srt lambda but ALSO covers adjacent non-srt sidecars, so probe_sidecar/load_async
-//   (track-load) now pick up download-dir ASR SRT they previously missed (gap ②).
+// D11-3a: unified local-subtitle finder. ASR transcripts live under
+//   <data_dir>/transcripts/<djb2-hex(url)>.srt (the XDG app-data dir — no longer next to the media
+//   in ~/Downloads), so the ASR SRT is checked there FIRST, then a same-name sidecar next to
+//   local_file (any ext, via find_sidecar — for online 📜 sidecars). Single source of truth for
+//   probe_sidecar/load_async/resolve_subtitle_source, so "本地字幕文件优先" has one lookup.
 std::string SubtitleManager::find_local_subtitle(TreeNodePtr node) {
     if (!node)
         return "";
-    std::string dl_dir = Utils::get_download_dir();
-    std::string base = Utils::sanitize_filename(node->title);
-    std::string srt = dl_dir + "/" + base + ".srt";
-    std::string local = CacheManager::instance().get_local_file(node->url);
-    if (!local.empty()) {
-        std::string lf_base = local;
-        size_t dot = lf_base.find_last_of('.');
-        if (dot != std::string::npos)
-            lf_base = lf_base.substr(0, dot);
-        srt = lf_base + ".srt";
-    }
+    std::string srt = TranscriptionEngine::transcript_path(node->url);
     std::error_code ec;
-    if (fs::exists(srt, ec)) {
-        if (!local.empty())
-            node->local_file = local;
+    if (fs::exists(srt, ec))
         return srt;
-    }
     return find_sidecar(node->local_file);
 }
 

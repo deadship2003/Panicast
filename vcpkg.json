@@ -2,7 +2,7 @@
     "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
     "name": "panicast",
     "version": "0.1",
-    "version-string": "PaniCast-V0.01",
+    "version-string": "Panicast-V0.0.1",
     "description": "Terminal Podcast/Radio Player - A cross-platform podcast and radio player",
     "homepage": "https://github.com/panicast/panicast",
     "license": "MIT",

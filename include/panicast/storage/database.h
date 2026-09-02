@@ -3,6 +3,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <map>
 #include <mutex>
 #include <functional>
@@ -204,6 +205,21 @@ public:
     void save_bili_up(const std::string &mid, const std::string &uname, const std::string &upic,
                       int fans, const std::string &sign);
     std::string load_bili_up_pic(const std::string &mid); // empty if not cached
+
+    // ── CACHE-1 (SCHEMA 49): per-mode list caches — every mode persists its L/ENTER expanded
+    //   content to SQLite. data_json holds the serialized child nodes; load returns "" on miss.
+    // B mode: UP followings list / watch-history list (keyed by the account's uid).
+    void save_bili_followings(int account_id, const std::string &uid, const std::string &data_json);
+    std::string load_bili_followings(int account_id, const std::string &uid);
+    void save_bili_history(int account_id, const std::string &uid, const std::string &data_json);
+    std::string load_bili_history(int account_id, const std::string &uid);
+    // I mode: parsed iptv-org channel tree (TTL via updated_at, honoring [iptv] cache_hours).
+    void save_iptv_cache(const std::string &url, const std::string &data_json);
+    std::string load_iptv_cache(const std::string &url);
+    int64_t iptv_cache_updated_at(const std::string &url); // unix seconds, 0 if absent
+    // F mode: local-directory scan result.
+    void save_local_folder_cache(const std::string &path, const std::string &data_json);
+    std::string load_local_folder_cache(const std::string &path);
 
     // Extended player state save
     void save_player_state(int volume, double speed, bool paused, const std::string &url = "",

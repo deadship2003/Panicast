@@ -16,8 +16,8 @@ This directory ships a prebuilt `deno` so Y03 is self-contained:
 
 - `deno` — Deno 2.9.3, official linux-x86_64 build (statically-linked-ish single binary).
 
-`../setup.sh` installs it into `~/.local/bin` (user-local, no sudo) and ensures it is on
-`PATH`. If you prefer a system-wide install: `sudo cp deno /usr/local/bin/deno`.
+`../build.sh install` installs it into `/usr/local/bin/deno` (system-wide, needs sudo).
+Manual alternative: `sudo cp deno /usr/local/bin/deno`.
 
 > Only the x86_64 linux build is bundled. On ARM64 / macOS / Windows, run
 > `curl -fsSL https://deno.land/install.sh | sh` instead (see README "依赖" section).

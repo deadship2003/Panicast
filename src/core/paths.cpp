@@ -63,7 +63,8 @@ void fix_config_paths(const std::string &cfg) {
     static const Rep reps[] = {
         {"/.local/share/podradio", "/.local/share/panicast"},
         {"/.config/podradio", "/.config/panicast"},
-        {"/Downloads/PodRadio", "/Downloads/PaniCast"},
+        {"/Downloads/PodRadio", "/Downloads/Panicast"},
+        {"/Downloads/PaniCast", "/Downloads/Panicast"},
         {"podradio-", "panicast-"},
     };
     bool changed = false;
@@ -100,7 +101,9 @@ void Paths::migrate_legacy() {
     if (rename_if_needed(h + "/.config/podradio", h + "/.config/panicast"))
         moved = true;
     // Downloads dir (best-effort; fs::rename is atomic same-fs, fails harmlessly cross-fs).
-    rename_if_needed(h + "/Downloads/PodRadio", h + "/Downloads/PaniCast");
+    rename_if_needed(h + "/Downloads/PodRadio", h + "/Downloads/Panicast");
+    // Also migrate the older camelCase "PaniCast" downloads dir → the canonical "Panicast" name.
+    rename_if_needed(h + "/Downloads/PaniCast", h + "/Downloads/Panicast");
     if (moved)
         fix_config_paths(h + "/.config/panicast/config.ini");
 }

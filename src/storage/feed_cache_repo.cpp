@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 
 #include <fmt/format.h>
@@ -626,5 +627,175 @@ bool DatabaseManager::get_episode_transcript_meta(const std::string &episode_url
     if (q != std::string::npos)
         return lookup(episode_url.substr(0, q));
     return false;
+}
+
+// ── CACHE-1 (SCHEMA 49): per-mode list caches ────────────────────────────────
+//   Every mode persists its L/ENTER expanded content to SQLite. data_json holds the serialized
+//   child-node list; load returns "" on miss. INSERT OR REPLACE makes refresh re-writes idempotent
+//   (no delete needed).
+
+void DatabaseManager::save_bili_followings(int account_id, const std::string &uid,
+                                           const std::string &data_json) {
+    if (!is_ready())
+        return;
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
+    const char *sql = "INSERT OR REPLACE INTO bilibili_follow_cache "
+                      "(account_id, uid, data_json, updated_at) VALUES (?, ?, ?, ?);";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, account_id);
+        sqlite3_bind_text(stmt, 2, uid.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, data_json.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 4, (sqlite3_int64)std::time(nullptr));
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+}
+
+std::string DatabaseManager::load_bili_followings(int account_id, const std::string &uid) {
+    if (!is_ready())
+        return "";
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
+    std::string out;
+    const char *sql =
+        "SELECT data_json FROM bilibili_follow_cache WHERE account_id=? AND uid=? LIMIT 1;";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, account_id);
+        sqlite3_bind_text(stmt, 2, uid.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *j = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+            if (j)
+                out = j;
+        }
+        sqlite3_finalize(stmt);
+    }
+    return out;
+}
+
+void DatabaseManager::save_bili_history(int account_id, const std::string &uid,
+                                        const std::string &data_json) {
+    if (!is_ready())
+        return;
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
+    const char *sql = "INSERT OR REPLACE INTO bilibili_history_cache "
+                      "(account_id, uid, data_json, updated_at) VALUES (?, ?, ?, ?);";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, account_id);
+        sqlite3_bind_text(stmt, 2, uid.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, data_json.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 4, (sqlite3_int64)std::time(nullptr));
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+}
+
+std::string DatabaseManager::load_bili_history(int account_id, const std::string &uid) {
+    if (!is_ready())
+        return "";
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
+    std::string out;
+    const char *sql =
+        "SELECT data_json FROM bilibili_history_cache WHERE account_id=? AND uid=? LIMIT 1;";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, account_id);
+        sqlite3_bind_text(stmt, 2, uid.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *j = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+            if (j)
+                out = j;
+        }
+        sqlite3_finalize(stmt);
+    }
+    return out;
+}
+
+void DatabaseManager::save_iptv_cache(const std::string &url, const std::string &data_json) {
+    if (!is_ready())
+        return;
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
+    const char *sql = "INSERT OR REPLACE INTO iptv_cache (url, data_json, updated_at) "
+                      "VALUES (?, ?, ?);";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, url.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, data_json.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 3, (sqlite3_int64)std::time(nullptr));
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+}
+
+std::string DatabaseManager::load_iptv_cache(const std::string &url) {
+    if (!is_ready())
+        return "";
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
+    std::string out;
+    const char *sql = "SELECT data_json FROM iptv_cache WHERE url=? LIMIT 1;";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, url.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *j = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+            if (j)
+                out = j;
+        }
+        sqlite3_finalize(stmt);
+    }
+    return out;
+}
+
+int64_t DatabaseManager::iptv_cache_updated_at(const std::string &url) {
+    if (!is_ready())
+        return 0;
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
+    int64_t out = 0;
+    const char *sql = "SELECT updated_at FROM iptv_cache WHERE url=? LIMIT 1;";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, url.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+            out = (int64_t)sqlite3_column_int64(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+    return out;
+}
+
+void DatabaseManager::save_local_folder_cache(const std::string &path,
+                                              const std::string &data_json) {
+    if (!is_ready())
+        return;
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
+    const char *sql = "INSERT OR REPLACE INTO local_folder_cache (path, data_json, updated_at) "
+                      "VALUES (?, ?, ?);";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, data_json.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 3, (sqlite3_int64)std::time(nullptr));
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+}
+
+std::string DatabaseManager::load_local_folder_cache(const std::string &path) {
+    if (!is_ready())
+        return "";
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
+    std::string out;
+    const char *sql = "SELECT data_json FROM local_folder_cache WHERE path=? LIMIT 1;";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *j = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+            if (j)
+                out = j;
+        }
+        sqlite3_finalize(stmt);
+    }
+    return out;
 }
 } // namespace panicast

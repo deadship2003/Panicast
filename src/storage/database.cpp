@@ -94,7 +94,10 @@ bool DatabaseManager::init() {
     //   backfilled from their URL via classifyMediaType (see backfill below).
     //   D14-4: SCHEMA_VERSION 47 -> 48. progress/player_state current_url re-keyed from the played
     //     cache path to the canonical source URL (identity convergence w/ history/remote/UI).
-    constexpr int SCHEMA_VERSION = 48;
+    //   CACHE-1: SCHEMA_VERSION 48 -> 49. Four per-mode list-cache tables so every mode persists its
+    //     L/ENTER expanded content to SQLite (bilibili_follow_cache / bilibili_history_cache /
+    //     iptv_cache / local_folder_cache). All CREATE TABLE IF NOT EXISTS — additive, user data kept.
+    constexpr int SCHEMA_VERSION = 49;
     int stored_version = 0;
     {
         sqlite3_stmt *sv = nullptr;
@@ -362,6 +365,37 @@ bool DatabaseManager::init() {
             last_sync_at INTEGER DEFAULT 0,
             sync_cursor  TEXT,
             PRIMARY KEY (account_id, sync_type)
+        );
+
+        -- CACHE-1 (SCHEMA 49): per-mode list caches so every mode persists L/ENTER expanded
+        --   content to SQLite (not just the modes that already used episode_cache/search_cache).
+        -- B mode: UP followings list (parsed WBI arc). key = account's uid.
+        CREATE TABLE IF NOT EXISTS bilibili_follow_cache (
+            account_id INTEGER NOT NULL,
+            uid        TEXT    NOT NULL,
+            data_json  TEXT    NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (account_id, uid)
+        );
+        -- B mode: watch history list (parsed /x/v2/history). key = account's uid.
+        CREATE TABLE IF NOT EXISTS bilibili_history_cache (
+            account_id INTEGER NOT NULL,
+            uid        TEXT    NOT NULL,
+            data_json  TEXT    NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (account_id, uid)
+        );
+        -- I mode: parsed iptv-org channel tree. TTL via updated_at (cache_hours).
+        CREATE TABLE IF NOT EXISTS iptv_cache (
+            url        TEXT PRIMARY KEY,
+            data_json  TEXT    NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0
+        );
+        -- F mode: local-directory scan result. path = absolute directory path.
+        CREATE TABLE IF NOT EXISTS local_folder_cache (
+            path       TEXT PRIMARY KEY,
+            data_json  TEXT    NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0
         );
     )";
 

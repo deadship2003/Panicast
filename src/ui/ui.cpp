@@ -136,17 +136,10 @@ void UI::draw(
     case AppMode::BILIBILI:
         mode_str = use_emoji_title ? "Ｂ BILIBILI" : "[B] BILIBILI";
         break; // Y15 (fullwidth B: glibc wcwidth=2)
-    case AppMode::TIKTOK: {
-        const std::string &r = dctx.tiktok_region;
-        // Y24.13: CN region = Douyin (douyin.com); show Douyin in the title.
-        if (r == "CN")
-            mode_str = use_emoji_title ? fmt::format("🎵 Douyin [{}]", r)
-                                       : fmt::format("[T] Douyin [{}]", r);
-        else
-            mode_str = use_emoji_title ? fmt::format("🎵 TIKTOK [{}]", r)
-                                       : fmt::format("[T] TIKTOK [{}]", r);
+    case AppMode::TIKTOK:
+        // Y24.xx: region grouping removed — T mode holds both TikTok and Douyin.
+        mode_str = use_emoji_title ? "🎵 TikTok/Douyin" : "[T] TikTok/Douyin";
         break;
-    }
     case AppMode::IPTV:
         mode_str = use_emoji_title ? "📺 IPTV" : "[I] IPTV";
         break; // Y24.50

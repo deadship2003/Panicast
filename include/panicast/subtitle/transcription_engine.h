@@ -63,6 +63,12 @@ public:
     static std::string resolve_whisper_bin();
     static std::string resolve_model();
 
+    // Canonical ASR transcript path: <data_dir>/transcripts/<djb2-hex(url)>.srt. Both offline
+    //   (batch) and real-time (streaming + local) ASR write here — never next to the media in
+    //   ~/Downloads (user-facing downloads stay clean; app-generated data lives under the XDG
+    //   data dir). Public so SubtitleManager can probe the same path on load/replay.
+    static std::string transcript_path(const std::string &url);
+
 private:
     SubtitleManager *sm_ = nullptr;
     ThreadPool *pool_ = nullptr;
@@ -95,9 +101,9 @@ private:
     void finish_realtime_(unsigned gen);
 
     // Y24.20 path resolution moved to public (D49 — see above).
-    // Save segments as SRT; local → <file>.srt next to media; streaming → <data_dir>/transcripts/<hash>.srt.
+    // Save segments as SRT into transcript_path(url).
     static void save_srt(const std::vector<TranscriptSegment> &segs, TreeNodePtr node,
-                         const std::string &url, bool is_streaming);
+                         const std::string &url);
 };
 
 } // namespace panicast

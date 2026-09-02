@@ -167,6 +167,41 @@ static std::vector<TreeNodePtr> build_catalog(const std::string &body, const std
 
 // D11-3c: load_iptv_root relocated to LibraryService (the iptv_root_ owner).
 
+// ── CACHE-1: serialize/deserialize an iptv child subtree (channel leaf, sub-playlist folder,
+//   or group folder with nested children) to/from the iptv_cache table. ──
+static json serialize_iptv_node(const TreeNodePtr &n) {
+    json j;
+    j["title"] = n->title;
+    j["url"] = n->url;
+    j["type"] = static_cast<int>(n->type);
+    j["is_iptv_channel"] = n->is_iptv_channel;
+    j["children_loaded"] = n->children_loaded;
+    if (!n->children.empty()) {
+        json kids = json::array();
+        for (const auto &c : n->children)
+            kids.push_back(serialize_iptv_node(c));
+        j["children"] = kids;
+    }
+    return j;
+}
+
+static TreeNodePtr deserialize_iptv_node(const json &j) {
+    auto n = std::make_shared<TreeNode>();
+    n->title = j.value("title", std::string());
+    n->url = j.value("url", std::string());
+    n->type = static_cast<NodeType>(j.value("type", static_cast<int>(NodeType::FOLDER)));
+    n->is_iptv_channel = j.value("is_iptv_channel", false);
+    n->children_loaded = j.value("children_loaded", false);
+    if (j.contains("children") && j["children"].is_array()) {
+        for (const auto &cj : j["children"]) {
+            auto c = deserialize_iptv_node(cj);
+            c->parent = n;
+            n->children.push_back(c);
+        }
+    }
+    return n;
+}
+
 void App::expand_iptv_node(TreeNodePtr node) {
     if (!node)
         return;
@@ -181,6 +216,37 @@ void App::expand_iptv_node(TreeNodePtr node) {
     node->children_loaded = false;
 
     pool_.submit([this, node, u]() {
+        // CACHE-1: serve a fresh DB cache entry (same TTL as iptv_fetch), skipping the network.
+        const int cache_sec = IniConfig::instance().get_iptv_cache_hours() * 3600;
+        const std::string cached = DatabaseManager::instance().load_iptv_cache(u);
+        if (!cached.empty()) {
+            const int64_t age = static_cast<int64_t>(time(nullptr)) -
+                                DatabaseManager::instance().iptv_cache_updated_at(u);
+            if (cache_sec <= 0 || age < cache_sec) {
+                try {
+                    json j = json::parse(cached);
+                    if (j.is_array()) {
+                        std::vector<TreeNodePtr> cached_kids;
+                        for (const auto &kj : j) {
+                            auto n = deserialize_iptv_node(kj);
+                            n->parent = node;
+                            cached_kids.push_back(n);
+                        }
+                        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
+                        node->children = cached_kids;
+                        node->children_loaded = true;
+                        node->expanded = true;
+                        node->loading = false;
+                        EVENT_LOG(fmt::format("[IPTV] loaded {} item(s) for {} (cached)",
+                                              cached_kids.size(), u));
+                        return;
+                    }
+                } catch (const std::exception &e) {
+                    LOG(fmt::format("[IPTV] cache parse error: {}", e.what()));
+                }
+            }
+        }
+
         const std::string base = IniConfig::instance().get_iptv_base_url();
         const std::string api = IniConfig::instance().get_iptv_api_url();
         std::vector<TreeNodePtr> kids;
@@ -277,6 +343,15 @@ void App::expand_iptv_node(TreeNodePtr node) {
             node->parse_failed = true;
             node->error_msg = "No channels (network blocked, empty playlist, or geo-restricted)";
         }
+
+        // CACHE-1: persist the parsed tree (outside the lock) so the next expand hits the DB.
+        if (!kids.empty()) {
+            json arr = json::array();
+            for (const auto &k : kids)
+                arr.push_back(serialize_iptv_node(k));
+            DatabaseManager::instance().save_iptv_cache(u, arr.dump());
+        }
+
         EVENT_LOG(fmt::format("[IPTV] loaded {} item(s) for {}", kids.size(), u));
     });
 }

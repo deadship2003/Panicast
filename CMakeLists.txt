@@ -1,5 +1,5 @@
 # ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║                    PANICAST CMake Build System                            ║
+# ║                    Panicast CMake Build System                            ║
 # ║                   Terminal Podcast/Radio Player                           ║
 # ║                 Author: Panic <Deadship2003@gmail.com>                    ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -11,8 +11,8 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(PaniCast
-    VERSION 0.1
+project(Panicast
+    VERSION 0.0.1
     DESCRIPTION "Terminal Podcast/Radio Player"
     LANGUAGES CXX
 )
@@ -23,7 +23,7 @@ project(PaniCast
 #   - Y (account) line: Panicast_V0.1-Y01 .. -Y99  (multi-account / Google-login feature line, parallel to F)
 #   Empty PANICAST_FIX_SUFFIX = baseline.
 set(PANICAST_FIX_SUFFIX "")
-set(PANICAST_FULL_VERSION "PaniCast-V0.01")
+set(PANICAST_FULL_VERSION "Panicast-V0.0.1")
 
 # V0.05B9n3e5g3p P3-2: Generate version.h via configure_file; source code includes it
 # Avoids manually syncing the version in 3 places (old code had CMake=n, vcpkg=n, source=o mismatch)
@@ -60,7 +60,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/secrets/client_secret.json")
     endif()
     message(STATUS "Builtin OAuth client: baked from secrets/client_secret.json")
 else()
-    message(WARNING "PaniCast: no secrets/client_secret.json found — builtin OAuth client is EMPTY. "
+    message(WARNING "Panicast: no secrets/client_secret.json found — builtin OAuth client is EMPTY. "
                     "Google login will require a runtime <data_dir>/client_secret*.json. "
                     "Drop your own client_secret.json into secrets/ and rebuild to bake a builtin client.")
 endif()
@@ -88,7 +88,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "PaniCast version: ${PANICAST_FULL_VERSION}")
+message(STATUS "Panicast version: ${PANICAST_FULL_VERSION}")
 
 # =============================================================================
 # Platform detection
@@ -256,6 +256,7 @@ add_executable(panicast
     src/net/url_guard.cpp
     src/net/ytdlp_runner.cpp
     src/net/network.cpp
+    src/net/douyin_api.cpp
     src/net/proxy_manager.cpp
     src/net/remote_command_bus.cpp
     src/net/remote_server.cpp
@@ -472,7 +473,7 @@ endif()
 # =============================================================================
 # Packaging
 # =============================================================================
-set(CPACK_PACKAGE_NAME "PaniCast")
+set(CPACK_PACKAGE_NAME "Panicast")
 set(CPACK_PACKAGE_VERSION ${PANICAST_FULL_VERSION})
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Terminal Podcast/Radio Player")
 set(CPACK_PACKAGE_VENDOR "Panic")
@@ -535,7 +536,7 @@ endif()
 # =============================================================================
 message(STATUS "")
 message(STATUS "═══════════════════════════════════════════════════════════════")
-message(STATUS "  PaniCast ${PANICAST_FULL_VERSION} Configuration Summary")
+message(STATUS "  Panicast ${PANICAST_FULL_VERSION} Configuration Summary")
 message(STATUS "═══════════════════════════════════════════════════════════════")
 message(STATUS "  Platform:     ${PANICAST_PLATFORM}")
 message(STATUS "  Build Type:   ${CMAKE_BUILD_TYPE}")

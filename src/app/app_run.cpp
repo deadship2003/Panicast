@@ -11,7 +11,7 @@
 #include <iostream>
 
 #ifdef PANICAST_WINDOWS
-// compat bridge (PaniCast-Windows): see definition in the win32 compat layer.
+// compat bridge (Panicast-Windows): see definition in the win32 compat layer.
 namespace panicast {
 void panicast_win_set_command_bus(RemoteCommandBus *bus);
 }
@@ -35,10 +35,8 @@ App::App() {
 
     // E: the 8 per-mode roots are now std::vector<TreeNodePtr> (default-constructed empty);
     //   no TreeNode root nodes to create. (online_root lives in OnlineState.)
-    tiktok_region_ = IniConfig::instance().get("tiktok", "region", "US");
-    if (TikTokRegion::name(tiktok_region_) == tiktok_region_ && tiktok_region_ != "US") {
-        tiktok_region_ = "US"; // unknown code → default
-    }
+    // Y24.xx: region grouping removed — T mode is fixed (TikTok=US; Douyin detected by URL).
+    tiktok_region_ = "US";
     TikTokRegion::set_current(tiktok_region_);
 
     // Load the global play mode at startup (no persisted playlist anymore)
@@ -154,7 +152,7 @@ bool App::check_exit_requests() {
             running = false;
             return true;
         }
-        if (frontend_->confirm_box("Quit PANICAST? (CTRL+C)")) {
+        if (frontend_->confirm_box("Quit Panicast? (CTRL+C)")) {
             running = false;
             return true;
         }

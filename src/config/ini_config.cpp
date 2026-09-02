@@ -481,7 +481,7 @@ void IniConfig::create_default(const std::string &path) {
     std::ofstream f(path);
     if (f.is_open()) {
         f << R"(# ============================================================
-# PANICAST Configuration File
+# Panicast Configuration File
 # Version: )" << VERSION
           << R"(
 # Author: Panic
@@ -641,7 +641,7 @@ bilibili_direct = true
 # ============================================================
 [storage]
 # 下载文件保存目录 / Download directory
-download_dir = ~/Downloads/PaniCast
+download_dir = ~/Downloads/Panicast
 # 以下键已移除（从未被代码读取） / The following keys are removed (never read by code):
 #   max_log_entries, search_cache_max, podcast_cache_days
 # 保留并实际生效的键 / Keys still in effect:

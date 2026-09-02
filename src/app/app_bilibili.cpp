@@ -236,7 +236,9 @@ void App::expand_bilibili_account(TreeNodePtr node) {
 }
 
 // Y22: lazy-expand Subscriptions → fetch the account's followings (UP masters) via WBI.
-void App::expand_bili_followings(TreeNodePtr node) {
+//   CACHE-1: non-forced first expand serves the persisted list (bilibili_follow_cache); 'r'
+//   (force=true) always re-fetches and rewrites the cache.
+void App::expand_bili_followings(TreeNodePtr node, bool force) {
     if (!node || !node->is_bili_followings)
         return;
     int aid = node->account_id;
@@ -258,7 +260,48 @@ void App::expand_bili_followings(TreeNodePtr node) {
     EVENT_LOG(fmt::format("B: fetching followings for {}...", acc.uname));
     std::string sessdata = acc.sessdata;
     std::string uid = acc.uid;
-    pool_.submit([this, sessdata, uid, aid, node]() {
+    pool_.submit([this, sessdata, uid, aid, node, force]() {
+        // CACHE-1: cache-first on non-forced expand; empty/missing cache falls through to network.
+        if (!force) {
+            std::string cached = DatabaseManager::instance().load_bili_followings(aid, uid);
+            std::vector<TreeNodePtr> kids;
+            if (!cached.empty()) {
+                try {
+                    json j = json::parse(cached);
+                    if (j.is_array()) {
+                        for (const auto &it : j) {
+                            auto c = std::make_shared<TreeNode>();
+                            c->title = it.value("title", "");
+                            c->url = it.value("url", "");
+                            c->type = NodeType::FOLDER;
+                            c->is_yt_channel = true; // expandable UP-master folder
+                            c->is_bili_up = true;
+                            c->is_youtube = false;
+                            c->children_loaded = false;
+                            c->account_id = aid;
+                            std::string sign = it.value("subtext", "");
+                            if (!sign.empty())
+                                c->subtext = sign;
+                            c->parent = node;
+                            kids.push_back(c);
+                        }
+                    }
+                } catch (const std::exception &e) {
+                    LOG(fmt::format("[B] followings cache parse error: {}", e.what()));
+                }
+            }
+            if (!kids.empty()) {
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
+                node->children.clear();
+                for (auto &c : kids)
+                    node->children.push_back(c);
+                node->children_loaded = true;
+                node->expanded = true;
+                node->loading = false;
+                EVENT_LOG(fmt::format("B: {} followings loaded from cache", kids.size()));
+                return;
+            }
+        }
         auto followings = BilibiliParser::parse_followings(sessdata, uid, aid);
         {
             std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
@@ -271,12 +314,19 @@ void App::expand_bili_followings(TreeNodePtr node) {
             node->expanded = true;
             node->loading = false;
         }
+        // CACHE-1: serialize + persist outside the tree lock.
+        json arr = json::array();
+        for (const auto &c : followings)
+            arr.push_back({{"title", c->title}, {"url", c->url}, {"subtext", c->subtext}});
+        DatabaseManager::instance().save_bili_followings(aid, uid, arr.dump());
         EVENT_LOG(fmt::format("B: {} followings loaded", followings.size()));
     });
 }
 
 // Y22: lazy-expand History → fetch the account's watch history via /x/v2/history.
-void App::expand_bili_history(TreeNodePtr node) {
+//   CACHE-1: non-forced first expand serves the persisted list (bilibili_history_cache); 'r'
+//   (force=true) always re-fetches and rewrites the cache.
+void App::expand_bili_history(TreeNodePtr node, bool force) {
     if (!node || !node->is_bili_history)
         return;
     int aid = node->account_id;
@@ -297,8 +347,45 @@ void App::expand_bili_history(TreeNodePtr node) {
     }
     EVENT_LOG(fmt::format("B: fetching history for {}...", acc.uname));
     std::string sessdata = acc.sessdata;
-    pool_.submit([this, sessdata, node]() {
-        auto hist = BilibiliParser::parse_history(sessdata, node->account_id);
+    std::string uid = acc.uid;
+    pool_.submit([this, sessdata, uid, aid, node, force]() {
+        // CACHE-1: cache-first on non-forced expand; empty/missing cache falls through to network.
+        if (!force) {
+            std::string cached = DatabaseManager::instance().load_bili_history(aid, uid);
+            std::vector<TreeNodePtr> kids;
+            if (!cached.empty()) {
+                try {
+                    json j = json::parse(cached);
+                    if (j.is_array()) {
+                        for (const auto &it : j) {
+                            auto c = std::make_shared<TreeNode>();
+                            c->title = it.value("title", "");
+                            c->url = it.value("url", "");
+                            c->type = NodeType::PODCAST_EPISODE;
+                            c->duration = it.value("duration", 0);
+                            c->children_loaded = true;
+                            c->account_id = aid;
+                            c->parent = node;
+                            kids.push_back(c);
+                        }
+                    }
+                } catch (const std::exception &e) {
+                    LOG(fmt::format("[B] history cache parse error: {}", e.what()));
+                }
+            }
+            if (!kids.empty()) {
+                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
+                node->children.clear();
+                for (auto &c : kids)
+                    node->children.push_back(c);
+                node->children_loaded = true;
+                node->expanded = true;
+                node->loading = false;
+                EVENT_LOG(fmt::format("B: {} history items loaded from cache", kids.size()));
+                return;
+            }
+        }
+        auto hist = BilibiliParser::parse_history(sessdata, aid);
         {
             std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
             node->children.clear();
@@ -310,6 +397,11 @@ void App::expand_bili_history(TreeNodePtr node) {
             node->expanded = true;
             node->loading = false;
         }
+        // CACHE-1: serialize + persist outside the tree lock.
+        json arr = json::array();
+        for (const auto &c : hist)
+            arr.push_back({{"title", c->title}, {"url", c->url}, {"duration", c->duration}});
+        DatabaseManager::instance().save_bili_history(aid, uid, arr.dump());
         EVENT_LOG(fmt::format("B: {} history items loaded", hist.size()));
     });
 }
@@ -319,14 +411,14 @@ void App::expand_bili_history(TreeNodePtr node) {
 void App::refresh_bili_followings(TreeNodePtr node) {
     if (!node || !node->is_bili_followings || node->loading)
         return;
-    expand_bili_followings(node);
+    expand_bili_followings(node, /*force=*/true);
 }
 
 // B-fix: 'r' on History — force re-fetch the account's watch history via /x/v2/history.
 void App::refresh_bili_history(TreeNodePtr node) {
     if (!node || !node->is_bili_history || node->loading)
         return;
-    expand_bili_history(node);
+    expand_bili_history(node, /*force=*/true);
 }
 
 // B-fix: 'r' on a Bilibili account node — re-expand it (recreate the Subs / History / Search

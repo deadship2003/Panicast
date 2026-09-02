@@ -222,7 +222,7 @@ void UI::init(float ratio) {
     if (!codeset_is_utf8(codeset)) {
         // Still not UTF-8 (very old glibc without C.UTF-8 and no generated locale): wide chars will garble
         const char *msg =
-            "PaniCast: terminal is not using a UTF-8 locale; CJK/Emoji will be garbled.\n"
+            "Panicast: terminal is not using a UTF-8 locale; CJK/Emoji will be garbled.\n"
             "  Fix (any one of):\n"
             "    1) Set LANG=en_US.UTF-8 or LANG=C.UTF-8 in ~/.bashrc or /etc/locale.conf\n"
             "    2) Run sudo dpkg-reconfigure locales and enable en_US.UTF-8 / zh_CN.UTF-8\n"

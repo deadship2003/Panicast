@@ -29,12 +29,11 @@ public:
     static std::string probe_sidecar(TreeNodePtr node);
 
     // D11-3a: unified local-subtitle finder — the ONE place that decides whether a track has a
-    //   local subtitle file. Checks BOTH the download dir (<sanitize(title)>.srt — the ASR F-mode
-    //   batch-output location, or <localbase>.srt when the URL is a cached local file) AND a same-name
-    //   sidecar next to local_file (any subtitle ext). Supersedes the adjacent-only find_sidecar for
-    //   all callers (probe_sidecar, load_async, SubtitleService::resolve_subtitle_source) so the
-    //   "本地字幕文件优先" policy has a single source of truth. May set node->local_file (resolved
-    //   from the URL cache) when a download-dir SRT is found. Returns the path or "".
+    //   local subtitle file. ASR transcripts live under <data_dir>/transcripts/<djb2-hex(url)>.srt
+    //   (app-data dir, not ~/Downloads), so the ASR SRT is checked FIRST, then a same-name sidecar
+    //   next to local_file (any subtitle ext — for online 📜 sidecars). Supersedes the adjacent-only
+    //   find_sidecar for all callers (probe_sidecar, load_async, SubtitleService::resolve_subtitle_source)
+    //   so the "本地字幕文件优先" policy has a single source of truth. Returns the path or "".
     static std::string find_local_subtitle(TreeNodePtr node);
 
     // Async load: probe sidecar → fetch+parse node->subtitle_url → set status + pending segments.

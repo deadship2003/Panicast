@@ -451,7 +451,7 @@ void UI::show_pin_popup(const std::string &dynamic_pin, const std::string &unive
     std::string title = " Remote Pairing ";
     mvwprintw(win, 0, (iw - (int)title.size()) / 2, "%s", title.c_str());
 
-    center("PaniCast Remote Control", 2);
+    center("Panicast Remote Control", 2);
     center("Pairing PIN", 3);
     // Dynamic PIN with spaces between digits for emphasis, bold.
     std::string spaced;
@@ -479,7 +479,7 @@ bool UI::confirm_box(const std::string &prompt) {
         title = title.substr(0, qpos);
     }
 
-    // Border title format: " QUIT PANICAST "
+    // Border title format: " QUIT Panicast "
     std::string border_title = " " + title + " ";
     int border_title_w = Utils::utf8_display_width(border_title);
 
@@ -503,7 +503,7 @@ bool UI::confirm_box(const std::string &prompt) {
     keypad(dlg, TRUE);
 
     // Draw the top border, with the title in the middle
-    // ┌── QUIT PANICAST ──┐
+    // ┌── QUIT Panicast ──┐
     waddch(dlg, ACS_ULCORNER); // ┌
     int side_dashes = (iw - 2 - border_title_w) / 2;
     if (side_dashes < 0)

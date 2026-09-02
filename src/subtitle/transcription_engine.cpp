@@ -142,19 +142,6 @@ double get_audio_duration(const std::string &file) {
     return h * 3600.0 + m * 60.0 + s;
 }
 
-// Y24.22: compute the SRT sidecar path for a given url (local: <file>.srt; streaming: <data_dir>/transcripts/<hash>.srt).
-std::string compute_srt_path(const std::string &url, bool is_streaming, TreeNodePtr node) {
-    if (!is_streaming && node) {
-        std::string file = node->local_file.empty() ? node->url : node->local_file;
-        std::string base = file;
-        size_t dot = base.find_last_of('.');
-        if (dot != std::string::npos)
-            base = base.substr(0, dot);
-        return base + ".srt";
-    }
-    return Paths::get_data_dir() + "/transcripts/" + url_hash(url) + ".srt";
-}
-
 // Y24.22/23: persist the ASR subtitle marker (has_asr_srt + asr_srt_path) to episode_cache.
 void persist_subtitle_marker(TreeNodePtr node) {
     if (!node)
@@ -171,6 +158,14 @@ void persist_subtitle_marker(TreeNodePtr node) {
                     parent->url.substr(0, 40), node->url.substr(0, 40), node->asr_srt_path));
 }
 } // namespace
+
+// Canonical ASR transcript path (see header). All ASR SRT output — offline batch and real-time
+//   (streaming + local) — lands under <data_dir>/transcripts/, keyed by the djb2 hash of the
+//   episode URL. This keeps user-facing downloads (~/Downloads) clean and makes the path
+//   deterministic for SubtitleManager to probe on load/replay.
+std::string TranscriptionEngine::transcript_path(const std::string &url) {
+    return Paths::get_data_dir() + "/transcripts/" + url_hash(url) + ".srt";
+}
 
 // ── Path resolution (BTW feedback) ──
 std::string TranscriptionEngine::resolve_whisper_bin() {
@@ -297,11 +292,9 @@ void TranscriptionEngine::transcribe_one(TreeNodePtr node) {
     }
 
     // Y24.20: skip/resume check \u2014 don\u2019t waste CPU re-transcribing files that already have subtitles.
-    std::string base = file;
-    size_t dot = base.find_last_of('.');
-    if (dot != std::string::npos)
-        base = base.substr(0, dot);
-    std::string srt_dst = base + ".srt";
+    std::string srt_dst = transcript_path(node->url);
+    std::error_code ec;
+    fs::create_directories(Paths::get_data_dir() + "/transcripts", ec);
 
     std::vector<TranscriptSegment> existing_segs;
     int offset_ms = 0; // 0 = full transcribe; >0 = resume from this offset
@@ -460,7 +453,9 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
     }
 
     // Y24.22: skip/resume check — load any existing partial/complete SRT and resume from its end.
-    std::string srt_path = compute_srt_path(url, is_streaming, node);
+    //   Keyed on the episode's canonical URL (node->url), so it matches save_srt + find_local_subtitle.
+    std::string asr_key = node ? (node->url.empty() ? url : node->url) : url;
+    std::string srt_path = transcript_path(asr_key);
     std::vector<TranscriptSegment>
         segs;           // accumulated (pre-filled with existing partial, then grown)
     double start = 0.0; // chunk start offset on the source timeline (seconds)
@@ -724,12 +719,12 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
             EVENT_LOG("Transcribe: real-time produced no segments");
         return;
     }
-    save_srt(segs, node, url, is_streaming);
+    save_srt(segs, node, asr_key);
     if (node && !is_streaming)
         SubtitleManager::probe_sidecar(node);
     // Y24.28: video → load the SRT into mpv (renders in video window, bottom center).
     if (is_video && mpv_) {
-        mpv_->sub_add(compute_srt_path(url, is_streaming, node));
+        mpv_->sub_add(transcript_path(asr_key));
         if (!stopped)
             mpv_->show_osd(fmt::format("Transcription complete: {} segments", segs.size()), 3000);
     }
@@ -739,12 +734,10 @@ void TranscriptionEngine::realtime_worker(TreeNodePtr node, std::string url, boo
 }
 
 void TranscriptionEngine::save_srt(const std::vector<TranscriptSegment> &segs, TreeNodePtr node,
-                                   const std::string &url, bool is_streaming) {
-    std::string dst = compute_srt_path(url, is_streaming, node);
-    if (is_streaming) {
-        std::error_code ec;
-        fs::create_directories(Paths::get_data_dir() + "/transcripts", ec);
-    }
+                                   const std::string &url) {
+    std::string dst = transcript_path(url);
+    std::error_code ec;
+    fs::create_directories(Paths::get_data_dir() + "/transcripts", ec);
     std::ofstream f(dst);
     if (!f) {
         LOG(fmt::format("[Transcribe] save_srt: cannot write {}", dst));
@@ -756,8 +749,8 @@ void TranscriptionEngine::save_srt(const std::vector<TranscriptSegment> &segs, T
           << segs[i].text << "\n\n";
     }
     LOG(fmt::format("[Transcribe] SRT saved: {} ({} segments)", dst, segs.size()));
-    if (node && is_streaming) {
-        // Streaming: record the sidecar path on the node so probe/replay can find it.
+    if (node) {
+        // Record the sidecar path on the node so probe/replay can find it (streaming AND local).
         node->subtitle_url = dst;
         node->has_asr_srt = true;
         node->asr_srt_path = dst;

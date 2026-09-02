@@ -431,10 +431,52 @@ bool App::load_favourite_children_from_cache(TreeNodePtr node) {
 // Subdirectories become FOLDER children with is_local_folder=true (lazy: expanding calls this function recursively again);
 // media files become PODCAST_EPISODE children whose url is the absolute path, uniformly played via MPV, marked as cached (green).
 // Skip symlink directories to prevent circular references; only scan one level at a time, deeper levels recurse on user expand.
-void App::expand_local_folder(TreeNodePtr node) {
+void App::expand_local_folder(TreeNodePtr node, bool force) {
     if (!node)
         return;
     std::string dir = node->url;
+
+    // CACHE-1: serve a cached scan (skip the disk walk) unless force re-scan.
+    if (!force) {
+        std::string cached = DatabaseManager::instance().load_local_folder_cache(dir);
+        if (!cached.empty()) {
+            try {
+                json j = json::parse(cached);
+                if (j.is_array()) {
+                    std::vector<TreeNodePtr> kids;
+                    for (const auto &e : j) {
+                        auto n = std::make_shared<TreeNode>();
+                        n->title = e.value("title", std::string());
+                        n->url = e.value("url", std::string());
+                        int t = e.value("type", static_cast<int>(NodeType::FOLDER));
+                        n->type = static_cast<NodeType>(t);
+                        n->parent = node;
+                        if (t == static_cast<int>(NodeType::FOLDER)) {
+                            n->is_local_folder = true;
+                            n->source_mode = "LOCAL_FOLDER";
+                            n->children_loaded = false;
+                        } else {
+                            n->local_file = e.value("local_file", n->url);
+                            n->is_downloaded = true;
+                            n->children_loaded = true;
+                            CacheManager::instance().mark_downloaded(n->url, n->local_file);
+                        }
+                        kids.push_back(n);
+                    }
+                    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
+                    node->children = kids;
+                    node->children_loaded = true;
+                    node->expanded = true;
+                    EVENT_LOG(fmt::format("[LocalFolder] Loaded {} items from cache: {}", kids.size(),
+                                          dir));
+                    return;
+                }
+            } catch (const std::exception &e) {
+                LOG(fmt::format("[LocalFolder] cache parse error: {}", e.what()));
+            }
+        }
+    }
+
     std::vector<TreeNodePtr> subdirs; // subfolder nodes (can recurse after expansion)
     std::vector<TreeNodePtr> files;   // audio/video file nodes
     std::error_code ec;
@@ -495,6 +537,28 @@ void App::expand_local_folder(TreeNodePtr node) {
             node->children.push_back(c);
         node->children_loaded = true;
         node->expanded = true;
+    }
+    // CACHE-1: persist the scan so the next expand hits the DB instead of re-scanning disk.
+    {
+        json arr = json::array();
+        for (const auto &c : subdirs) {
+            json o = json::object();
+            o["title"] = c->title;
+            o["url"] = c->url;
+            o["type"] = static_cast<int>(NodeType::FOLDER);
+            o["is_local_folder"] = true;
+            arr.push_back(std::move(o));
+        }
+        for (const auto &c : files) {
+            json o = json::object();
+            o["title"] = c->title;
+            o["url"] = c->url;
+            o["type"] = static_cast<int>(NodeType::PODCAST_EPISODE);
+            o["is_downloaded"] = true;
+            o["local_file"] = c->local_file;
+            arr.push_back(std::move(o));
+        }
+        DatabaseManager::instance().save_local_folder_cache(dir, arr.dump());
     }
     // Y24.8: probe sidecars (📜 detection) async as one batch — off the UI thread so a large
     //   folder with many files doesn't block. 📜 markers appear within a frame or two.

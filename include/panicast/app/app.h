@@ -301,7 +301,7 @@ private:
     bool expand_link_node(TreeNodePtr node);
     TreeNodePtr find_node_by_url(TreeNodePtr root, const std::string &url);
     bool load_favourite_children_from_cache(TreeNodePtr node);
-    void expand_local_folder(TreeNodePtr node);
+    void expand_local_folder(TreeNodePtr node, bool force = false);
 
     // ── app_input.cpp ──────────────────────────────────────────────────────────
     void handle_mouse_event();
@@ -419,8 +419,9 @@ private:
     void start_bilibili_login();
     void expand_bilibili_account(TreeNodePtr node);
     // Y22: lazy-expand the B-account's Subscriptions / History children.
-    void expand_bili_followings(TreeNodePtr node);
-    void expand_bili_history(TreeNodePtr node);
+    // CACHE-1: force=true bypasses the list_cache read (used by 'r' to re-fetch online).
+    void expand_bili_followings(TreeNodePtr node, bool force = false);
+    void expand_bili_history(TreeNodePtr node, bool force = false);
     // Y-fix: 'r' on a B-account's Subscriptions / History / account node → force re-fetch
     //   (B mode previously had no refresh path at all — 'r' was a silent no-op).
     void refresh_bili_followings(TreeNodePtr node);
@@ -433,16 +434,12 @@ private:
     //   'a' adds @user/video URL, '/' opens @user/#tag/URL, Enter loads a creator's videos via
     //   yt-dlp --flat-playlist (+--geo-bypass-country), 'b' cycles region (13: 12 TikTok + CN=Douyin).
     //   D11-3c: load_tiktok_root relocated to LibraryService (the tiktok_root_ owner).
-    void add_tiktok_user();
+    void start_douyin_login(); // Y24.xx: 'a' in T mode — Douyin QR scan login (terminal QR)
     void
     tiktok_subscribe(const std::string &input); // shared core: TikTok creator / Douyin video leaf
     void tiktok_direct_input();                 // '/' handler: @user / #tag / URL dispatch
     void tag_browse(const std::string &tag); // '#' → yt-dlp tag list (transient; dormant upstream)
-    void cycle_tiktok_region();
     void delete_tiktok_user_node(TreeNodePtr node);
-    const std::string &current_tiktok_region() const {
-        return tiktok_region_;
-    }
 
     // ── app_iptv.cpp (Y24.50: I-mode, iptv-org playlists) ──────────────────────────
     // D11-3c: load_iptv_root (catalog top-level) relocated to LibraryService (the iptv_root_ owner).

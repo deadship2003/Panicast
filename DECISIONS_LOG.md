@@ -1266,14 +1266,14 @@ Fix: classifyMediaType layers two pre-checks on top of classify(): (1) `file://`
 
 ## N04 — PIN auth + UDP discovery + WebSocket + embedded BS client + APK source
 
-**User goals:** (1) latest tarball; (2) open the backend address in any IE → control directly; (3) APK: install on modern Android with no dependency issues, auto-scan network for players, PIN pairing (dynamic PIN shown in PaniCast popup + universal 6696 for headless), full control + view.
+**User goals:** (1) latest tarball; (2) open the backend address in any IE → control directly; (3) APK: install on modern Android with no dependency issues, auto-scan network for players, PIN pairing (dynamic PIN shown in Panicast popup + universal 6696 for headless), full control + view.
 
 **Auth model (resolves BS-direct vs APK-PIN tension):**
 - PIN-based auth replaces `auth_token`. Dynamic 4-digit PIN (`regenerate_pin()`), shown via `:pin` popup, rotatable via `:newpin`. Universal `6696` always valid (headless pairing).
-- **Localhost connections are open** (no PIN) → "open http://127.0.0.1:port/ in IE on the PaniCast host → control directly". Non-localhost → PIN required. The BS HTML shows a PIN overlay only when the server returns ACK auth-required.
+- **Localhost connections are open** (no PIN) → "open http://127.0.0.1:port/ in IE on the Panicast host → control directly". Non-localhost → PIN required. The BS HTML shows a PIN overlay only when the server returns ACK auth-required.
 - `password <pin>` valid iff pin == dynamic || pin == "6696".
 
-**UDP discovery (N05):** APK broadcasts `PANICAST_DISCOVER` to udp 18430; PaniCast's `discovery_loop` responds `PANICAST 1 tcp=<port> ws=<port+1>`. APK uses the response source IP. Avoids mDNS/ZeroConf complexity + dependencies — plain UDP broadcast (Android `DatagramSocket` + `WifiManager.MulticastLock`).
+**UDP discovery (N05):** APK broadcasts `PANICAST_DISCOVER` to udp 18430; Panicast's `discovery_loop` responds `PANICAST 1 tcp=<port> ws=<port+1>`. APK uses the response source IP. Avoids mDNS/ZeroConf complexity + dependencies — plain UDP broadcast (Android `DatagramSocket` + `WifiManager.MulticastLock`).
 
 **WebSocket (N06):** self-written RFC6455 (handshake SHA1+base64 via OpenSSL `SHA1`; frame codec with mask/ping-pong). One HTTP listener on port+1 serves the embedded BS client (GET /) AND upgrades to WS. **socketpair bridge**: RemoteSession was refactored to separate `read_fd_`/`write_fd_`; the WS bridge runs RemoteSession on one end of a socketpair and shuttles WS frames ↔ PRP lines on the other — the PRP engine is unchanged. This keeps ONE protocol (DRY) across raw-TCP and WS transports.
 
@@ -1308,9 +1308,9 @@ Fix: classifyMediaType layers two pre-checks on top of classify(): (1) `file://`
 
 ## N02 — PRP protocol engine, state snapshot, control command end-to-end
 
-**Goal:** make the remote terminal actually control PaniCast — query state AND issue commands that take effect — over the MPD-style line protocol defined in `PANICAST_N_LINE_PROTOCOL_DESIGN.md`.
+**Goal:** make the remote terminal actually control Panicast — query state AND issue commands that take effect — over the MPD-style line protocol defined in `PANICAST_N_LINE_PROTOCOL_DESIGN.md`.
 
-**Protocol (PRP — PaniCast Protocol):** MPD-style text line protocol. Greeting `OK PaniCast N02`; request `COMMAND [ARG...]\n` (double-quoted args for spaces); response `key: value` lines ending `OK` or `ACK [code@0] {cmd} msg`. Query commands (`status`/`currentsong`/`playlistinfo`/`ping`/`password`) answered inline; control commands forwarded to the UI thread via the bus. `password <token>` auth gate (MPD semantics). `idle`/`noidle` accepted as no-ops (N07 implements real subscription).
+**Protocol (PRP — Panicast Protocol):** MPD-style text line protocol. Greeting `OK Panicast N02`; request `COMMAND [ARG...]\n` (double-quoted args for spaces); response `key: value` lines ending `OK` or `ACK [code@0] {cmd} msg`. Query commands (`status`/`currentsong`/`playlistinfo`/`ping`/`password`) answered inline; control commands forwarded to the UI thread via the bus. `password <token>` auth gate (MPD semantics). `idle`/`noidle` accepted as no-ops (N07 implements real subscription).
 
 **Threading contract (the two sanctioned crossing points):**
 1. WRITE path — `RemoteCommandBus` (N01): server `push()`es control commands; UI thread `drain_remote_commands()` each frame; `dispatch_remote()` maps to existing App methods. UI never touched off-thread.
@@ -1333,7 +1333,7 @@ Fix: classifyMediaType layers two pre-checks on top of classify(): (1) `file://`
 **Key user decisions (confirmed):**
 - HTTP/server implementation: **self-written full C++ socket server** (no external lib). Chose POSIX `socket/bind/listen/accept` over adding cpp-httplib — zero new dependency, full control, matches "统一封装" philosophy extended to the server side.
 - Real-time state/LOG push: **MPD / ncmpcpp-style technique** — *protocol design deferred*. User will explain the MPD/ncmpcpp approach in detail before N02 protocol is finalized. (MPD uses a persistent TCP line protocol with an `idle` event-subscription command; ncmpcpp is an MPD client. This signals a move away from HTTP/REST toward a daemon TCP protocol + thin clients.)
-- Source tree: `/mnt/e/AI/PaniCast/Panicast_V0.1-N01/` (parallel to existing Y/F lines).
+- Source tree: `/mnt/e/AI/Panicast/Panicast_V0.1-N01/` (parallel to existing Y/F lines).
 
 **Architecture (this version):**
 - The UI (ncurses) is single-threaded and not thread-safe. Therefore the network server NEVER calls App/MPVController methods directly. Two sanctioned crossing points:

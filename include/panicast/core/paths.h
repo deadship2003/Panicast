@@ -11,7 +11,7 @@ namespace panicast
 // Path constants (constexpr implies inline linkage; safe to place in a header)
 constexpr const char *DATA_DIR = "/.local/share/panicast";
 constexpr const char *CONFIG_DIR = "/.config/panicast";
-constexpr const char *DOWNLOAD_DIR = "/Downloads/PaniCast";
+constexpr const char *DOWNLOAD_DIR = "/Downloads/Panicast";
 
 struct Paths {
     static std::string get_data_dir();

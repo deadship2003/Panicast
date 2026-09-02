@@ -263,6 +263,31 @@ void App::enter_account_node(TreeNodePtr node) {
             std::string url = node->url;
             int aid = node->account_id;
             pool_.submit([this, n, url, aid]() {
+                // CACHE-1: consult youtube_cache first (mirror parse_feed_by_type). A hit with a
+                //   non-empty video list skips the network; an empty cached list is a miss (Y23.3).
+                if (YouTubeCache::instance().has(url)) {
+                    auto cached = YouTubeCache::instance().get(url);
+                    if (!cached.videos.empty()) {
+                        std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
+                        n->children.clear();
+                        for (const auto &v : cached.videos) {
+                            auto ep = std::make_shared<TreeNode>();
+                            ep->type = NodeType::PODCAST_EPISODE;
+                            ep->title = v.title;
+                            ep->url = v.url;
+                            ep->is_youtube = true;
+                            ep->children_loaded = true;
+                            ep->parent = n;
+                            n->children.push_back(ep);
+                        }
+                        n->children_loaded = true;
+                        n->expanded = true;
+                        n->loading = false;
+                        EVENT_LOG(
+                            fmt::format("Y: channel cache hit: {} videos", cached.videos.size()));
+                        return;
+                    }
+                }
                 std::vector<YouTubeVideoInfo> vids;
                 std::string err;
                 int cnt = 0;
@@ -297,32 +322,38 @@ void App::enter_account_node(TreeNodePtr node) {
                         EVENT_LOG(fmt::format("Y: channel -> {} videos (yt-dlp)", cnt));
                 }
 
-                std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
-                if (cnt > 0) {
-                    // OAuth path returns a vector (build nodes here); yt-dlp path already built into n->children.
-                    if (n->children.empty() && !vids.empty()) {
-                        for (const auto &v : vids) {
-                            auto ep = std::make_shared<TreeNode>();
-                            ep->type = NodeType::PODCAST_EPISODE;
-                            ep->title = v.title;
-                            ep->url = v.url;
-                            ep->is_youtube = true;
-                            ep->children_loaded = true;
-                            ep->parent = n;
-                            n->children.push_back(ep);
+                {
+                    std::lock_guard<std::recursive_mutex> lock(library_.tree_mutex());
+                    if (cnt > 0) {
+                        // OAuth path returns a vector (build nodes here); yt-dlp path already built into n->children.
+                        if (n->children.empty() && !vids.empty()) {
+                            for (const auto &v : vids) {
+                                auto ep = std::make_shared<TreeNode>();
+                                ep->type = NodeType::PODCAST_EPISODE;
+                                ep->title = v.title;
+                                ep->url = v.url;
+                                ep->is_youtube = true;
+                                ep->children_loaded = true;
+                                ep->parent = n;
+                                n->children.push_back(ep);
+                            }
                         }
+                        n->children_loaded = true;
+                        n->expanded = true;
+                        for (auto &c : n->children) {
+                            c->is_youtube = true;
+                            c->parent = n;
+                        }
+                    } else {
+                        n->parse_failed = true;
+                        n->error_msg = err.empty() ? "no videos" : err;
                     }
-                    n->children_loaded = true;
-                    n->expanded = true;
-                    for (auto &c : n->children) {
-                        c->is_youtube = true;
-                        c->parent = n;
-                    }
-                } else {
-                    n->parse_failed = true;
-                    n->error_msg = err.empty() ? "no videos" : err;
+                    n->loading = false;
                 }
-                n->loading = false;
+                // CACHE-1: persist the fetched video list outside the tree lock (same global cache
+                //   keyed by channel URL as P mode's cache_youtube_videos).
+                if (cnt > 0 && !vids.empty())
+                    YouTubeCache::instance().update(url, n->title, vids);
             });
         } else {
             node->expanded = !node->expanded;

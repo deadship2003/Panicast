@@ -1,6 +1,6 @@
 # 构建 / 测试 / 运行（开发者向）
 
-> 面向开发者的工程说明。用户向安装见仓库根 `README.md`（`./setup.sh` 一键搞定依赖+构建+安装）。
+> 面向开发者的工程说明。用户向安装见仓库根 `README.md`（`./build.sh install` 一键搞定依赖+构建+安装）。
 
 ## 1. 依赖
 
@@ -31,7 +31,7 @@ sudo dnf install -y mpv mpv-devel ncurses-devel libcurl-devel sqlite-devel libxm
 
 ### JS 运行时（YouTube 播放/下载**必需**，运行时依赖）
 yt-dlp 2026.07+ 求解 YouTube nsig 挑战需要一个 JS 运行时：
-- **quickjs-ng**（二进制 `qjs`，~2MB，冷启动快，推荐）：`./setup.sh js-only` 安装仓库自带版本。
+- **quickjs-ng**（二进制 `qjs`，~2MB，冷启动快，推荐）：`./build.sh install` 把仓库自带版本装到 `/usr/local/bin/qjs`。
 - **deno**（~106MB，回退）。
 
 缺失时 YouTube 播放/下载会失败；电台/播客/本地文件不受影响。

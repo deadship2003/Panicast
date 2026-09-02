@@ -1,12 +1,12 @@
 # ╔═════════════════════════════════════════════════════════════════════════╗
-# ║                    PaniCast CI/CD Pipeline                              ║
+# ║                    Panicast CI/CD Pipeline                              ║
 # ║          Linux x64 · Build → Test → Package → Release                    ║
 # ╚═════════════════════════════════════════════════════════════════════════╝
 #
 # 2026-08-16 rebuild: the old 4-platform matrix (macOS brew / Windows vcpkg /
 #   ARM64 cross) never produced a green run — Windows lacked a manifest-driven
 #   dep set, macOS keg-only paths were invisible to CMake, and ARM64 had no
-#   cross sysroot for mpv/curl/sqlite/…. PaniCast is a Linux ncurses TUI built
+#   cross sysroot for mpv/curl/sqlite/…. Panicast is a Linux ncurses TUI built
 #   against system libmpv; releases are Linux x64 only (built on Ubuntu 24.04,
 #   matching the reference dev environment: libmpv2 / libfmt10 / ncursesw6).
 #
@@ -62,7 +62,7 @@ jobs:
         run: |
           cd build
           cpack -G TGZ
-          src_tar=$(ls PaniCast-*.tar.gz | head -n1)
+          src_tar=$(ls Panicast-*.tar.gz | head -n1)
           cd ..
           dest="panicast-${GITHUB_REF_NAME}-linux-x64.tar.gz"
           mv "build/$src_tar" "$dest"
@@ -101,7 +101,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           cat > notes.md <<'EOF'
-          ## PaniCast ${{ github.ref_name }}
+          ## Panicast ${{ github.ref_name }}
 
           Linux x64 release build (Ubuntu 24.04). 自动发布：CI 构建并通过全部单元测试后由 GitHub Actions 生成。
           完整变更记录见仓库 `CHANGELOG.md`。
@@ -119,7 +119,7 @@ jobs:
           ```bash
           sha256sum -c panicast-*-linux-x64.tar.gz.sha256
           tar xf panicast-*-linux-x64.tar.gz
-          sudo cp PaniCast-*/bin/panicast /usr/local/bin/
+          sudo cp Panicast-*/bin/panicast /usr/local/bin/
           ```
           EOF
           if gh release view "$TAG" > /dev/null 2>&1; then
@@ -127,6 +127,6 @@ jobs:
             gh release upload "$TAG" release/* --clobber
           else
             gh release create "$TAG" release/* \
-              --title "PaniCast $TAG" \
+              --title "Panicast $TAG" \
               --notes-file notes.md
           fi

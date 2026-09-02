@@ -155,6 +155,17 @@ void MPVController::play_video(const std::string &url, const std::string &audio_
     if (!sub_file.empty())
         opts += (opts.empty() ? "" : ",") + std::string("sub-file=") + sub_file;
 
+    // Y24.xx: Douyin CDN direct links (play_addr.url_list[0], from DouyinApi::fetchUserVideos)
+    //   403 without a Referer. Inject it as a per-file option so mpv sends the header on the HTTP
+    //   request. http-header-fields takes `field:value` pairs; a single Referer has no comma, so it
+    //   can't clash with the option-list separator. Douyin-only (TikTok streams go through yt-dlp).
+    if (url.find("douyinvod.com") != std::string::npos ||
+        url.find("douyin.com") != std::string::npos ||
+        url.find("aweme.snssdk.com") != std::string::npos) {
+        opts += (opts.empty() ? "" : ",") +
+                std::string("http-header-fields=Referer: https://www.douyin.com/");
+    }
+
     last_loadfile_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now().time_since_epoch())
                             .count(); // Y24.8: loadfile→File loaded timing

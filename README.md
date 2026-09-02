@@ -1,12 +1,12 @@
 <div align="center">
 
-# 🎧 PaniCast
+# 🎧 Panicast
 
 **Terminal Podcast/Radio Player**
 
 *A powerful ncurses-based media player for the command line — TuneIn 电台 / RSS 播客 / YouTube（P 模式 cookies 解析 + Y 模式 Google OAuth）/ 本地媒体*
 
-[![Version](https://img.shields.io/badge/version-PaniCast-V0.01-blue.svg)](https://github.com/deadship2003/Panicast)
+[![Version](https://img.shields.io/badge/version-Panicast-V0.0.1-blue.svg)](https://github.com/deadship2003/Panicast)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](https://github.com/deadship2003/Panicast)
 [![C++](https://img.shields.io/badge/C++-17-orange.svg)](https://isocpp.org/)
@@ -55,17 +55,16 @@
 发布包自带 **quickjs-ng** JS 运行时（`vendor/quickjs/`，~2MB）与部署脚本，解压后一条命令搞定依赖+运行时+编译+安装：
 
 ```bash
-tar xzf PaniCast-V0.01.tar.gz
-cd PaniCast-V0.01
-./setup.sh              # 装 apt 构建依赖 + JS 运行时(quickjs，回退 deno) + 编译 + 安装 panicast
+tar xzf Panicast-V0.0.1.tar.gz
+cd Panicast-V0.0.1
+./build.sh install      # JS 运行时 + 构建依赖 + 编译 + 安装 panicast（全部装到 /usr/local/bin，需 sudo）
 # 可选参数:
-#   --no-deps    跳过 apt 依赖安装（已装好时）
-#   --no-sudo    全用户级安装（qjs/panicast 都装到 ~/.local/bin）
-#   js-only      只安装 bundled JS 运行时（quickjs，回退 deno）
-#   deno-only    只安装 bundled deno 运行时（回退方案）
+#   install --no-deps   跳过系统构建依赖安装（已装好时）
+#   --arch=arm64        交叉编译 arm64（仅编译，不安装）
+#   clean               清理 build/ build-arm64/
 ```
 
-`setup.sh` 会把 `qjs` 装到 `~/.local/bin`（有 sudo 时也镜像到 `/usr/local/bin`）。若 `qjs: command not found`，把 `export PATH=$HOME/.local/bin:$PATH` 加进 `~/.bashrc`。详见 [`vendor/quickjs/README.md`](vendor/quickjs/README.md)。
+`build.sh` 把 `qjs`/`deno`/`panicast` 都装到 `/usr/local/bin`（系统 PATH 内，**无需改 PATH**）。不带参数 `./build.sh` 则只编译当前架构；`./build.sh --arch=arm64` 交叉编译。详见 [`vendor/quickjs/README.md`](vendor/quickjs/README.md)。
 
 > **为什么需要 JS 运行时**：yt-dlp 2026.07+ 求解 YouTube nsig「n 挑战」必须有 JS 运行时。**推荐 quickjs-ng**（~2MB，冷启动比 deno 快约 10×，可消除首次播放 YouTube 的初始卡顿）；deno（~106MB）为回退方案。apt 的 nodejs(20) 被 yt-dlp 标记 unsupported 不生效。详见下文「运行时依赖（JS 运行时）」。
 >
@@ -155,7 +154,7 @@ cmake --build build --config Release
 
 ## P 模式 vs Y 模式（独立工作）
 
-PaniCast 的 YouTube 支持有两种**互相独立**的模式，可单独使用，也可同时用：
+Panicast 的 YouTube 支持有两种**互相独立**的模式，可单独使用，也可同时用：
 
 | | P 模式（PODCAST/ONLINE） | Y 模式（ACCOUNT） |
 |---|---|---|
@@ -586,7 +585,7 @@ YouTube 频道、F 模式、Y 模式频道浏览），即 yt-dlp/mpv 拿到登�
 ## 📁 项目结构
 
 ```
-PaniCast/
+Panicast/
 ├── CMakeLists.txt              # CMake 配置
 ├── CMakePresets.json           # CMake 预设
 ├── vcpkg.json                  # vcpkg 依赖管理

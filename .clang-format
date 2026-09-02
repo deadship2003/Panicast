@@ -1,4 +1,4 @@
-# PaniCast C++ formatting style.
+# Panicast C++ formatting style.
 #
 # Matched to the dominant hand-style of the existing codebase:
 #   - 4-space indent, no tabs

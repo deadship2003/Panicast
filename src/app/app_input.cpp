@@ -522,7 +522,7 @@ void App::handle_input(int ch, int marked_count) {
     case 'q': // exit requires confirmation
     case 'Q':
     case 27: // ESC key
-        if (frontend_->confirm_box("Quit PANICAST?")) {
+        if (frontend_->confirm_box("Quit Panicast?")) {
             running = false;
         }
         break;
@@ -542,8 +542,6 @@ void App::handle_input(int ch, int marked_count) {
         if (mode == AppMode::ONLINE) {
             std::string new_region = OnlineState::instance().get_next_region();
             EVENT_LOG(fmt::format("Search region: {}", ITunesSearch::get_region_name(new_region)));
-        } else if (mode == AppMode::TIKTOK) { // Y24.11: T mode → cycle TikTok region
-            cycle_tiktok_region();
         }
         break;
     }
@@ -685,9 +683,9 @@ void App::handle_input(int ch, int marked_count) {
             start_bilibili_login();
             break;
         }
-        // Y24.11/16: T-mode — 'a' prompts for @user/video URL (no search-result nodes anymore).
+        // Y24.xx: T-mode — 'a' = Douyin QR scan login (terminal), consistent with B/Y 'a' = login.
         if (mode == AppMode::TIKTOK) {
-            add_tiktok_user();
+            start_douyin_login();
             break;
         }
         // Support multi-select subscription in ONLINE/FAVOURITE mode
@@ -718,6 +716,11 @@ void App::handle_input(int ch, int marked_count) {
         //   Cookie path is set via Ctrl+B (unified, context-aware) — NOT 'A'.
         if (mode == AppMode::BILIBILI) {
             start_bilibili_login();
+            break;
+        }
+        // Y24.xx: in T mode, 'A' = Douyin QR scan login (terminal QR, mirrors B-mode 'A').
+        if (mode == AppMode::TIKTOK) {
+            start_douyin_login();
             break;
         }
         break;
@@ -787,8 +790,7 @@ void App::handle_input(int ch, int marked_count) {
         break; // N04-fix: clear peer playlist, keep playing
     case 'T': { // Y24.11: T mode (TikTok/Douyin) — was tree-lines toggle (now default ON, no keybind)
         switch_mode(AppMode::TIKTOK);
-        EVENT_LOG(
-            fmt::format("T mode (TikTok, region {})", TikTokRegion::name(current_tiktok_region())));
+        EVENT_LOG("T mode (TikTok/Douyin)");
         break;
     }
     case 'S':

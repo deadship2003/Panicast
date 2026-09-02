@@ -4,13 +4,103 @@
 #include "panicast/app/playback_events.h"
 #include "panicast/core/event_bus.h"
 #include "panicast/net/bilibili_api.h"
+#include "panicast/net/douyin_api.h"
 #include "panicast/net/tiktok_region.h"
 #include "panicast/parsers/bilibili_parser.h"
+#include <chrono>
 #include <cstdio>
 #include <iostream>
+#include <thread>
 
 namespace panicast
 {
+
+// Y24.xx: native Douyin creator listing via DouyinApi (X-Bogus direct API, 接口C aweme/post).
+//   Returns a PODCAST_FEED tree with PODCAST_EPISODE children (title=desc, url=CDN play_addr).
+//   yt-dlp has no DouyinUserIE, so douyin.com/user/<sec_uid> must go through this path instead
+//   of parse_tiktok_user_videos. Cookies are optional (douyin_cookie.txt); empty → anonymous
+//   attempt (Douyin may still answer, or error with a "needs login cookie" hint).
+static TreeNodePtr parse_douyin_user_videos(const std::string &url, const std::string &title) {
+    auto result = std::make_shared<TreeNode>();
+    result->url = url;
+    result->type = NodeType::PODCAST_FEED;
+    result->title = title;
+    result->is_youtube = false;
+
+    // Extract sec_uid from douyin.com/user/<sec_uid> (already normalized by tiktok_subscribe).
+    std::string sec_uid;
+    size_t pos = url.find("/user/");
+    if (pos != std::string::npos) {
+        sec_uid = url.substr(pos + 6);
+        size_t q = sec_uid.find_first_of("/?#");
+        if (q != std::string::npos)
+            sec_uid = sec_uid.substr(0, q);
+    }
+    if (sec_uid.empty()) {
+        result->children_loaded = true;
+        result->parse_failed = true;
+        result->error_msg = "Douyin user URL missing sec_uid";
+        return result;
+    }
+
+    // Cookies (optional) from douyin_cookie.txt (Netscape). Empty → anonymous attempt.
+    std::string cookie_header;
+    std::string ck = IniConfig::instance().get_tiktok_douyin_cookies_file();
+    std::error_code ec;
+    if (!ck.empty() && std::filesystem::exists(ck, ec)) {
+        std::ifstream cf(ck);
+        std::string content((std::istreambuf_iterator<char>(cf)),
+                            std::istreambuf_iterator<char>());
+        cookie_header = DouyinApi::build_cookie_header_from_txt(content, "douyin.com");
+    }
+
+    DouyinApi api;
+    api.setSession(cookie_header); // fixed Chrome UA (matches browser_* params)
+
+    constexpr int PER_PAGE = 20;
+    constexpr int MAX_PAGES = 5; // cap at ~100 videos to avoid 风控
+    long long cursor = 0;
+    std::string last_err;
+
+    for (int page = 0; page < MAX_PAGES; ++page) {
+        DouyinApi::UserVideoResult page_res;
+        api.fetchUserVideos(sec_uid, cursor, PER_PAGE,
+                            [&](const DouyinApi::UserVideoResult &r) { page_res = r; });
+        if (!page_res.ok) {
+            last_err = page_res.err;
+            if (result->children.empty()) {
+                EVENT_LOG(fmt::format(
+                    "T: Douyin listing failed for {} — {} (可能需登录 Cookie：Ctrl+B 导入 "
+                    "douyin cookies.txt)",
+                    sec_uid, page_res.err.empty() ? "no data" : page_res.err));
+            }
+            break;
+        }
+        for (const auto &v : page_res.videos) {
+            if (v.playUrl.empty())
+                continue; // ad / deleted entries have no play_addr
+            auto ep = std::make_shared<TreeNode>();
+            ep->type = NodeType::PODCAST_EPISODE;
+            ep->url = v.playUrl; // CDN direct link (Referer injected at playback, see mpv_play.cpp)
+            ep->title = v.desc.empty() ? v.awemeId : v.desc;
+            ep->duration = v.duration;
+            ep->children_loaded = true;
+            ep->parent = result;
+            result->children.push_back(ep);
+        }
+        if (!page_res.hasMore)
+            break;
+        cursor = page_res.nextCursor;
+        std::this_thread::sleep_for(std::chrono::milliseconds(800)); // 防风控
+    }
+
+    result->children_loaded = true;
+    if (result->children.empty()) {
+        result->parse_failed = true;
+        result->error_msg = last_err.empty() ? "No videos" : last_err;
+    }
+    return result;
+}
 
 void App::spawn_load_radio(TreeNodePtr node, bool force) {
     {
@@ -210,16 +300,9 @@ TreeNodePtr App::parse_feed_by_type(TreeNodePtr node, const std::string &url, UR
         break;
     }
     case URLType::DOUYIN_USER:
-        // Y24.16: yt-dlp has no DouyinUserIE — douyin.com/user/<sec_uid> can't be listed.
-        //   'a'/'/' reject Douyin user URLs up front, so this is only reachable from legacy
-        //   DB rows. Surface a clear error instead of silently retrying into emptiness.
-        EVENT_LOG("T: Douyin user video list unsupported (yt-dlp has no DouyinUserIE) — delete the "
-                  "node and use a Douyin video URL");
-        result = std::make_shared<TreeNode>();
-        result->url = cur_url;
-        result->type = NodeType::PODCAST_FEED;
-        result->title = node->title;
-        result->children_loaded = true; // empty — stops the loading spinner
+        // Y24.xx: native Douyin creator listing via DouyinApi (X-Bogus direct API 接口C).
+        //   yt-dlp has no DouyinUserIE, so douyin.com/user/<sec_uid> is handled here instead.
+        result = parse_douyin_user_videos(cur_url, node->title);
         break;
     case URLType::TIKTOK_USER: {
         // Y24.11: TikTok creator video listing via yt-dlp --flat-playlist + geo-bypass.

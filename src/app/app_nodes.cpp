@@ -585,7 +585,13 @@ void App::refresh_node() {
         return;
     auto node = library_.display_list()[library_.selected_idx()].node;
 
-    if (node->type == NodeType::FOLDER && mode == AppMode::RADIO) {
+    if (node->is_local_folder) {
+        // CACHE-1: 'r' on a local folder → force re-scan the directory and rewrite the cache.
+        node->children.clear();
+        node->children_loaded = false;
+        expand_local_folder(node, /*force=*/true);
+        EVENT_LOG(fmt::format("Refreshing local folder: {}", node->url));
+    } else if (node->type == NodeType::FOLDER && mode == AppMode::RADIO) {
         node->children.clear();
         node->children_loaded = false;
         node->loading = true;

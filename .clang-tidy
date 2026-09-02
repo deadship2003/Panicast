@@ -1,4 +1,4 @@
-# PaniCast clang-tidy config — ADVISORY (NOT a CI blocking gate).
+# Panicast clang-tidy config — ADVISORY (NOT a CI blocking gate).
 #
 # The 20k-line legacy tree will produce many findings against any tidy config; this
 # file exists to guide NEW code and to be tightened incrementally as modules are

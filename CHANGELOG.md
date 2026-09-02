@@ -1087,7 +1087,7 @@
 - playback_service.h 用 SubtitleService 前向声明（最小头耦合），.cpp include 全定义。
 
 ### 设计依据（主流反应式 vs 命令式反模式）
-mpv/VLC/ExoPlayer 字幕都是反应式：媒体换→发事件→字幕组件订阅加载。PaniCast 现状（PlaybackService 命令式内联 + Method A/B 域知识泄漏进播放域）是反模式。Step 1 先把逻辑搬到字幕域（行为等价）；**Step 2** 才换触发方式为事件订阅（届时 PlaybackTrackChanged 终有首个真实消费者、播放↔字幕彻底解耦）。
+mpv/VLC/ExoPlayer 字幕都是反应式：媒体换→发事件→字幕组件订阅加载。Panicast 现状（PlaybackService 命令式内联 + Method A/B 域知识泄漏进播放域）是反模式。Step 1 先把逻辑搬到字幕域（行为等价）；**Step 2** 才换触发方式为事件订阅（届时 PlaybackTrackChanged 终有首个真实消费者、播放↔字幕彻底解耦）。
 
 ### 验收
 - ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin。
@@ -1478,7 +1478,7 @@ mpv/VLC/ExoPlayer 字幕都是反应式：媒体换→发事件→字幕组件�
 ### 测试
 - test_units +4 用例（subscribe/publish、多订阅者+unsubscribe、无订阅者安全、LogEvent 路由）。ctest 26→30 全过；增量构建 0-warning；`build/panicast --version` 正常。
 
-## PaniCast-V0.01-F01 — 2026-08-04 — ASR 实时转写修复 + YouTube 播放/下载可靠性
+## Panicast-V0.01-F01 — 2026-08-04 — ASR 实时转写修复 + YouTube 播放/下载可靠性
 
 > 修复用户反馈的两个 BUG：①ASR 非异步、播放时卡等 ASR、且未正常唤起 whisper-cli；②YouTube 不能正常播放/下载。
 
@@ -1546,11 +1546,11 @@ mpv/VLC/ExoPlayer 字幕都是反应式：媒体换→发事件→字幕组件�
 
 ## Panicast_V0.1-N04 — 2026-07-29 — PIN 鉴权 + UDP 发现 + WebSocket + 内嵌 BS 客户端
 
-> 浏览器/手机可直接控制 PaniCast：IE 打开 http://地址:端口/ 即控制；APK 扫描网络发现播放器 + PIN 配对。本版含完整服务端 + BS 客户端 + APK 源码工程。
+> 浏览器/手机可直接控制 Panicast：IE 打开 http://地址:端口/ 即控制；APK 扫描网络发现播放器 + PIN 配对。本版含完整服务端 + BS 客户端 + APK 源码工程。
 
 ### 新增（服务端）
 - **PIN 鉴权**（`remote_server.h/.cpp` + `remote_session.cpp`）：动态 4 位 PIN（`regenerate_pin()`，`:pin` 弹窗显示、`:newpin` 轮换）+ 万能 PIN **6696**（无屏场景）；localhost 连接开放（IE 在本机打开→直接控制）；非本机需 `password <PIN>`。`pin_test.py` 验证：LAN 无 PIN→ACK、错 PIN→ACK、6696→OK、status→OK。
-- **UDP 网络发现**（`discovery_loop` + `[remote] discovery_port=18430`）：APK 广播 `PANICAST_DISCOVER`，PaniCast 回 `PANICAST 1 tcp=<port> ws=<port+1>`。`discovery_test` 验证通过。
+- **UDP 网络发现**（`discovery_loop` + `[remote] discovery_port=18430`）：APK 广播 `PANICAST_DISCOVER`，Panicast 回 `PANICAST 1 tcp=<port> ws=<port+1>`。`discovery_test` 验证通过。
 - **WebSocket 前端**（`remote_ws.h/.cpp` + `panicast_web_index.h`）：RFC6455 握手（SHA1+base64，OpenSSL）+ 帧编解码（掩码处理/ping-pong）。端口 = TCP+1。socketpair 桥接 RemoteSession（PRP 不变）。GET / 返回**内嵌** BS 客户端（单 HTML，无外部文件）。`ws_test.py` 验证：握手 101 + greeting 帧 + ping/status/volume 端到端 PASS。
 - **`RemoteSession` 重构**：读写双 fd（`read_fd_`/`write_fd_`）+ `closed_` 标志，使 WS 桥接可经 socketpair 喂入同一 PRP 引擎（TCP 两 fd 相同）。
 - **App 接入**：`:pin`/`:newpin` 命令（`app_input.cpp`）；启动时 EVENT_LOG 显示 PIN + 浏览器地址。
@@ -1601,14 +1601,14 @@ mpv/VLC/ExoPlayer 字幕都是反应式：媒体换→发事件→字幕组件�
 
 ### 新增
 - **协议类型与控制接口**（`include/panicast/net/remote_protocol.h`）：`RemoteStateSnapshot`（player+app 状态 POD）、`RemotePlaylistItem`、`RemoteControlInterface`（App 实现的抽象接口，服务端依赖接口而非 App —— 可组合）。
-- **`RemoteSession`**（`include/panicast/net/remote_session.h` + `src/net/remote_session.cpp`）：每连接 PRP 引擎，跑在 worker 线程。行解析（MPD 风格 token 化，支持双引号参数）；查询命令（`status`/`currentsong`/`playlistinfo`/`ping`/`password`）即时从快照应答；控制命令经 `RemoteCommandBus` 转发 UI 线程；`OK`/`ACK [code@0] {cmd} msg` 响应；问候 `OK PaniCast N02`。鉴权：token 非空时除 `password` 外命令回 `ACK [5@0] {cmd} auth required`。`idle`/`noidle` 占位（N07 实装）。Windows stub。
+- **`RemoteSession`**（`include/panicast/net/remote_session.h` + `src/net/remote_session.cpp`）：每连接 PRP 引擎，跑在 worker 线程。行解析（MPD 风格 token 化，支持双引号参数）；查询命令（`status`/`currentsong`/`playlistinfo`/`ping`/`password`）即时从快照应答；控制命令经 `RemoteCommandBus` 转发 UI 线程；`OK`/`ACK [code@0] {cmd} msg` 响应；问候 `OK Panicast N02`。鉴权：token 非空时除 `password` 外命令回 `ACK [5@0] {cmd} auth required`。`idle`/`noidle` 占位（N07 实装）。Windows stub。
 - **`RemoteServer` 升级**：`start()` 增加 `control` + `auth_token` 参数；`handle_client` 改为创建 `RemoteSession` 并 `run()`；`next_client_id_` 原子计数。
 - **App 接入**（`app.h` / `app_run.cpp` / `app_remote.cpp`）：`App : public RemoteControlInterface`；`snapshot_state()` 加锁返回快照副本；`update_remote_state_cache()` 主循环每帧在 UI 线程构建快照（player state + mode/play_mode/selected/playlist/art/sleep/subtitle，`playlist_mutex_` 下拷贝）；`dispatch_remote()` 映射核心控制命令到既有方法。
 - **控制命令覆盖（N02 核心）**：play/pause/resume/play_pause/stop/next/previous、seek/seekto/seek_percent（mpv 透传）、volume/volume_up/down、speed/speed_up/down/reset、repeat/shuffle/cycle/set_mode、sleep/sleep_cancel、mode/mode_next/mode_prev、nav_up/down/top/bottom/page_up/down/back/enter/select、sort_toggle、mpv 原生透传。search/mark/edit/download/subtitle/asr/queue 标记为 N03–N05。
 - **版本号 → N02**（六处同步）。
 
 ### 验证
-0 warning 编译（`-Wall -Wextra -Wpedantic`）。Python PRP 测试客户端（`prp_test.py`）连 :18421：问候 `OK PaniCast N02`；`ping`→`OK`；`status`→16 字段 key:value；`volume 55` 后 `status` 回显 `volume: 55`（控制端到端生效）；`play_pause`/`nav_down`/`mode PODCAST` 转发 `OK`。默认 `enable=false` 本地 TUI 不受影响。
+0 warning 编译（`-Wall -Wextra -Wpedantic`）。Python PRP 测试客户端（`prp_test.py`）连 :18421：问候 `OK Panicast N02`；`ping`→`OK`；`status`→16 字段 key:value；`volume 55` 后 `status` 回显 `volume: 55`（控制端到端生效）；`play_pause`/`nav_down`/`mode PODCAST` 转发 `OK`。默认 `enable=false` 本地 TUI 不受影响。
 
 ### 待办
 - N03：search/mark/edit/download/subtitle/asr/queue 命令覆盖（对齐键位表全量）。
@@ -1630,7 +1630,7 @@ mpv/VLC/ExoPlayer 字幕都是反应式：媒体换→发事件→字幕组件�
 - **App 接入**（`app.h` / `app_run.cpp` / 新增 `app_remote.cpp`）：`run()` 启动前按 `[remote] enable` 启动服务端；主循环每帧 `drain_remote_commands()` 在 UI 线程出队派发；析构先 `remote_server_.stop()` + `remote_bus_.shutdown()` 再拆其余成员。N01 的 `dispatch_remote()` 仅记日志，动作映射在 N02–N06。
 
 ### 验证
-0 warning 编译（77→51 增量，`-Wall -Wextra -Wpedantic`），`--version`=N01。运行时冒烟：`[remote] enable=true port=18421` → `bash /dev/tcp` 连接成功收到 banner `PaniCast remote control — protocol not implemented yet (N01 skeleton)`；timeout 退出优雅 join 无挂起。默认 `enable=false` 时不启动服务端，本地 TUI 行为不变。
+0 warning 编译（77→51 增量，`-Wall -Wextra -Wpedantic`），`--version`=N01。运行时冒烟：`[remote] enable=true port=18421` → `bash /dev/tcp` 连接成功收到 banner `Panicast remote control — protocol not implemented yet (N01 skeleton)`；timeout 退出优雅 join 无挂起。默认 `enable=false` 时不启动服务端，本地 TUI 行为不变。
 
 ### 待办（N02+）
 - 命令协议定稿（MPD/ncmpcpp 风格行协议，待用户解释细节后确认）。
@@ -2034,7 +2034,7 @@ Y24.14 的 CN 百度已撤回。当前 Google→DDG→Bing 对 douyin.com 索引
 
 ## Panicast_V0.1-Y24.14 — 2026-07-26 — Ctrl+B T 模式 cookie + CN 百度搜索 + OSC 8 确认可用
 
-> Y24.13 测试反馈：(1) OSC 8 全识别 URL + Ctrl+点击打开 IE ✓ 保留；(2) T 模式 Ctrl+B 弹的是 YouTube cookie，应导入 TikTok/Douyin cookie；(3) CN 区搜索结果少（"山泉浓茶" IE 有很多，PaniCast 无）——douyin cookie 没导入 + Google/Bing 对 douyin 索引差；(4) 左侧节点树偶现杂散 'e'，Ctrl+L 切主题上移一行（原因待定位）。
+> Y24.13 测试反馈：(1) OSC 8 全识别 URL + Ctrl+点击打开 IE ✓ 保留；(2) T 模式 Ctrl+B 弹的是 YouTube cookie，应导入 TikTok/Douyin cookie；(3) CN 区搜索结果少（"山泉浓茶" IE 有很多，Panicast 无）——douyin cookie 没导入 + Google/Bing 对 douyin 索引差；(4) 左侧节点树偶现杂散 'e'，Ctrl+L 切主题上移一行（原因待定位）。
 
 ### 修复/增强
 - **[app] Ctrl+B T 模式导入对应 cookie（第2条）**：`configure_youtube_cookies` 加 T 模式分支——CN 区设 `[tiktok] douyin_cookies_file`（抖音 cookie），非 CN 设 `[tiktok] cookies_file`（TikTok cookie，可选）。新增 `get_tiktok_cookies_file()` INI 项 + 默认 `tiktok_cookie.txt`。`spawn_load_feed` 的 TIKTOK_USER 分支 + `add_tiktok_user`/`add_tiktok_user_from_node` 都接上 TikTok cookie（匿名仍可用，cookie 为空则跳过）。

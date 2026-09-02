@@ -4,6 +4,7 @@
 //   fallback (site:tiktok.com/@) because yt-dlp has no TikTok search extractor.
 #include "panicast/app/app.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <regex>
@@ -15,9 +16,11 @@
 #include "panicast/config/ini_config.h"
 #include "panicast/core/event_log.h"
 #include "panicast/core/logger.h"
+#include "panicast/net/douyin_api.h"
 #include "panicast/net/tiktok_region.h"
 #include "panicast/net/ytdlp_runner.h"
 #include "panicast/storage/database.h"
+#include "panicast/ui/qr.h"
 
 namespace panicast
 {
@@ -40,7 +43,7 @@ static bool delete_tiktok_account(int id) {
 //   "@user" / "user"                  → tiktok, "@user", https://www.tiktok.com/@user
 //   "tiktok.com/@user[.../video/<id>]" → tiktok, "@user", https://www.tiktok.com/@user  (video URL → its @user)
 //   "douyin.com/video/<id>"           → douyin, <video-id>, https://www.douyin.com/video/<id>
-//   "douyin.com/user/<sec_uid>"       → douyin, <sec_uid>, https://www.douyin.com/user/<sec_uid>  (NOT listable — caller warns)
+//   "douyin.com/user/<sec_uid>"       → douyin, <sec_uid>, https://www.douyin.com/user/<sec_uid>  (listable via native X-Bogus)
 // Returns false if no handle could be extracted.
 static bool normalize_tiktok_input(const std::string &raw, std::string &platform,
                                    std::string &handle, std::string &url) {
@@ -196,8 +199,8 @@ TreeNodePtr App::parse_tiktok_user_videos(const std::string &url, const std::str
 
 // Y24.16: shared subscribe core used by 'a' (add) and '/' (direct input) — no duplication.
 //   TikTok @user/profile/video URL → creator (listable via yt-dlp tiktok:user).
-//   Douyin video URL → playable video leaf (option A; yt-dlp has no DouyinUserIE so no user list).
-//   Douyin user URL → rejected with a clear message.
+//   Douyin video URL → playable video leaf (option A).
+//   Douyin user URL → creator (listable via native DouyinApi X-Bogus, see douyin_api.cpp).
 void App::tiktok_subscribe(const std::string &input) {
     std::string platform, handle, url;
     if (!normalize_tiktok_input(input, platform, handle, url)) {
@@ -215,8 +218,16 @@ void App::tiktok_subscribe(const std::string &input) {
                 library_.load_tiktok_root();
             });
         } else {
-            EVENT_LOG("T: Douyin user video list unsupported (yt-dlp has no DouyinUserIE), paste a "
-                      "Douyin video URL");
+            // Douyin creator — subscribed as platform "douyin" (sec_uid = handle). Expansion goes
+            //   through DouyinApi::fetchUserVideos (接口C), not yt-dlp (which has no DouyinUserIE).
+            EVENT_LOG(fmt::format("T: adding Douyin creator {}", handle));
+            pool_.submit([this, handle, url]() {
+                TiktokAccount a{0, "douyin", handle, url, ""};
+                int id = save_tiktok_account(a);
+                EVENT_LOG(fmt::format("T: saved Douyin creator {} ({})", handle,
+                                      id ? "ok" : "failed"));
+                library_.load_tiktok_root();
+            });
         }
         return;
     }
@@ -234,23 +245,107 @@ void App::tiktok_subscribe(const std::string &input) {
     });
 }
 
-// 'a' in T mode: prompt for @user/video URL, then subscribe.
-void App::add_tiktok_user() {
-    std::string input = frontend_->input_box("Add TikTok/Douyin (@user or video URL)");
-    if (UI::is_input_cancelled(input)) {
-        EVENT_LOG("T: add cancelled");
+// 'a' in T mode: Douyin QR scan login (terminal QR, pure API — mirrors B-mode start_bilibili_login).
+//   Douyin login is cookie-only (sessionid): the curl cookie jar writes it to douyin_cookie.txt,
+//   so there's no account DB row. After login, 接口C (creator listing) carries sessionid.
+void App::start_douyin_login() {
+    EVENT_LOG("T: requesting Douyin QR code...");
+    DouyinApi api;
+    auto qr = api.request_qrcode();
+    if (!qr.ok) {
+        LOG(fmt::format("[Douyin] QR request failed: {}", qr.err));
+        EVENT_LOG(fmt::format("T: Douyin login failed — {}",
+                              qr.err.empty() ? "no token" : qr.err));
         return;
     }
-    tiktok_subscribe(input);
-}
 
-// 'b' in T mode: cycle the TikTok region (persisted).
-void App::cycle_tiktok_region() {
-    tiktok_region_ = TikTokRegion::next(tiktok_region_);
-    TikTokRegion::set_current(tiktok_region_);
-    IniConfig::instance().set("tiktok", "region", tiktok_region_);
-    EVENT_LOG(
-        fmt::format("TikTok region: {} ({})", tiktok_region_, TikTokRegion::name(tiktok_region_)));
+    auto qr_rows = render_qr_rows(qr.qr_content);
+    int qr_h = qr_available() ? (int)qr_rows.size() : 0;
+    int qr_w = qr_h ? (int)qr_rows[0].size() : 0;
+    int text_h = 5; // title + blank + hint + cancel + blank
+    int pop_h = std::max(qr_h, 1) + text_h + 4;
+    int pop_w = std::max({60, qr_w + 4});
+    if (pop_w > COLS)
+        pop_w = COLS;
+    if (pop_h > LINES)
+        pop_h = LINES;
+    int py = (LINES - pop_h) / 2;
+    int px = (COLS - pop_w) / 2;
+    if (py < 0)
+        py = 0;
+    if (px < 0)
+        px = 0;
+
+    WINDOW *win = newwin(pop_h, pop_w, py, px);
+    if (!win) {
+        EVENT_LOG("T: Douyin QR window failed");
+        return;
+    }
+    keypad(win, TRUE);
+    nodelay(win, TRUE);
+
+    bool ok = false;
+    DouyinApi::LoginResult login;
+    int interval = 2;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        werase(win);
+        box(win, 0, 0);
+        int y = 1;
+        mvwprintw(win, y++, 2, "Douyin Login");
+        y++;
+        if (qr_h > 0) {
+            for (const auto &row : qr_rows) {
+                if (y >= pop_h - 1)
+                    break;
+                mvwprintw(win, y++, 2, "%s", row.c_str());
+            }
+        } else {
+            mvwprintw(win, y++, 2, "(no QR content — check get_qrcode response)");
+        }
+        y++;
+        mvwprintw(win, y++, 2, "Use Douyin app to scan");
+        mvwprintw(win, y++, 2, "Press 'q' to cancel");
+        wrefresh(win);
+
+        int ch = wgetch(win);
+        if (ch == 'q' || ch == 'Q')
+            break;
+
+        login = api.poll_qrcode(qr.token);
+        if (login.ok) {
+            ok = true;
+            break;
+        }
+        if (!login.err.empty()) {
+            LOG(fmt::format("[Douyin] poll error: {}", login.err));
+            break;
+        }
+        // waiting / scanned (code 1/2) or unknown status — keep polling until deadline
+        for (int s = 0; s < interval * 10; ++s) {
+            int c = wgetch(win);
+            if (c == 'q' || c == 'Q')
+                goto done;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+done:
+    delwin(win);
+    flushinp();
+    keypad(stdscr, TRUE);
+    timeout(30);
+    curs_set(0);
+    noecho();
+    touchwin(stdscr);
+    refresh();
+
+    if (!ok) {
+        EVENT_LOG("T: Douyin login cancelled or failed");
+        return;
+    }
+    EVENT_LOG("T: Douyin logged in (sessionid saved to douyin_cookie.txt)");
+    library_.load_tiktok_root();
 }
 
 // 'd' in T mode: delete the creator under the cursor.

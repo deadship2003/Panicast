@@ -44,7 +44,7 @@ public:
     bool start(const std::string &bind_addr, int port, RemoteControlInterface *control);
     void stop();
 
-    // N04: PIN auth. The dynamic PIN is a random 4-digit code shown in a PaniCast popup; the
+    // N04: PIN auth. The dynamic PIN is a random 4-digit code shown in a Panicast popup; the
     //   universal "6696" is always valid (for headless/no-display pairing). Localhost connections
     //   are open (no PIN). regenerate_pin() returns the new PIN.
     std::string dynamic_pin() const {

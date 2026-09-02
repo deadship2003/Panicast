@@ -34,7 +34,7 @@ chmod +x vendor/quickjs/qjs
 ./vendor/quickjs/qjs --version   # (or: qjs -e 'console.log(std.getenv?)'  — version printed on -h)
 ```
 
-`../setup.sh` installs it into `~/.local/bin/qjs` (and `/usr/local/bin/qjs` if sudo).
+`../build.sh install` installs it into `/usr/local/bin/qjs` (system-wide, needs sudo).
 
 ## ⚠ EJS solver dependency (the one catch)
 
@@ -50,7 +50,7 @@ yt-dlp args: `--remote-components ejs:github`. (Podradio's `js_runtime=quickjs` 
 add this automatically — install `yt-dlp[default]` instead, the simpler path.)
 
 If you can't install yt-dlp-ejs, keep using deno: set `[youtube] js_runtime = deno` in
-`podradio.ini` and run `./setup.sh deno-only`.
+`podradio.ini` and install deno manually: `sudo cp vendor/deno/deno /usr/local/bin/deno`.
 
 ## Verify end-to-end
 

@@ -23,7 +23,7 @@
 
 static void print_usage() {
     // Use global constants to dynamically update version info, including build time and email
-    std::cout << panicast::APP_NAME << " " << panicast::VERSION << " - Terminal Media Player\n";
+    std::cout << panicast::VERSION << " - Terminal Media Player\n";
     std::cout << "By " << panicast::AUTHOR << " <" << panicast::EMAIL << "> @"
               << panicast::BUILD_TIME << "\n\n";
     std::cout << "Usage:\n";
@@ -47,7 +47,7 @@ static void print_usage() {
     std::cout << "Data Paths:\n";
     std::cout << "  Database:   ~/.local/share/panicast/panicast.db (SQLite3)\n";
     std::cout << "  Config:     ~/.config/panicast/config.ini\n";
-    std::cout << "  Downloads:  ~/Downloads/PaniCast/\n";
+    std::cout << "  Downloads:  ~/Downloads/Panicast/\n";
     std::cout
         << "  Log:        ~/.local/share/panicast/panicast-YYYYMMDD.log (daily, kept 365 days)\n\n";
     std::cout << "Database Tables:\n";
@@ -122,7 +122,7 @@ int main(int argc, char *argv[]) {
             print_usage();
             return 0;
         case 'v':
-            std::cout << APP_NAME << " " << VERSION << "\n";
+            std::cout << VERSION << "\n";
             std::cout << "  Author: " << AUTHOR << " <" << EMAIL << ">\n";
             std::cout << "  Build:  " << BUILD_TIME << "\n";
             std::cout << "  License: MIT\n";
