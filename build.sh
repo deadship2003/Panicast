@@ -1,15 +1,15 @@
 #!/bin/bash
 # ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║          Panicast — build + install (single script, arch-aware)           ║
+# ║          Panicast — build + install (single script, native-only)         ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 # Usage:
-#   ./build.sh                     # compile for the current host arch (auto-detected)
-#   ./build.sh --arch=arm64        # cross-compile aarch64 (needs aarch64-linux-gnu-gcc/g++)
-#   ./build.sh --arch=amd64        # force x86_64 build
+#   ./build.sh                     # compile for the current host CPU (auto-detected)
 #   ./build.sh install             # bootstrap: JS runtime + build deps + build + install
 #   ./build.sh install --no-deps   #   (skip the system build-deps step)
-#   ./build.sh clean               # remove build/ and build-arm64/
+#   ./build.sh clean               # remove build/
 #
+# Native build only — no cross-compilation. Each machine compiles for its own CPU
+#   (uname -m auto-detected), so run the script on the target arch directly.
 # Everything installs to /usr/local/bin (system PATH — no ~/.local/bin, no PATH edit).
 # The `install` path therefore requires sudo.
 
@@ -51,26 +51,15 @@ esac
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────
 MODE=build        # build | install | clean
-ARCH=""           # empty = auto-detect
 NO_DEPS=0
 for arg in "$@"; do
     case "$arg" in
         install|setup) MODE=install ;;
         clean)         MODE=clean ;;
         --no-deps)     NO_DEPS=1 ;;
-        --arch=*)      ARCH="${arg#--arch=}" ;;
-        arch=*)        ARCH="${arg#arch=}" ;;
-        *) echo "未知参数: $arg"; echo "用法: $0 [--arch=amd64|arm64] [install [--no-deps]] [clean]"; exit 1 ;;
+        *) echo "未知参数: $arg"; echo "用法: $0 [install [--no-deps]] [clean]"; exit 1 ;;
     esac
 done
-
-# Resolve target arch (aliases accepted).
-TARGET="${ARCH:-$HOST_ARCH}"
-case "$TARGET" in
-    amd64|x86_64)   TARGET=amd64 ;;
-    arm64|aarch64)  TARGET=arm64 ;;
-    *) die "未知架构: $TARGET (支持 amd64|arm64)" ;;
-esac
 
 # ── Install: everything → /usr/local/bin (system dirs, sudo required) ─────────
 # First line of `--version` output (build-invariant version string), or empty if unsupported.
@@ -197,45 +186,32 @@ build_native() {  # native build for the host arch
     # cold-start) is the lightweight default; deno (~106MB) is the fallback. Detection accepts the
     # binary under either name `qjs` or `qjsng` — Arch's quickjs-ng and Debian's quickjs both ship
     # `qjs`, but some quickjs-ng builds name it `qjsng`; the C++ resolver (find_qjs_binary) covers
-    # both at runtime. Set [youtube] js_runtime in config.ini (quickjs default, deno fallback).
-    if ! command -v qjs >/dev/null 2>&1 && ! command -v qjsng >/dev/null 2>&1 && ! command -v deno >/dev/null 2>&1; then
-        echo -e "${YELLOW}⚠ 未检测到 qjs/qjsng/deno：YouTube 播放/下载将失败（yt-dlp 求解 n 挑战需要 JS 运行时）。${NC}"
-        echo -e "${YELLOW}  推荐 quickjs-ng(2MB，二进制名 qjs)：${NC}"
-        echo -e "${YELLOW}    Arch: paru -S quickjs-ng (AUR)  /  Debian: apt install quickjs(注意版本，旧版被 yt-dlp 拒) 或 pip install quickjs-ng${NC}"
-        echo -e "${YELLOW}    或从 https://github.com/quickjs-ng/quickjs/releases 取 ≥0.12.0 放到 PATH(命名为 qjs)${NC}"
-        echo -e "${YELLOW}  或 deno(106MB)：curl -fsSL https://deno.land/install.sh | sh${NC}"
-        echo -e "${YELLOW}  注: quickjs 需 EJS solver——pip install -U \"yt-dlp[default]\"；deno 可自动从 npm 拉 EJS${NC}"
-    elif ! command -v qjs >/dev/null 2>&1 && ! command -v qjsng >/dev/null 2>&1; then
-        echo -e "${YELLOW}ℹ 仅有 deno，未检测到 qjs/qjsng：建议装 quickjs-ng(2MB，冷启动快约 10×)以消除播放初始卡顿。${NC}"
+    # both at runtime. The runtime must live in /usr/local/bin (system PATH — never ~/.local/bin).
+    # Set [youtube] js_runtime in config.ini (quickjs default, deno fallback).
+    _qjs=""
+    for _c in /usr/local/bin/qjs /usr/local/bin/qjsng; do [ -x "$_c" ] && { _qjs="$_c"; break; }; done
+    if [ -n "$_qjs" ]; then
+        echo -e "${GREEN}✓ JS 运行时: $_qjs (yt-dlp nsig solver)${NC}"
+    elif [ -x /usr/local/bin/deno ]; then
+        echo -e "${YELLOW}ℹ 仅有 /usr/local/bin/deno，未检测到 qjs/qjsng：建议装 quickjs-ng(2MB，冷启动快约 10×)以消除播放初始卡顿。${NC}"
     else
-        echo -e "${GREEN}✓ JS 运行时: $(command -v qjs 2>/dev/null || command -v qjsng 2>/dev/null) (yt-dlp nsig solver)${NC}"
+        echo -e "${YELLOW}⚠ 未在 /usr/local/bin 下检测到 qjs/qjsng/deno：YouTube 播放/下载将失败（yt-dlp 求解 n 挑战需要 JS 运行时）。${NC}"
+        if command -v qjs >/dev/null 2>&1 || command -v qjsng >/dev/null 2>&1; then
+            echo -e "${YELLOW}  检测到 qjs 在非系统路径（如 ~/.local/bin）。请移到系统路径：${NC}"
+            echo -e "${YELLOW}    sudo mv $(command -v qjs 2>/dev/null || command -v qjsng 2>/dev/null) /usr/local/bin/qjs${NC}"
+        else
+            echo -e "${YELLOW}  推荐 quickjs-ng(2MB，二进制名 qjs)：${NC}"
+            echo -e "${YELLOW}    Arch: paru -S quickjs-ng (AUR)  /  Debian: apt install quickjs(注意版本，旧版被 yt-dlp 拒) 或 pip install quickjs-ng${NC}"
+            echo -e "${YELLOW}    或从 https://github.com/quickjs-ng/quickjs/releases 取 ≥0.12.0 放到 /usr/local/bin(命名为 qjs)${NC}"
+            echo -e "${YELLOW}  或 deno(106MB)：curl -fsSL https://deno.land/install.sh | sh${NC}"
+            echo -e "${YELLOW}  注: quickjs 需 EJS solver——pip install -U \"yt-dlp[default]\"；deno 可自动从 npm 拉 EJS${NC}"
+        fi
     fi
-}
-
-build_arm64_cross() {  # amd64 host → arm64 target
-    echo -e "\n${BLUE}[arm64] 交叉编译中...${NC}"
-    if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1 || ! command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
-        die "缺少交叉编译工具链 aarch64-linux-gnu-gcc/g++。安装：apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
-    fi
-    cmake -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-aarch64-linux.cmake
-    cmake --build build-arm64 --parallel "$JOBS"
-    echo -e "${GREEN}✓ 完成: build-arm64/panicast${NC}"
-}
-
-build_target() {
-    case "$TARGET" in
-        amd64)
-            [ "$HOST_ARCH" = "amd64" ] || die "cross-compiling amd64 from a $HOST_ARCH host is not supported"
-            build_native ;;
-        arm64)
-            [ "$HOST_ARCH" = "arm64" ] && build_native || build_arm64_cross ;;
-    esac
 }
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 case "$MODE" in
-    clean)   rm -rf build build-arm64; say "cleaned build/ build-arm64/" ;;
+    clean)   rm -rf build; say "cleaned build/" ;;
     install) do_install ;;
-    build)   build_target ;;
+    build)   build_native ;;
 esac

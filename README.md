@@ -60,11 +60,10 @@ cd Panicast-V0.0.1
 ./build.sh install      # JS 运行时 + 构建依赖 + 编译 + 安装 panicast（全部装到 /usr/local/bin，需 sudo）
 # 可选参数:
 #   install --no-deps   跳过系统构建依赖安装（已装好时）
-#   --arch=arm64        交叉编译 arm64（仅编译，不安装）
-#   clean               清理 build/ build-arm64/
+#   clean               清理 build/
 ```
 
-`build.sh` 把 `qjs`/`deno`/`panicast` 都装到 `/usr/local/bin`（系统 PATH 内，**无需改 PATH**）。不带参数 `./build.sh` 则只编译当前架构；`./build.sh --arch=arm64` 交叉编译。详见 [`vendor/quickjs/README.md`](vendor/quickjs/README.md)。
+`build.sh` 把 `qjs`/`deno`/`panicast` 都装到 `/usr/local/bin`（系统 PATH 内，**无需改 PATH**）。`./build.sh` 按当前机器 CPU 自动检测并原生编译（无交叉编译，各平台在本机各自编译）。详见 [`vendor/quickjs/README.md`](vendor/quickjs/README.md)。
 
 > **为什么需要 JS 运行时**：yt-dlp 2026.07+ 求解 YouTube nsig「n 挑战」必须有 JS 运行时。**推荐 quickjs-ng**（~2MB，冷启动比 deno 快约 10×，可消除首次播放 YouTube 的初始卡顿）；deno（~106MB）为回退方案。apt 的 nodejs(20) 被 yt-dlp 标记 unsupported 不生效。详见下文「运行时依赖（JS 运行时）」。
 >
@@ -329,70 +328,6 @@ max_concurrent = 3                                     # 离线并发上限，[1
 
 ---
 
-## 🔨 交叉编译
-
-### Linux ARM64 (aarch64) - 从 x86_64 交叉编译
-
-```bash
-# 1. 安装交叉编译工具链
-sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-
-# 2. 添加 ARM64 架构支持
-sudo dpkg --add-architecture arm64
-sudo sed -i 's/deb http/deb [arch=amd64] http/' /etc/apt/sources.list
-
-# 3. 添加 ARM64 软件源
-sudo bash -c 'cat > /etc/apt/sources.list.d/arm64.list << EOF
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse
-EOF'
-
-# 4. 更新并安装 ARM64 依赖
-sudo apt-get update
-sudo apt-get install -y \
-    libncurses5-dev:arm64 libncursesw5-dev:arm64 \
-    libcurl4-openssl-dev:arm64 libsqlite3-dev:arm64 \
-    libxml2-dev:arm64 libfmt-dev:arm64 \
-    nlohmann-json3-dev:arm64 cmake ninja-build
-
-# 5. 尝试安装 MPV ARM64 (可选)
-sudo apt-get install -y libmpv-dev:arm64 || echo "MPV ARM64 需要手动编译"
-
-# 5b. 运行时依赖 JS 运行时 (目标机上需有 qjs(推荐) 或 deno 供 yt-dlp 求解 n 挑战；apt 的 nodejs(20) 不生效)
-
-# 6. 配置并编译
-cmake -B build -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-aarch64-linux.cmake
-cmake --build build --parallel $(nproc)
-
-# 7. 验证生成的二进制文件
-file build/panicast
-# 输出应为: build/panicast: ELF 64-bit LSB executable, ARM aarch64...
-```
-
-### macOS Universal Binary - 同时支持 Intel 和 M1/M2
-
-```bash
-# 1. 确保安装了 Xcode 命令行工具
-xcode-select --install
-
-# 2. 安装通用库 (需要手动编译或使用 Homebrew)
-# Homebrew 不直接支持通用二进制，需要手动处理
-
-# 3. 配置并编译
-cmake -B build -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-aarch64-linux.cmake
-cmake --build build --parallel $(sysctl -n hw.ncpu)
-
-# 4. 验证生成的二进制文件
-lipo -archs build/panicast
-# 输出应为: x86_64 arm64
-```
-
----
-
 ## 📋 编译选项
 
 ### CMake 配置参数
@@ -401,7 +336,6 @@ lipo -archs build/panicast
 |------|--------|------|
 | `CMAKE_BUILD_TYPE` | `Release` | 构建类型: Debug/Release |
 | `CMAKE_INSTALL_PREFIX` | `/usr/local` | 安装路径 |
-| `CMAKE_TOOLCHAIN_FILE` | - | 交叉编译工具链文件 |
 
 ### 常用编译命令
 
@@ -550,8 +484,6 @@ Panicast/
 │   └── panicast.cpp            # 主程序源码 (14,043 行)
 ├── man/
 │   └── panicast.1              # man 手册页
-├── cmake/
-│   └── toolchain-aarch64-linux.cmake  # Linux ARM64 交叉编译
 ├── .github/
 │   └── workflows/
 │       └── build.yml           # GitHub Actions CI/CD
