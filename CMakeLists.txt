@@ -445,6 +445,17 @@ if(UNIX)
     if(CURSES_FOUND)
         target_link_libraries(panicast PRIVATE ${CURSES_LIBRARIES})
         target_include_directories(panicast PRIVATE ${CURSES_INCLUDE_DIR})
+        if(APPLE)
+            # The wide ncurses header gates wget_wch (and every wide-char function) behind
+            # NCURSES_WIDECHAR, enabled by _XOPEN_SOURCE_EXTENDED or _XOPEN_SOURCE>=500. On Linux this
+            # is free: g++ on glibc always defines _GNU_SOURCE (libstdc++ needs it), which defines
+            # _XOPEN_SOURCE_EXTENDED, so wget_wch is declared with no extra flags. Apple Clang/libc
+            # never defines any of those, leaving wget_wch undeclared despite the correct include dirs.
+            # Pre-define NCURSES_WIDECHAR directly (the header's own `#ifndef NCURSES_WIDECHAR` guard
+            # exists for exactly this override) rather than _XOPEN_SOURCE_EXTENDED, so no feature-test
+            # macro is set that could change __DARWIN_C_LEVEL and hide strdup/strptime/etc. elsewhere.
+            target_compile_definitions(panicast PRIVATE NCURSES_WIDECHAR=1)
+        endif()
         message(STATUS "ncurses: Found")
     elseif(NCURSES_LIBRARY)
         target_link_libraries(panicast PRIVATE ${NCURSES_LIBRARY})
