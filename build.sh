@@ -11,7 +11,7 @@
 # Native build only — no cross-compilation. Each machine compiles for its own CPU
 #   (uname -m auto-detected), so run the script on the target arch directly.
 # Everything installs to /usr/local/bin (system PATH — no ~/.local/bin, no PATH edit).
-# The `install` path therefore requires sudo.
+# Writing to /usr/local/bin requires sudo (install mode, and build mode auto-relocating a JS runtime).
 
 set -e
 cd "$(dirname "$0")"
@@ -93,6 +93,67 @@ install_js_runtime() {
     else
         warn "no bundled JS runtime (vendor/quickjs/qjs or vendor/deno/deno) — yt-dlp nsig solving will fail"
     fi
+}
+
+# Interactive Y/N prompt with a 30s timeout defaulting to Y (empty input or timeout → Y).
+confirm_yes() {  # $1 = prompt (may include color codes)
+    local ans
+    printf "%b" "$1"
+    if read -r -t 30 ans; then
+        case "$ans" in
+            [Nn]|[Nn][Oo]) return 1 ;;
+        esac
+    else
+        echo
+    fi
+    return 0
+}
+
+# Build-mode JS runtime check. If the runtime is missing from /usr/local/bin but a candidate
+# source exists (the vendor/ bundle, or a binary on a non-system PATH entry like ~/.local/bin),
+# ask Y/N before installing it to /usr/local/bin (30s default Y). Never fails the build.
+build_check_js_runtime() {
+    local _c _src="" _name="" _p _n
+    for _c in /usr/local/bin/qjs /usr/local/bin/qjsng /usr/local/bin/deno; do
+        if [ -x "$_c" ]; then
+            say "JS 运行时: $_c (yt-dlp nsig solver)"
+            return 0
+        fi
+    done
+
+    if [ -x vendor/quickjs/qjs ]; then
+        _src=vendor/quickjs/qjs; _name=qjs
+    elif [ -x vendor/deno/deno ]; then
+        _src=vendor/deno/deno; _name=deno
+    else
+        for _n in qjs qjsng deno; do
+            if command -v "$_n" >/dev/null 2>&1; then
+                _p=$(command -v "$_n")
+                case "$_p" in /usr/local/bin/*) continue ;; esac
+                _src="$_p"; _name="$_n"; break
+            fi
+        done
+    fi
+
+    if [ -n "$_src" ]; then
+        if confirm_yes "${YELLOW}  未在 /usr/local/bin 检测到 JS 运行时，是否把 $_name 安装到 /usr/local/bin/$_name ？[Y/n]（30s 无输入默认 Y）${NC} "; then
+            if sudo mv -f "$_src" "/usr/local/bin/$_name" && sudo chmod +x "/usr/local/bin/$_name"; then
+                say "JS 运行时 -> /usr/local/bin/$_name"
+            else
+                warn "安装失败（sudo 不可用或被拒绝）：请手动  sudo mv $_src /usr/local/bin/$_name"
+            fi
+        else
+            info "跳过 JS 运行时安装（YouTube 播放/下载将不可用，除非手动装到 /usr/local/bin）"
+        fi
+        return 0
+    fi
+
+    warn "未在 /usr/local/bin 下检测到 qjs/qjsng/deno：YouTube 播放/下载将失败（yt-dlp 求解 n 挑战需要 JS 运行时）"
+    echo -e "${YELLOW}  推荐 quickjs-ng(2MB，二进制名 qjs)：${NC}"
+    echo -e "${YELLOW}    Arch: paru -S quickjs-ng (AUR)  /  Debian: apt install quickjs 或 pip install quickjs-ng${NC}"
+    echo -e "${YELLOW}    或从 https://github.com/quickjs-ng/quickjs/releases 取 ≥0.12.0 放到 /usr/local/bin(命名为 qjs)${NC}"
+    echo -e "${YELLOW}  或 deno(106MB)：curl -fsSL https://deno.land/install.sh | sh（装完同样需在系统路径）${NC}"
+    echo -e "${YELLOW}  注: quickjs 需 EJS solver——pip install -U \"yt-dlp[default]\"；deno 可自动从 npm 拉 EJS${NC}"
 }
 
 # 0 if every build dep for the active package manager is already installed.
@@ -181,32 +242,11 @@ build_native() {  # native build for the host arch
         echo -e "${YELLOW}⚠ 未检测到 libqrencode：Y 模式扫码登录将回退为纯文本 user_code（无 QR 图片）。${NC}"
         echo -e "${YELLOW}  安装：apt install libqrencode-dev  /  pacman -S qrencode  /  vcpkg install qrencode${NC}"
     fi
-    # Y05: a JavaScript runtime is a RUNTIME dependency for YouTube playback. yt-dlp 2026.07+
-    # needs it to solve YouTube's nsig "n challenge". quickjs-ng (binary `qjs`, ~2MB, ~10× faster
-    # cold-start) is the lightweight default; deno (~106MB) is the fallback. Detection accepts the
-    # binary under either name `qjs` or `qjsng` — Arch's quickjs-ng and Debian's quickjs both ship
-    # `qjs`, but some quickjs-ng builds name it `qjsng`; the C++ resolver (find_qjs_binary) covers
-    # both at runtime. The runtime must live in /usr/local/bin (system PATH — never ~/.local/bin).
-    # Set [youtube] js_runtime in config.ini (quickjs default, deno fallback).
-    _qjs=""
-    for _c in /usr/local/bin/qjs /usr/local/bin/qjsng; do [ -x "$_c" ] && { _qjs="$_c"; break; }; done
-    if [ -n "$_qjs" ]; then
-        echo -e "${GREEN}✓ JS 运行时: $_qjs (yt-dlp nsig solver)${NC}"
-    elif [ -x /usr/local/bin/deno ]; then
-        echo -e "${YELLOW}ℹ 仅有 /usr/local/bin/deno，未检测到 qjs/qjsng：建议装 quickjs-ng(2MB，冷启动快约 10×)以消除播放初始卡顿。${NC}"
-    else
-        echo -e "${YELLOW}⚠ 未在 /usr/local/bin 下检测到 qjs/qjsng/deno：YouTube 播放/下载将失败（yt-dlp 求解 n 挑战需要 JS 运行时）。${NC}"
-        if command -v qjs >/dev/null 2>&1 || command -v qjsng >/dev/null 2>&1; then
-            echo -e "${YELLOW}  检测到 qjs 在非系统路径（如 ~/.local/bin）。请移到系统路径：${NC}"
-            echo -e "${YELLOW}    sudo mv $(command -v qjs 2>/dev/null || command -v qjsng 2>/dev/null) /usr/local/bin/qjs${NC}"
-        else
-            echo -e "${YELLOW}  推荐 quickjs-ng(2MB，二进制名 qjs)：${NC}"
-            echo -e "${YELLOW}    Arch: paru -S quickjs-ng (AUR)  /  Debian: apt install quickjs(注意版本，旧版被 yt-dlp 拒) 或 pip install quickjs-ng${NC}"
-            echo -e "${YELLOW}    或从 https://github.com/quickjs-ng/quickjs/releases 取 ≥0.12.0 放到 /usr/local/bin(命名为 qjs)${NC}"
-            echo -e "${YELLOW}  或 deno(106MB)：curl -fsSL https://deno.land/install.sh | sh${NC}"
-            echo -e "${YELLOW}  注: quickjs 需 EJS solver——pip install -U \"yt-dlp[default]\"；deno 可自动从 npm 拉 EJS${NC}"
-        fi
-    fi
+    # Y05: a JavaScript runtime is a RUNTIME dependency for YouTube playback (yt-dlp 2026.07+ needs
+    #   it to solve YouTube's nsig "n challenge"). build_check_js_runtime() detects it and, if it's
+    #   missing from /usr/local/bin but a candidate source exists (vendor/ bundle or a non-system
+    #   PATH entry like ~/.local/bin), asks Y/N before installing (30s default Y). See its comment.
+    build_check_js_runtime
 }
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
