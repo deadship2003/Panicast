@@ -18,7 +18,9 @@
 #include <fstream>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <sys/prctl.h>
+#ifdef __linux__
+#include <sys/prctl.h> // PR_SET_PDEATHSIG (Linux-only; macOS uses a no-op below)
+#endif
 #include <signal.h>
 #include <thread>
 #include <unistd.h>
