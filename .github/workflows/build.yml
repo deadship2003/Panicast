@@ -5,35 +5,58 @@
 # ╚═════════════════════════════════════════════════════════════════════════╝
 #
 # Native multi-arch build matrix — no cross-compilation. Each job runs on a
-# GitHub-hosted runner that IS the target arch, and compiles natively for it
-# (uname -m / the runner's own toolchain decides the arch). This mirrors the
-# local model: every platform builds itself with `cmake -B build ...`.
+# GitHub-hosted runner that IS the target arch, and compiles natively for it.
 #
 #   Linux x64   → ubuntu-24.04      (AMD64)
 #   Linux arm64 → ubuntu-24.04-arm  (ARM64, hosted runner)
 #   macOS arm64 → macos-14          (Apple Silicon)
 #   macOS x64   → macos-15-intel    (Intel; macos-13 retired 2025-12-04)
 #
-# Tests (GTest) run on Linux only — the reference dev environment. macOS jobs
-# build + package the tarball (brew keg-only libs are made visible via
-# -DCMAKE_PREFIX_PATH="$(brew --prefix)").
+# Version policy (single source of truth, both jobs):
+#   workflow_dispatch "version" input → wins if set
+#   tag push                           → the tag name
+#   push main                          → git describe (e.g. v0.1.0-3-gabc1234)
+#   fallback                           → V0.0.1-dev
+#
+# Concurrency: main is a protected branch — a new main build does NOT cancel an
+#   in-flight one; every other ref (tags / manual / non-main branches) cancels
+#   the previous run to save CI time.
+#
+# Cleanup: only the noisy main-branch run history is auto-deleted (keep the
+#   latest main build); tag/release runs are NEVER deleted — they are the
+#   release record.
 #
 # Flow:
-#   push main / workflow_dispatch → build each arch + ctest(Linux) + upload artifacts
-#   push tag v*                   → same; if all builds pass, publish a
-#                                  GitHub Release with every platform tarball.
+#   push main            → build each arch + ctest(Linux) + upload artifacts,
+#                          then delete old main-branch runs
+#   push tag v*/V*       → same; if all builds pass, publish a GitHub Release
+#   workflow_dispatch    → optional version + publish_release to publish manually
 
 name: Build & Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号(留空自动:tag→标签名,否则 git describe / V0.0.1-dev)'
+        required: false
+        default: ''
+      publish_release:
+        description: '打包并发布 GitHub Release(手动发布时必须填写 version)'
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
-  workflow_dispatch:
+    tags: [ 'v*', 'V*' ]
+
+permissions:
+  contents: write
+  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
 
 env:
   BUILD_TYPE: Release
@@ -60,6 +83,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          VER="${{ github.event.inputs.version }}"
+          if [ -z "$VER" ]; then
+            case "$GITHUB_REF" in
+              refs/tags/*) VER="${GITHUB_REF_NAME}" ;;
+              *) VER="$(git describe --tags --always 2>/dev/null || echo V0.0.1-dev)" ;;
+            esac
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
@@ -102,7 +139,7 @@ jobs:
           cpack -G TGZ
           src_tar=$(ls Panicast-*.tar.gz | head -n1)
           cd ..
-          dest="panicast-${GITHUB_REF_NAME}-${{ matrix.label }}.tar.gz"
+          dest="panicast-${{ steps.version.outputs.version }}-${{ matrix.label }}.tar.gz"
           mv "build/$src_tar" "$dest"
           # sha256sum is Linux-only; macOS ships shasum. Both emit the same
           # "<hash>  <file>" format, so the .sha256 verifies with either tool.
@@ -121,31 +158,65 @@ jobs:
             panicast-*.sha256
           if-no-files-found: error
 
+      # Delete old main-branch runs (and their artifacts) so the noisy daily
+      # build history doesn't pile up — keep only the current main build. Tag /
+      # release runs are left untouched (they are the release record).
+      - name: Delete old main-branch runs
+        if: github.ref_name == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --workflow "${{ github.workflow }}" --branch main --status completed \
+            --limit 100 --json databaseId \
+            | jq -r '.[].databaseId' \
+            | grep -vx "${{ github.run_id }}" \
+            | while read -r id; do
+                gh api -X DELETE "repos/${{ github.repository }}/actions/runs/$id" >/dev/null 2>&1 || true
+              done
+
   # ===========================================================================
-  # Release — publish automatically when a v* tag is pushed AND all builds pass
+  # Release — publish on v*/V* tag push, or manual workflow_dispatch with
+  # publish_release=true. Reuses the artifacts already built by the matrix job.
   # ===========================================================================
   release:
     name: Publish Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v8
         with:
           path: release
           merge-multiple: true
 
+      - name: Determine version
+        id: version
+        run: |
+          VER="${{ github.event.inputs.version }}"
+          if [ -z "$VER" ]; then
+            case "$GITHUB_REF" in
+              refs/tags/*) VER="${GITHUB_REF_NAME}" ;;
+              *) VER="$(git describe --tags --always 2>/dev/null || echo V0.0.1-dev)" ;;
+            esac
+          fi
+          # Manual publish must name an explicit version — never ship V0.0.1-dev.
+          if [ "${{ github.event_name }}" = 'workflow_dispatch' ] && [ -z "${{ github.event.inputs.version }}" ]; then
+            echo "::error::手动发布 Release 必须填写 version(例如 v0.1.0)"
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.version.outputs.version }}
         run: |
           cat > notes.md <<'EOF'
-          ## Panicast ${{ github.ref_name }}
+          ## Panicast ${{ steps.version.outputs.version }}
 
           原生多平台构建（无交叉编译）：每个平台在对应架构的 runner 上各自编译。
           自动发布：CI 全部平台构建（Linux 含单元测试）通过后由 GitHub Actions 生成。
@@ -185,39 +256,9 @@ jobs:
           - 可选：`ffmpeg yt-dlp`（在线节目解析/下载）、`whisper.cpp`（AI 字幕）、quickjs-ng/deno（YouTube nsig）
           EOF
           if gh release view "$TAG" > /dev/null 2>&1; then
-            echo "Release for $TAG already exists — uploading assets (clobber)."
             gh release upload "$TAG" release/* --clobber
           else
             gh release create "$TAG" release/* \
               --title "Panicast $TAG" \
               --notes-file notes.md
-          fi
-
-  # ===========================================================================
-  # Cleanup — keep only the current build: delete every previously-completed run
-  # ===========================================================================
-  cleanup:
-    name: Keep only current build
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - name: Delete previous completed runs (keep only this run)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          # `concurrency: cancel-in-progress` only cancels IN-PROGRESS runs of the same
-          # ref; completed runs still pile up. Delete every previously-completed run of
-          # this workflow, leaving only the current one (in-flight runs are spared, so a
-          # parallel tag release is never killed mid-build).
-          # GH_REPO is required: this job never checks out the repo, so gh cannot infer
-          # the repository from a .git dir ("failed to determine base repo" otherwise).
-          gh run list --workflow "$GITHUB_WORKFLOW" --limit 500 \
-            --json databaseId,status \
-            --jq '.[] | select(.status == "completed") | .databaseId' > /tmp/runs.txt
-          if grep -vx "$GITHUB_RUN_ID" /tmp/runs.txt > /tmp/to_delete.txt; then
-            xargs -r -n1 gh run delete < /tmp/to_delete.txt
           fi
