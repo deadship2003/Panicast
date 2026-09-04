@@ -16,6 +16,8 @@
 #include "panicast/parsers/xml_helpers.h"
 #include "panicast/ui/ui.h"
 #include "panicast/app/app.h"
+#include "panicast/app/cli_commands.h"
+#include "panicast/app/cli_commands.h"
 
 #if __has_include("version.h")
 #include "version.h"
@@ -87,6 +89,16 @@ int main(int argc, char *argv[]) {
     // One-shot legacy data migration (podradio → panicast) BEFORE anything touches the config/DB,
     //   so IniConfig / DatabaseManager see the new (~/.local/share/panicast) location. Idempotent.
     Paths::migrate_legacy();
+
+    // N09/S1: service subcommands (status/start/stop/restart/enable/disable/log) — handled
+    //   and exited here, before any TUI/daemon machinery starts.
+    if (int rc = run_cli_command(argc, argv); rc >= 0)
+        return rc;
+
+    // N09/S1: service subcommands (status/start/stop/restart/enable/disable/log) — handled
+    //   and exited here, before any TUI/daemon machinery starts.
+    if (int rc = run_cli_command(argc, argv); rc >= 0)
+        return rc;
 
     int opt;
     std::string import_url, export_file, import_opml_file, sleep_time;

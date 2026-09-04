@@ -279,6 +279,7 @@ set(COMPILER_FLAGS ${COMPILER_FLAGS}
 add_library(panicast_engine OBJECT
     # panicast: renamed binary output (target stays 'panicast' internally)
         src/core/paths.cpp
+    src/app/cli_commands.cpp
     src/core/logger.cpp
     src/core/event_log.cpp
     src/core/thread_pool.cpp
