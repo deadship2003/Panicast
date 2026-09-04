@@ -396,9 +396,10 @@ lms_port = 9090
 # 默认：家庭网段 + 本机回环
 lms_allow = 192.168.0.0/16,127.0.0.0/8
 # 登录鉴权：与 Squeezer 设置里的 Username/Password 一致才可控制
-# lms_pass 留空 = 不鉴权（仅白名单防护）；密码明文存放，建议 chmod 600 本文件
+# 出厂默认 panicast/panicast（装好即用，建议改成自己的）；lms_pass 显式留空 = 关闭鉴权
+# 密码明文存放，建议 chmod 600 本文件
 lms_user = panicast
-lms_pass =
+lms_pass = panicast
 ```
 
 > 范围说明：本模块在同一端口（9090）上**自动识别两种协议**——新 Squeezer 的 HTTP cometd/JSON-RPC（含 Basic 鉴权）与传统 CLI 行协议（`login` 鉴权）；队列浏览为阶段二。SlimProto 音频协议（squeezelite 作独立音频输出）为后续可选扩展，不受本开关管理。

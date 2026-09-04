@@ -186,10 +186,12 @@ std::string IniConfig::get_remote_lms_allow() const {
     return get("remote", "lms_allow", "192.168.0.0/16,127.0.0.0/8");
 }
 std::string IniConfig::get_remote_lms_user() const {
-    return get("remote", "lms_user", "");
+    return get("remote", "lms_user", "panicast");
 }
 std::string IniConfig::get_remote_lms_pass() const {
-    return get("remote", "lms_pass", "");
+    // Factory default panicast/panicast = auth ON out of the box; an explicitly EMPTY
+    //   lms_pass key in the INI disables auth (key-present-but-empty wins over this default).
+    return get("remote", "lms_pass", "panicast");
 }
 
 
@@ -947,10 +949,12 @@ lms_port = 9090
 lms_allow = 192.168.0.0/16,127.0.0.0/8
 # 登录鉴权：Squeezer 设置里的 Username/Password 与此一致才可控制 / login auth: Squeezer's
 #   Username/Password fields must match these to control playback.
-#   lms_pass 留空 = 不鉴权（仅白名单防护）/ empty lms_pass = no auth (allowlist-only protection)
+#   默认 panicast/panicast（出厂凭据，装好即用）；改成自己的更安全 / default factory
+#   credentials panicast/panicast — change them to your own for safety.
+#   lms_pass 显式留空 = 关闭鉴权（仅白名单防护）/ explicitly EMPTY lms_pass = auth off
 #   注意：密码为明文存放，建议 chmod 600 本文件 / note: plaintext — chmod 600 this file
 lms_user = panicast
-lms_pass =
+lms_pass = panicast
 
 # ============================================================
 # 【艺术显示颜色代码参考】 / Color code reference

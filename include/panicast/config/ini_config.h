@@ -258,7 +258,8 @@ public:
     // Allowed source IPs, comma-separated CIDRs (bare IP = /32). Empty string = allow all.
     //   Default: home LAN + loopback only (192.168.0.0/16,127.0.0.0/8).
     std::string get_remote_lms_allow() const;
-    // Login auth (LMS CLI `login <user> <pass>`): active only when lms_pass is non-empty.
+    // Login auth (LMS CLI `login <user> <pass>` / HTTP Basic): factory default
+    //   panicast/panicast — auth ON out of the box. Explicitly empty lms_pass disables it.
     std::string get_remote_lms_user() const;
     std::string get_remote_lms_pass() const;
 

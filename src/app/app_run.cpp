@@ -532,7 +532,7 @@ void App::startup() {
         if (LmsServer::instance().start(IniConfig::instance().get_remote_bind(),
                                         IniConfig::instance().get_remote_lms_port(), this,
                                         &remote_bus_)) {
-            EVENT_LOG(fmt::format("mini-LMS (Squeezer) CLI on :{} — point Squeezer at "
+            EVENT_LOG(fmt::format("mini-LMS (Squeezer cometd) on :{} — point Squeezer at "
                                   "<this-host>:{}",
                                   IniConfig::instance().get_remote_lms_port(),
                                   IniConfig::instance().get_remote_lms_port()));
