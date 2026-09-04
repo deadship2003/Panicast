@@ -527,8 +527,15 @@ std::string LmsServer::handle_http(Conn &c, const std::string &method, const std
                     rpc_resp["result"] = result;
                     out = rpc_resp;
                 } else {
-                    // cometd publish → reply message on data.response (fallback: the
-                    //   request channel), data = the result hash itself.
+                    // cometd publish → TWO messages in the response array:
+                    //   1) ECHO the published message back on its own channel (same id) —
+                    //      real LMS does this, and Squeezer's PublishListener fires on that
+                    //      echo to advance its serialized command queue
+                    //      (MSG_PUBLISH_RESPONSE_RECIEVED). Without it the queue wedges
+                    //      after the first publish and the app goes mute.
+                    //   2) the actual result, delivered on the channel named by
+                    //      data.response (what the client subscribed to).
+                    out.push_back(m);
                     std::string resp_ch = rpc->value("response", std::string());
                     if (resp_ch.empty())
                         resp_ch = ch.empty() ? "/service/slim/request" : ch;
