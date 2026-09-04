@@ -274,10 +274,11 @@ set(COMPILER_FLAGS ${COMPILER_FLAGS}
 # V0.05B9n3e5g3p P3-1: Keep a single source file (splitting into multiple files is v0.6 work)
 # But add generated/ to the include path to support version.h injection
 # =============================================================================
-add_executable(panicast
+# N09/S1: shared engine objects — both the TUI binary (panicast) and the daemon
+#   (panicastd) link these; only the entry point differs (main.cpp vs panicastd_main.cpp).
+add_library(panicast_engine OBJECT
     # panicast: renamed binary output (target stays 'panicast' internally)
-    src/main.cpp
-    src/core/paths.cpp
+        src/core/paths.cpp
     src/core/logger.cpp
     src/core/event_log.cpp
     src/core/thread_pool.cpp
@@ -374,38 +375,53 @@ add_executable(panicast
     src/app/app_sync.cpp
     src/ui/qr.cpp
 )
-set_target_properties(panicast PROPERTIES OUTPUT_NAME "panicast")
-
-target_compile_options(panicast PRIVATE ${COMPILER_FLAGS})
-target_compile_definitions(panicast PRIVATE ${PANICAST_PLATFORM_DEFINE})
-
-# N08: mini-LMS module — compiled in only when PANICAST_REMOTE_LMS=ON (default).
-#   The PANICAST_REMOTE_LMS define gates the source (app_run.cpp startup wiring); the
-#   module source itself is added here so OFF builds exclude it entirely.
-if(PANICAST_REMOTE_LMS)
-    target_sources(panicast PRIVATE src/net/lms_server.cpp)
-    target_compile_definitions(panicast PRIVATE PANICAST_REMOTE_LMS=1)
-endif()
-
-target_include_directories(panicast PRIVATE
+target_include_directories(panicast_engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
+target_compile_definitions(panicast_engine PUBLIC ${PANICAST_PLATFORM_DEFINE})
+if(PANICAST_REMOTE_LMS)
+    target_compile_definitions(panicast_engine PUBLIC PANICAST_REMOTE_LMS=1)
+endif()
+
+add_executable(panicast src/main.cpp)
+target_link_libraries(panicast PRIVATE panicast_engine)
+
+# N09/S1: the headless daemon — full engine, NullFrontend instead of ncurses.
+add_executable(panicastd src/panicastd_main.cpp)
+target_link_libraries(panicastd PRIVATE panicast_engine)
+set_target_properties(panicast PROPERTIES OUTPUT_NAME "panicast")
+set_target_properties(panicastd PROPERTIES OUTPUT_NAME "panicastd")
+
+target_compile_options(panicast PRIVATE ${COMPILER_FLAGS})
+target_compile_options(panicastd PRIVATE ${COMPILER_FLAGS})
+
+# N08: mini-LMS module — compiled into the shared engine only when PANICAST_REMOTE_LMS=ON
+#   (default); OFF builds exclude it entirely from both binaries.
+if(PANICAST_REMOTE_LMS)
+    target_sources(panicast_engine PRIVATE src/net/lms_server.cpp)
+endif()
 
 # =============================================================================
-# Link libraries
+# Link libraries (both binaries — same engine, same dependencies)
 # =============================================================================
-target_link_libraries(panicast PRIVATE
+foreach(tgt panicast_engine)
+target_include_directories(${tgt} PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+)
+target_link_libraries(${tgt} PUBLIC
     Threads::Threads
 )
 
 # MPV
 if(MPV_FOUND)
     if(TARGET PkgConfig::MPV)
-        target_link_libraries(panicast PRIVATE PkgConfig::MPV)
+        target_link_libraries(${tgt} PUBLIC PkgConfig::MPV)
     elseif(MPV_LIBRARY)
-        target_link_libraries(panicast PRIVATE ${MPV_LIBRARY})
+        target_link_libraries(${tgt} PUBLIC ${MPV_LIBRARY})
     endif()
     message(STATUS "MPV: Found")
 else()
@@ -414,7 +430,7 @@ endif()
 
 # SQLite3
 if(SQLITE3_LINK_LIB)
-    target_link_libraries(panicast PRIVATE ${SQLITE3_LINK_LIB})
+    target_link_libraries(${tgt} PUBLIC ${SQLITE3_LINK_LIB})
     message(STATUS "SQLite3: Found (${SQLITE3_LINK_LIB})")
 elseif(SQLite3_FOUND)
     message(WARNING "SQLite3 found but no link target available")
@@ -425,9 +441,9 @@ endif()
 # CURL
 if(CURL_FOUND)
     if(TARGET CURL::libcurl)
-        target_link_libraries(panicast PRIVATE CURL::libcurl)
+        target_link_libraries(${tgt} PUBLIC CURL::libcurl)
     elseif(CURL_LIBRARY)
-        target_link_libraries(panicast PRIVATE ${CURL_LIBRARY})
+        target_link_libraries(${tgt} PUBLIC ${CURL_LIBRARY})
     endif()
     message(STATUS "CURL: Found")
 else()
@@ -437,9 +453,9 @@ endif()
 # libxml2
 if(LibXml2_FOUND)
     if(TARGET LibXml2::LibXml2)
-        target_link_libraries(panicast PRIVATE LibXml2::LibXml2)
+        target_link_libraries(${tgt} PUBLIC LibXml2::LibXml2)
     elseif(XML2_LIBRARY)
-        target_link_libraries(panicast PRIVATE ${XML2_LIBRARY})
+        target_link_libraries(${tgt} PUBLIC ${XML2_LIBRARY})
     endif()
     message(STATUS "libxml2: Found")
 else()
@@ -448,7 +464,7 @@ endif()
 
 # fmt
 if(fmt_FOUND)
-    target_link_libraries(panicast PRIVATE fmt::fmt)
+    target_link_libraries(${tgt} PUBLIC fmt::fmt)
     message(STATUS "fmt: Found")
 else()
     message(STATUS "fmt: Using bundled version")
@@ -456,7 +472,7 @@ endif()
 
 # nlohmann_json
 if(nlohmann_json_FOUND)
-    target_link_libraries(panicast PRIVATE nlohmann_json::nlohmann_json)
+    target_link_libraries(${tgt} PUBLIC nlohmann_json::nlohmann_json)
     message(STATUS "nlohmann_json: Found")
 else()
     message(STATUS "nlohmann_json: Using bundled version")
@@ -465,8 +481,8 @@ endif()
 # ncurses
 if(UNIX)
     if(CURSES_FOUND)
-        target_link_libraries(panicast PRIVATE ${CURSES_LIBRARIES})
-        target_include_directories(panicast PRIVATE ${CURSES_INCLUDE_DIR})
+        target_link_libraries(${tgt} PUBLIC ${CURSES_LIBRARIES})
+        target_include_directories(${tgt} PUBLIC ${CURSES_INCLUDE_DIR})
         if(APPLE)
             # The wide ncurses header gates wget_wch (and every wide-char function) behind
             # NCURSES_WIDECHAR, enabled by _XOPEN_SOURCE_EXTENDED or _XOPEN_SOURCE>=500. On Linux this
@@ -476,11 +492,11 @@ if(UNIX)
             # Pre-define NCURSES_WIDECHAR directly (the header's own `#ifndef NCURSES_WIDECHAR` guard
             # exists for exactly this override) rather than _XOPEN_SOURCE_EXTENDED, so no feature-test
             # macro is set that could change __DARWIN_C_LEVEL and hide strdup/strptime/etc. elsewhere.
-            target_compile_definitions(panicast PRIVATE NCURSES_WIDECHAR=1)
+            target_compile_definitions(${tgt} PUBLIC NCURSES_WIDECHAR=1)
         endif()
         message(STATUS "ncurses: Found")
     elseif(NCURSES_LIBRARY)
-        target_link_libraries(panicast PRIVATE ${NCURSES_LIBRARY})
+        target_link_libraries(${tgt} PUBLIC ${NCURSES_LIBRARY})
         message(STATUS "ncurses: Found (${NCURSES_LIBRARY})")
     else()
         message(WARNING "ncurses not found - TUI disabled")
@@ -490,26 +506,31 @@ endif()
 # libqrencode (Y01: QR rendering for Google OAuth device-flow login)
 if(HAVE_QRENCODE)
     if(TARGET PkgConfig::QRENCODE)
-        target_link_libraries(panicast PRIVATE PkgConfig::QRENCODE)
+        target_link_libraries(${tgt} PUBLIC PkgConfig::QRENCODE)
     else()
-        target_include_directories(panicast PRIVATE ${QRENCODE_INCLUDE_DIR})
-        target_link_libraries(panicast PRIVATE ${QRENCODE_LIBRARY})
+        target_include_directories(${tgt} PUBLIC ${QRENCODE_INCLUDE_DIR})
+        target_link_libraries(${tgt} PUBLIC ${QRENCODE_LIBRARY})
     endif()
-    target_compile_definitions(panicast PRIVATE HAVE_QRENCODE=1)
+    target_compile_definitions(${tgt} PUBLIC HAVE_QRENCODE=1)
 endif()
 
 # Y18: OpenSSL libcrypto (MD5 for Bilibili WBI signing in bilibili_api.cpp)
 find_package(OpenSSL QUIET)
 if(OpenSSL_FOUND)
-    target_link_libraries(panicast PRIVATE OpenSSL::Crypto)
+    target_link_libraries(${tgt} PUBLIC OpenSSL::Crypto)
 else()
-    target_link_libraries(panicast PRIVATE crypto)
+    target_link_libraries(${tgt} PUBLIC crypto)
 endif()
 
 # =============================================================================
 # Install
 # =============================================================================
-install(TARGETS panicast
+endforeach()
+
+# =============================================================================
+# Install
+# =============================================================================
+install(TARGETS panicast panicastd
     RUNTIME DESTINATION bin
 )
 

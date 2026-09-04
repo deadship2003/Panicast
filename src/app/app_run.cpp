@@ -5,6 +5,7 @@
 #include "panicast/core/event_bus.h"
 #include "panicast/net/bilibili_api.h"
 #include "panicast/net/lms_server.h" // N08: mini-LMS (Squeezer) — guarded use; ON builds only
+#include "panicast/ui/null_frontend.h" // N09/S1: daemon frontend
 #include "panicast/net/network.h" // D45-fix: Network::init_proxy_routing after IniConfig load
 #include "panicast/net/tiktok_region.h"
 #include "panicast/parsers/bilibili_parser.h"
@@ -74,10 +75,26 @@ App::~App() {
     pool_.shutdown();
 }
 
+void App::set_headless() {
+    frontend_ = std::make_unique<NullFrontend>();
+    headless_ = true;
+}
+
 void App::run() {
     startup();
 
     while (running) {
+        if (headless_) {
+            // N09/S1 daemon frame: same per-frame crossings as the TUI loop (exit checks +
+            //   remote-command drain + playback-ended queue + remote state cache), just
+            //   paced by sleep instead of the 30ms ncurses input poll. No draw, no input.
+            if (check_exit_requests())
+                break;
+            drain_frame_events();
+            std::this_thread::sleep_for(std::chrono::milliseconds(33));
+            continue;
+        }
+
         const auto frame_start_ = std::chrono::steady_clock::now();
         // D40: SIGINT (CTRL+C) / termination-signal / sleep-timer exit checks extracted to
         //   check_exit_requests() (sets running=false + returns true when the loop should break).
@@ -624,6 +641,8 @@ void App::shutdown() {
     // Exit IMMEDIATELY — skip ~App destructors (the pool workers are detached and could
     //   access App members during destruction → use-after-free). The terminal is already
     //   restored by frontend_->cleanup; the OS reclaims all resources (threads, mpv, DB handles).
+        if (exit_hook_)
+        exit_hook_(); // N09/S1: daemon cleanup (pid file) — _exit skips main's epilogue
     _exit(0);
 }
 

@@ -108,6 +108,15 @@ public:
     ~App();
     void run();
 
+    // N09/S1: swap the ncurses frontend for the no-op NullFrontend and mark the App
+    //   headless — panicastd (the daemon binary) runs the full engine without a terminal;
+    //   the run loop then paces on sleeps instead of draw/input. Must be called before run().
+    void set_headless();
+
+    // N09/S1: run `hook` right before the shutdown bookend's _exit(0) (which skips the
+    //   rest of main) — the daemon uses it to remove its pid file.
+    void set_exit_hook(std::function<void()> hook) { exit_hook_ = std::move(hook); }
+
     // Use std::cout instead of EVENT_LOG for command-line mode compatibility
     void import_feed(const std::string &url);
     // Import from an OPML file; use std::cout instead of EVENT_LOG
@@ -121,7 +130,9 @@ public:
     RemoteStateSnapshot snapshot_state() override;
 
 private:
-    std::unique_ptr<IFrontend> frontend_ = std::make_unique<UI>(); // D12-3c: App owns the ncurses UI through the IFrontend contract (UI swappable — Qt could implement the same interface). Concrete UI is named only at this construction point + the static UI::is_input_cancelled input-marker check.
+    std::unique_ptr<IFrontend> frontend_ = std::make_unique<UI>();
+    bool headless_ = false;    // N09/S1: daemon mode — no draw/input, engine-only frame loop
+    std::function<void()> exit_hook_; // N09/S1: called just before _exit(0) in shutdown() // D12-3c: App owns the ncurses UI through the IFrontend contract (UI swappable — Qt could implement the same interface). Concrete UI is named only at this construction point + the static UI::is_input_cancelled input-marker check.
     MPVController player;
     PlaybackService playback_{player}; // D8: first Application Service (owns playback Actions)
     // D10-4: the per-mode tree DATA MODEL (8 root item lists + 6 "loaded" flags) moved into
