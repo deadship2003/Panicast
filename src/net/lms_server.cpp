@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <thread>
 
 #include <arpa/inet.h>
@@ -181,6 +182,32 @@ bool ct_equal(const std::string &a, const std::string &b) {
     for (size_t i = 0; i < n; ++i)
         diff |= (unsigned char)(a[i % a.size()]) ^ (unsigned char)(b[i % b.size()]);
     return diff == 0;
+}
+
+// Minimal base64 decode (standard alphabet) for HTTP Basic auth.
+std::string b64decode(const std::string &in) {
+    static const char tbl[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    auto dv = [&](char c) -> int {
+        const char *p = std::strchr(tbl, c);
+        return (c && p) ? (int)(p - tbl) : -1;
+    };
+    std::string out;
+    int val = 0, bits = 0;
+    for (char c : in) {
+        if (c == '=')
+            break;
+        int d = dv(c);
+        if (d < 0)
+            continue;
+        val = (val << 6) | d;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out += (char)((val >> bits) & 0xFF);
+        }
+    }
+    return out;
 }
 } // namespace
 
@@ -556,29 +583,90 @@ void LmsServer::send_line(Conn *c, const std::string &line) {
 void LmsServer::client_loop(Conn *c) {
     LOG(fmt::format("[LMS] client {} connected", c->client_id));
     std::string pending;
-    char buf[2048];
+    char buf[4096];
     while (running_.load()) {
         ssize_t n = ::recv(c->fd, buf, sizeof(buf), 0);
         if (n <= 0)
             break; // EOF / error → connection gone
         pending.append(buf, static_cast<size_t>(n));
-        // Process every complete line; Squeezer sends one command per line.
-        size_t nl;
-        while ((nl = pending.find('\n')) != std::string::npos) {
-            std::string line = pending.substr(0, nl);
-            pending.erase(0, nl + 1);
-            if (!line.empty() && line.back() == '\r')
-                line.pop_back();
-            if (line.empty())
-                continue;
-            LOG(fmt::format("[LMS] >> {}", line.substr(0, 200)));
-            std::string resp = handle_line(line, *c);
-            send_line(c, resp);
-            if (c->kick)
-                break; // auth failure / unauth flood → close now
+
+        // N08.3 protocol auto-detection: newer Squeezer opens an HTTP/Bayeux (cometd)
+        //   connection; older CLI tools send raw lines. The first request line decides,
+        //   and the mode sticks for the connection's lifetime.
+        if (!c->http_mode) {
+            size_t nl = pending.find('\n');
+            if (nl != std::string::npos) {
+                std::string first = pending.substr(0, nl);
+                if (!first.empty() && first.back() == '\r')
+                    first.pop_back();
+                for (const char *v : {"POST ", "GET ", "PUT ", "DELETE ", "OPTIONS ", "HEAD "})
+                    if (first.rfind(v, 0) == 0) {
+                        c->http_mode = true;
+                        LOG(fmt::format("[LMS] client {} speaks HTTP/cometd", c->client_id));
+                        break;
+                    }
+            }
         }
-        if (pending.size() > 65536) // runaway garbage guard
-            pending.clear();
+
+        if (c->http_mode) {
+            // Extract complete HTTP requests (headers + Content-Length body), keep-alive.
+            for (;;) {
+                size_t hdr_end = pending.find("\r\n\r\n");
+                if (hdr_end == std::string::npos)
+                    break;
+                size_t cl = 0;
+                {
+                    std::string h = pending.substr(0, hdr_end);
+                    std::transform(h.begin(), h.end(), h.begin(),
+                                   [](unsigned char ch) { return (char)std::tolower(ch); });
+                    size_t p = h.find("content-length:");
+                    if (p != std::string::npos)
+                        cl = (size_t)std::strtoull(h.c_str() + p + 15, nullptr, 10);
+                }
+                size_t total = hdr_end + 4 + cl;
+                if (pending.size() < total)
+                    break; // body not fully buffered yet
+                size_t sp1 = pending.find(' ');
+                size_t sp2 = pending.find(' ', sp1 + 1);
+                std::string method = pending.substr(0, sp1);
+                std::string pathq =
+                    sp2 != std::string::npos ? pending.substr(sp1 + 1, sp2 - sp1 - 1)
+                                             : pending.substr(sp1 + 1);
+                std::string path = pathq.substr(0, pathq.find('?'));
+                std::string headers = pending.substr(0, hdr_end);
+                std::string body = pending.substr(hdr_end + 4, cl);
+                pending.erase(0, total);
+
+                std::string resp = handle_http(*c, method, path, headers, body);
+                {
+                    std::lock_guard<std::mutex> lk(c->wmtx);
+                    if (c->fd >= 0)
+                        ::send(c->fd, resp.data(), resp.size(), MSG_NOSIGNAL);
+                }
+            }
+            if (pending.size() > (1u << 20))
+                pending.clear(); // runaway garbage guard
+        } else {
+            // CLI line protocol: one command per line.
+            size_t nl;
+            while ((nl = pending.find('\n')) != std::string::npos) {
+                std::string line = pending.substr(0, nl);
+                pending.erase(0, nl + 1);
+                if (!line.empty() && line.back() == '\r')
+                    line.pop_back();
+                if (line.empty())
+                    continue;
+                LOG(fmt::format("[LMS] >> {}", line.substr(0, 200)));
+                std::string resp = handle_line(line, *c);
+                send_line(c, resp);
+                if (c->kick)
+                    break; // auth failure / unauth flood → close now
+            }
+            if (c->kick)
+                break;
+            if (pending.size() > 65536)
+                pending.clear();
+        }
     }
     LOG(fmt::format("[LMS] client {} disconnected", c->client_id));
     if (c->fd >= 0) {
@@ -598,7 +686,9 @@ void LmsServer::poll_loop() {
         std::lock_guard<std::mutex> lk(conns_mtx_);
         auto now = std::chrono::steady_clock::now();
         for (auto &c : conns_) {
-            if (c->done.load() || !(c->subscribed || c->listening))
+            if (c->done.load() || c->http_mode) // HTTP clients get JSON responses only (v1)
+                continue;
+            if (!(c->subscribed || c->listening))
                 continue;
             if (auth_required_ && !c->authed.load())
                 continue; // no state pushes before login
@@ -611,6 +701,279 @@ void LmsServer::poll_loop() {
             }
         }
     }
+}
+
+// ── N08.3: HTTP/cometd (Bayeux JSON-RPC) — newer Squeezer's transport ──────────
+//   POST /cometd with a JSON array of Bayeux messages; /meta/* keep the long-poll
+//   session alive, /service/* carry JSON-RPC "slim.request" calls whose params are the
+//   same CLI command arrays. Auth = HTTP Basic against lms_user/lms_pass.
+std::string LmsServer::handle_http(Conn &c, const std::string &method, const std::string &path,
+                                   const std::string &headers, const std::string &body) {
+    auto http_resp = [](int code, const char *status, const std::string &b,
+                        const char *extra = "") {
+        return fmt::format(
+            "HTTP/1.1 {} {}\r\nContent-Type: application/json;charset=UTF-8\r\n"
+            "Content-Length: {}\r\nConnection: keep-alive\r\n{}\r\n{}",
+            code, status, b.size(), extra, b);
+    };
+    auto header_val = [&](const std::string &key) -> std::string {
+        // Search case-insensitively on a lowered COPY, but slice the ORIGINAL string —
+        //   the transform is 1:1 so indices align; returning the lowered copy would turn
+        //   "Authorization: Basic ..." into "basic ..." and break the scheme match below.
+        std::string h = headers;
+        std::transform(h.begin(), h.end(), h.begin(),
+                       [](unsigned char ch) { return (char)std::tolower(ch); });
+        size_t p = h.find(key + ":");
+        if (p == std::string::npos)
+            return "";
+        p += key.size() + 1;
+        while (p < h.size() && (h[p] == ' ' || h[p] == '\t'))
+            p++;
+        size_t e = headers.find("\r\n", p);
+        return headers.substr(p, e == std::string::npos ? std::string::npos : e - p);
+    };
+
+    // Basic-auth gate → lms_user/lms_pass (Squeezer sends credentials preemptively).
+    if (auth_required_ && !c.authed.load()) {
+        bool ok = false;
+        std::string auth = header_val("authorization");
+        if (auth.rfind("Basic ", 0) == 0) {
+            std::string dec = b64decode(auth.substr(6));
+            size_t colon = dec.find(':');
+            if (colon != std::string::npos &&
+                ct_equal(dec.substr(0, colon), lms_user_) &&
+                ct_equal(dec.substr(colon + 1), lms_pass_)) {
+                ok = true;
+                c.http_auth_user = dec.substr(0, colon);
+            }
+        }
+        if (!ok) {
+            LOG(fmt::format("[LMS-HTTP] 401 {} {} (bad or missing Basic credentials)",
+                            method, path));
+            return http_resp(401, "Unauthorized", "[]",
+                             "WWW-Authenticate: Basic realm=\"panicast\"\r\n");
+        }
+        c.authed.store(true);
+    }
+
+    LOG(fmt::format("[LMS-HTTP] >> {} {} {}", method, path, body.substr(0, 300)));
+    if (path.find("/cometd") == std::string::npos && path.find("/jsonrpc") == std::string::npos)
+        return http_resp(404, "Not Found", "[]");
+
+    bool is_cometd = path.find("/cometd") != std::string::npos;
+    nlohmann::json out = nlohmann::json::array();
+    bool direct_rpc = false; // /jsonrpc.js style: single object in, single object out
+    try {
+        nlohmann::json msgs = nlohmann::json::parse(body, nullptr, false);
+        if (msgs.is_object()) {
+            direct_rpc = true;
+            msgs = nlohmann::json::array({msgs});
+        } else if (!msgs.is_array())
+            msgs = nlohmann::json::array();
+        for (const auto &m : msgs) {
+            std::string ch = m.value("channel", std::string());
+            nlohmann::json id = m.contains("id") ? m["id"] : nlohmann::json(nullptr);
+
+            if (ch.rfind("/meta/handshake", 0) == 0) {
+                static std::atomic<uint64_t> next_cid{1};
+                nlohmann::json j;
+                j["channel"] = "/meta/handshake";
+                j["successful"] = true;
+                j["authSuccessful"] = true;
+                j["version"] = "1.0";
+                j["supportedConnectionTypes"] = nlohmann::json::array({"long-polling"});
+                j["clientId"] = fmt::format("lc{:016x}", next_cid.fetch_add(1));
+                j["id"] = id;
+                out.push_back(j);
+            } else if (ch.rfind("/meta/connect", 0) == 0) {
+                // Immediate reply + advice.interval keeps the client from busy-spinning
+                //   without holding a thread per long-poll (state arrives on requests).
+                char ts[32];
+                std::time_t now = std::time(nullptr);
+                std::strftime(ts, sizeof(ts), "%FT%TZ", std::gmtime(&now));
+                nlohmann::json j;
+                j["channel"] = "/meta/connect";
+                j["successful"] = true;
+                j["clientId"] = m.value("clientId", std::string());
+                j["timestamp"] = ts;
+                nlohmann::json adv;
+                adv["reconnect"] = "retry";
+                adv["interval"] = 800;
+                adv["timeout"] = 25000;
+                j["advice"] = adv;
+                j["id"] = id;
+                out.push_back(j);
+            } else if (ch.rfind("/meta/subscribe", 0) == 0 || ch.rfind("/meta/unsubscribe", 0) == 0) {
+                nlohmann::json j;
+                j["channel"] = ch;
+                j["successful"] = true;
+                j["clientId"] = m.value("clientId", std::string());
+                j["subscription"] = m.value("subscription", std::string());
+                j["id"] = id;
+                out.push_back(j);
+            } else if (ch.rfind("/meta/disconnect", 0) == 0) {
+                nlohmann::json j;
+                j["channel"] = ch;
+                j["successful"] = true;
+                j["clientId"] = m.value("clientId", std::string());
+                j["id"] = id;
+                out.push_back(j);
+            } else {
+                // Service message: {"channel":"/service/...","data":{id,method,params}}
+                const nlohmann::json *rpc = m.contains("data") && m["data"].is_object() ? &m["data"] : &m;
+                nlohmann::json result = nlohmann::json::object();
+                if (rpc->value("method", std::string()) == "slim.request" &&
+                    (*rpc).contains("params") && (*rpc)["params"].is_array() &&
+                    (*rpc)["params"].size() >= 2 && (*rpc)["params"][1].is_array()) {
+                    std::vector<std::string> cmd;
+                    for (const auto &e : (*rpc)["params"][1])
+                        cmd.push_back(e.is_string() ? e.get<std::string>() : e.dump());
+                    result = json_slim_request(c, cmd);
+                }
+                nlohmann::json rpc_resp;
+                rpc_resp["id"] = rpc->contains("id") ? (*rpc)["id"] : nlohmann::json(nullptr);
+                rpc_resp["method"] = rpc->value("method", std::string());
+                rpc_resp["result"] = result;
+                if (is_cometd && !direct_rpc) {
+                    nlohmann::json j;
+                    j["channel"] = ch.empty() ? "/service/slim/request" : ch;
+                    j["data"] = rpc_resp;
+                    j["id"] = id;
+                    out.push_back(j);
+                } else {
+                    out = rpc_resp; // direct JSON-RPC → single object response
+                }
+            }
+        }
+    } catch (const std::exception &e) {
+        LOG(fmt::format("[LMS-HTTP] body parse error: {}", e.what()));
+        return http_resp(400, "Bad Request", "[]");
+    }
+
+    std::string dump = direct_rpc ? out.dump() : out.dump();
+    LOG(fmt::format("[LMS-HTTP] << {}", dump.substr(0, 300)));
+    return http_resp(200, "OK", dump);
+}
+
+// JSON-RPC command mapping — same command set as the CLI path, but LMS-JSON shaped:
+//   stringly-typed values, players_loop array for player listings, flat status object.
+nlohmann::json LmsServer::json_slim_request(Conn &c, const std::vector<std::string> &cmd) {
+    if (cmd.empty())
+        return nlohmann::json::object();
+    const std::string &k = cmd[0];
+    auto push = [&](const char *action) {
+        if (bus_)
+            bus_->push({action, {}, c.client_id});
+    };
+    auto push_arg = [&](const char *action, const std::string &arg) {
+        if (bus_)
+            bus_->push({action, {arg}, c.client_id});
+    };
+
+    if (k == "players" || k == "serverstatus") {
+        nlohmann::json p;
+        p["playerindex"] = "0";
+        p["playerid"] = player_id();
+        p["name"] = player_name();
+        p["model"] = "squeezelite";
+        p["modelname"] = "SqueezeLite";
+        p["isplayer"] = "1";
+        p["connected"] = "1";
+        p["power"] = "1";
+        p["displaytype"] = "graphic-280x16";
+        p["seq_no"] = "0";
+        nlohmann::json r;
+        r["count"] = "1";
+        r["player_count"] = "1";
+        if (k == "serverstatus") {
+            r["version"] = "8.4.0";
+            r["sn"] = "0";
+        }
+        r["players_loop"] = nlohmann::json::array({p});
+        return r;
+    }
+    if (k == "status") {
+        for (const auto &a : cmd)
+            if (a.rfind("subscribe:", 0) == 0)
+                c.subscribed = true; // JSON pushes are v2; marking keeps semantics
+        if (!control_)
+            return nlohmann::json::object();
+        auto s = control_->snapshot_state();
+        const char *mode = !s.has_media ? "stop" : (s.paused ? "pause" : "play");
+        int idx = std::max(0, s.current_index);
+        auto S = [](int v) { return std::to_string(v); };
+        nlohmann::json r;
+        r["player_name"] = player_name();
+        r["player_connected"] = "1";
+        r["power"] = "1";
+        r["mode"] = mode;
+        r["playlist_tracks"] = S((int)s.playlist.size());
+        r["playlist_cur_index"] = S(idx);
+        r["playlist_repeat"] = "0";
+        r["playlist_shuffle"] = "0";
+        r["song"] = S(idx);
+        r["seq_no"] = "0";
+        r["rate"] = "1";
+        r["time"] = S((int)s.elapsed);
+        r["duration"] = S((int)s.duration);
+        r["canseek"] = "1";
+        r["digital_volume_control"] = "1";
+        r["mixer volume"] = S(s.volume); // LMS keeps the space in the JSON key
+        if (s.has_media) {
+            r["current_title"] = s.title;
+            r["title"] = s.title;
+            if (!s.art_url.empty())
+                r["art_url"] = s.art_url;
+        }
+        return r;
+    }
+    if (k == "login" || k == "listen")
+        return nlohmann::json::object();
+    if (k == "version") {
+        nlohmann::json r;
+        r["_version"] = "8.4.0";
+        return r;
+    }
+    if (k == "play") {
+        push("play");
+    } else if (k == "pause") {
+        std::string want = cmd.size() > 1 ? cmd[1] : "";
+        if (want == "1")
+            push("pause");
+        else if (want == "0")
+            push("resume");
+        else
+            push("play_pause");
+    } else if (k == "stop") {
+        push("stop");
+    } else if (k == "next") {
+        push("next");
+    } else if (k == "prev") {
+        push("previous");
+    } else if (k == "playlist" && cmd.size() > 1) {
+        const std::string &sub = cmd[1];
+        if (sub == "index" && cmd.size() > 2) {
+            if (cmd[2] == "+1")
+                push("next");
+            else if (cmd[2] == "-1")
+                push("previous");
+        } else if (sub == "next") {
+            push("next");
+        } else if (sub == "prev") {
+            push("previous");
+        }
+    } else if (k == "mixer" && cmd.size() > 1) {
+        if (cmd[1] == "volume" && cmd.size() > 2 && cmd[2] != "?")
+            push_arg("volume", cmd[2]);
+        // muting unsupported → accept silently
+    } else if (k == "time") {
+        if (cmd.size() > 1 && cmd[1] != "?")
+            push_arg("seekto", cmd[1]);
+    } else {
+        LOG(fmt::format("[LMS-JSON] unhandled command: {}",
+                        fmt::join(cmd.begin(), cmd.end(), " ")));
+    }
+    return nlohmann::json::object();
 }
 
 } // namespace panicast

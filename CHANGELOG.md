@@ -10,6 +10,22 @@
 
 ---
 
+## 网络控制 N08.3 — 2026-09-04 — mini-LMS 增补 cometd/JSON-RPC 通道（真机抓包驱动）
+
+> **真机抓包反转 N08.1 的结论**：用户的新版 Squeezer 实际走 **HTTP cometd (Bayeux/JSON-RPC)**（`POST /cometd`，Jetty 客户端，HTTP Basic 鉴权），并非纯 CLI 行协议（那是旧版行为）。N08.1 的 CLI 实现保留（旧工具兼容），本迭代在同一端口增加 cometd 通道。
+
+### 实现
+- **同端口协议自适应**：连接首行 `POST/GET/...` 开头 → HTTP 模式（keep-alive，按 `Content-Length` 组包），否则 → 既有 CLI 行模式；模式按连接锁定，互不干扰。
+- **Bayeux 子集**：`/meta/handshake`（clientId、authSuccessful）、`/meta/connect`（即时应答 + `advice.interval=800ms` 防忙轮询，不占线程）、`/meta/subscribe|unsubscribe|disconnect`。
+- **JSON-RPC**：`/service/*` 或直连对象形式（`/jsonrpc.js` 风格）的 `slim.request` → 命令数组复用 CLI 语义，结果 LMS-JSON 形状（字符串化值、`players_loop` 数组、status 扁平对象含 `mixer volume` 空格键名）。
+- **HTTP Basic 鉴权** → `lms_user`/`lms_pass`（抓包确认 Squeezer 预置发送凭据）；失败回 401 + `WWW-Authenticate`。CLI 路径维持 `login` 命令鉴权。
+- **修复**：header 提取原先返回小写化副本导致 `Basic` 方案匹配永败（所有请求误 401）——改为在副本上搜索、按原文切片。
+- 请求/响应全量日志（`[LMS-HTTP] >> / <<`，各截 300 字符）——真机联调的现场证据链。
+
+**验收**（curl 实测）：handshake/connect/players/status/传输命令全 200 且形状正确；错密码 401；CLI 路径回归不受影响。配合防火墙放行（Hyper-V 规则 `panicast LMS 9090`）后真机可达。
+
+---
+
 ## 网络控制 N08.2 — 2026-09-04 — mini-LMS 默认开启 + 源 IP 白名单 + 登录鉴权
 
 > 应用户要求转为"默认可用"：`lms_enable` 默认 **true**、`[remote] bind` 默认 **0.0.0.0**（PRP 不受影响——其 `enable` 仍默认 false），并以两道接入防线约束默认暴露面。

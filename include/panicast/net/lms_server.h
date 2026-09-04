@@ -39,6 +39,8 @@
 
 #include "panicast/net/remote_protocol.h"
 
+#include <nlohmann/json.hpp>
+
 #include <sys/socket.h> // sockaddr_storage (peer_allowed — POSIX-only module)
 
 namespace panicast
@@ -100,12 +102,20 @@ private:
         std::atomic<bool> authed{false};       // login succeeded (read by the poll thread)
         bool kick = false;                     // reader thread closes after this response
         int unauth_cmds = 0;                   // pre-login commands (probe deterrent)
+        // N08.3: HTTP/cometd mode (newer Squeezer speaks Bayeux JSON-RPC, not raw CLI).
+        //   Detected from the first request line ("POST /cometd ..."); stays per-connection.
+        bool http_mode = false;
+        std::string http_auth_user;            // Basic-auth user (logging)
     };
 
     void accept_loop();
-    void client_loop(Conn *c); // read lines → handle_line → write response
+    void client_loop(Conn *c); // read lines/HTTP requests → dispatch → write response
     void poll_loop();          // 1Hz snapshot diff → push to subscribed conns
     std::string handle_line(const std::string &line, Conn &c); // CLI dispatch → response
+    // N08.3: HTTP/cometd path — Bayeux handshake/connect/subscribe + JSON-RPC slim.request.
+    std::string handle_http(Conn &c, const std::string &method, const std::string &path,
+                            const std::string &headers, const std::string &body);
+    nlohmann::json json_slim_request(Conn &c, const std::vector<std::string> &cmd);
     std::string status_line() const; // full hash-style status for the virtual player
     void send_line(Conn *c, const std::string &line); // locked write + log
     void reap_done(); // join + drop finished conns (conns_mtx_ held)

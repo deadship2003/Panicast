@@ -401,8 +401,8 @@ lms_user = panicast
 lms_pass =
 ```
 
-> 范围说明：本模块实现 LMS **CLI 行协议控制面**（传输/音量/now-playing，队列浏览为阶段二）；SlimProto 音频协议（squeezelite 作独立音频输出）为后续可选扩展，不受本开关管理。
-> 开发路线详见 [CHANGELOG.md](CHANGELOG.md) 的 N08 / N08.1 / N08.2 条目。
+> 范围说明：本模块在同一端口（9090）上**自动识别两种协议**——新 Squeezer 的 HTTP cometd/JSON-RPC（含 Basic 鉴权）与传统 CLI 行协议（`login` 鉴权）；队列浏览为阶段二。SlimProto 音频协议（squeezelite 作独立音频输出）为后续可选扩展，不受本开关管理。
+> 开发路线详见 [CHANGELOG.md](CHANGELOG.md) 的 N08 / N08.1 / N08.2 / N08.3 条目。
 
 ---
 
