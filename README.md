@@ -1,14 +1,14 @@
 <div align="center">
 
-# 🎧 Panicast
+# 🎧 panicast
 
 **Terminal Podcast/Radio Player**
 
 *A powerful ncurses-based media player for the command line — TuneIn 电台 / RSS 播客 / YouTube（P 模式 cookies 解析 + Y 模式 Google OAuth）/ 本地媒体*
 
-[![Version](https://img.shields.io/badge/version-Panicast-V0.0.1-blue.svg)](https://github.com/deadship2003/Panicast)
+[![Version](https://img.shields.io/badge/version-panicast-V0.0.1-blue.svg)](https://github.com/deadship2003/panicast)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/deadship2003/Panicast)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/deadship2003/panicast)
 [![C++](https://img.shields.io/badge/C++-17-orange.svg)](https://isocpp.org/)
 [![JS runtime](https://img.shields.io/badge/yt--dlp%20nsig-quickjs--ng-2ea44f.svg)](https://github.com/quickjs-ng/quickjs)
 
@@ -55,8 +55,8 @@
 发布包自带 **quickjs-ng** JS 运行时（`vendor/quickjs/`，~2MB）与部署脚本，解压后一条命令搞定依赖+运行时+编译+安装：
 
 ```bash
-tar xzf Panicast-V0.0.1.tar.gz
-cd Panicast-V0.0.1
+tar xzf panicast-V0.0.1.tar.gz
+cd panicast-V0.0.1
 ./build.sh install      # JS 运行时 + 构建依赖 + 编译 + 安装 panicast（全部装到 /usr/local/bin，需 sudo）
 # 可选参数:
 #   install --no-deps   跳过系统构建依赖安装（已装好时）
@@ -140,7 +140,7 @@ sudo cmake --install build
 
 ## P 模式 vs Y 模式（独立工作）
 
-Panicast 的 YouTube 支持有两种**互相独立**的模式，可单独使用，也可同时用：
+panicast 的 YouTube 支持有两种**互相独立**的模式，可单独使用，也可同时用：
 
 | | P 模式（PODCAST/ONLINE） | Y 模式（ACCOUNT） |
 |---|---|---|
@@ -336,6 +336,7 @@ max_concurrent = 3                                     # 离线并发上限，[1
 |------|--------|------|
 | `CMAKE_BUILD_TYPE` | `Release` | 构建类型: Debug/Release |
 | `CMAKE_INSTALL_PREFIX` | `/usr/local` | 安装路径 |
+| `PANICAST_REMOTE_LMS` | `ON` | mini-LMS 模块（Squeezer 遥控协议，Bayeux/JSON-RPC 控制面）。OFF 可裁剪精简体积 |
 
 ### 常用编译命令
 
@@ -369,6 +370,32 @@ cmake --preset macos-release
 cmake --build --preset macos-release
 
 ```
+
+### 功能模块裁剪 — PANICAST_REMOTE_LMS（默认 ON）
+
+mini-LMS 模块让 Android 的 **Squeezer**（Logitech Media Server 控制器）直接遥控 panicast：内嵌 LMS JSON-RPC（cometd/Bayeux）控制面，注册单虚拟 player，传输/音量/now-playing 全映射。默认编译内置。
+
+```bash
+# 关闭编译（裁剪模块、精简程序体积；CMake 会打印开启指引）
+cmake -DPANICAST_REMOTE_LMS=OFF ..
+
+# 重新开启
+cmake -DPANICAST_REMOTE_LMS=ON ..
+```
+
+**双层控制**：编译内置 ≠ 自动运行。运行层由配置文件控制，默认关闭、按需开启：
+
+```ini
+# ~/.config/panicast/config.ini
+[remote]
+# mini-LMS（Squeezer 遥控）服务开关 — 默认 false，不启动
+lms_enable = false
+# mini-LMS 监听端口（LMS 惯例 9000）
+lms_port = 9000
+```
+
+> 范围说明：本模块仅实现 Bayeux/JSON-RPC **控制面**；SlimProto 音频协议（squeezelite 作独立音频输出）为后续可选扩展，不受本开关管理。
+> 开发路线（三期）详见 [CHANGELOG.md](CHANGELOG.md) 的 N08 条目。
 
 ---
 
@@ -476,7 +503,7 @@ YouTube 频道、F 模式、Y 模式频道浏览），即 yt-dlp/mpv 拿到登�
 ## 📁 项目结构
 
 ```
-Panicast/
+panicast/
 ├── CMakeLists.txt              # CMake 配置
 ├── CMakePresets.json           # CMake 预设
 ├── vcpkg.json                  # vcpkg 依赖管理

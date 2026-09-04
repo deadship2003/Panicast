@@ -13,7 +13,7 @@
 namespace panicast
 {
 
-constexpr const char *APP_NAME = "Panicast";
+constexpr const char *APP_NAME = "panicast";
 constexpr const char *AUTHOR = "Panic";
 constexpr const char *EMAIL = "Deadship2003@gmail.com";
 // BUILD_TIME only used for print_usage CLI banner; status bar uses real-time clock
@@ -24,7 +24,7 @@ constexpr const char *BUILD_TIME = __DATE__ " " __TIME__; // Auto-generated at c
 #ifdef PANICAST_VERSION_STRING
 constexpr const char *VERSION = PANICAST_VERSION_STRING;
 #else
-constexpr const char *VERSION = "Panicast-V0.0.1";
+constexpr const char *VERSION = "panicast-V0.0.1";
 #endif
 
 // ─── Player configuration constants (eliminate magic numbers)────────────────────────────────────────

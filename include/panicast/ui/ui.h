@@ -320,7 +320,7 @@ private:
     //Responsive status bar - smart abbreviation strategy
     // ┌─────────────────────────────────────────────────────────────────────────┐
     // │ [Status bar structure]                                                    │
-    // │   ░▒▓█ ★ Panicast V0.05B9n3e5g2RF ★ █▓▒░   [ URL ]   ░▒▓█ By author time █▓▒░ │
+    // │   ░▒▓█ ★ panicast V0.05B9n3e5g2RF ★ █▓▒░   [ URL ]   ░▒▓█ By author time █▓▒░ │
     // │   └────────── left art ──────────┘   └mid┘   └────────── right art ─┘ │
     // ├─────────────────────────────────────────────────────────────────────────┤
     // │ [Protection rules]                                                        │

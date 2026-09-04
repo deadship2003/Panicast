@@ -46,7 +46,7 @@ fun App() {
     var logs by remember { mutableStateOf(listOf<String>()) }
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text("PodRadio Remote") },
+        TopAppBar(title = { Text("panicast Remote") },
             navigationIcon = {
                 if (screen != "scan") IconButton(onClick = {
                     client.close(); screen = "scan"
@@ -94,14 +94,14 @@ fun ScanScreen(players: List<Player>, scanning: Boolean, onScan: () -> Unit, onP
         }
         Spacer(Modifier.height(12.dp))
         LazyColumn { items(players) { p ->
-            ListItem(headlineContent = { Text("PodRadio @ ${p.host}") },
+            ListItem(headlineContent = { Text("panicast @ ${p.host}") },
                 supportingContent = { Text("tcp ${p.tcpPort} · ws ${p.wsPort}") },
                 modifier = Modifier.padding(4.dp).fillMaxWidth(),
                 trailingContent = { Icon(Icons.Default.ChevronRight, null) },
                 leadingContent = { Icon(Icons.Default.Radio, null) })
             HorizontalDivider()
         } }
-        if (players.isEmpty() && !scanning) Text("No players found. Ensure PodRadio is running with [remote] enable=true and bind=0.0.0.0.",
+        if (players.isEmpty() && !scanning) Text("No players found. Ensure panicast is running with [remote] enable=true and bind=0.0.0.0.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
     }
 }
@@ -111,7 +111,7 @@ fun PinScreen(player: Player, onSubmit: (String) -> Unit) {
     var pin by remember { mutableStateOf("6696") }
     Column(Modifier.padding(16.dp)) {
         Text("Connect to ${player.host}:${player.tcpPort}", style = MaterialTheme.typography.titleMedium)
-        Text("Enter the PIN shown in PodRadio (:pin), or 6696 for headless pairing.",
+        Text("Enter the PIN shown in panicast (:pin), or 6696 for headless pairing.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 8.dp))
         OutlinedTextField(value = pin, onValueChange = { pin = it.filter { c -> c.isDigit() }.take(8) },
             label = { Text("PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))

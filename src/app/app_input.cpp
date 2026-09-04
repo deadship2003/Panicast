@@ -524,7 +524,7 @@ void App::handle_input(int ch, int marked_count) {
     case 'q': // exit requires confirmation
     case 'Q':
     case 27: // ESC key
-        if (frontend_->confirm_box("Quit Panicast?")) {
+        if (frontend_->confirm_box("Quit panicast?")) {
             running = false;
         }
         break;

@@ -1,6 +1,6 @@
 # 架构总览（真实状态）
 
-> 本文档描述 Panicast **当前**的真实架构，作为开发与重构的唯一架构事实来源。
+> 本文档描述 panicast **当前**的真实架构，作为开发与重构的唯一架构事实来源。
 > 决策记录见 `DECISIONS_LOG.md`（N0x/Y24.x 等条目，体例：Context/Approach/Verification/Followups）；
 > 缺陷清单见 `AUDIT_REPORT.md`（P1/P2/DB/FX 等）。
 

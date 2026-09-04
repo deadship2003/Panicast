@@ -1,4 +1,4 @@
-# Changelog — Panicast
+# Changelog — panicast
 
 单一总日志，按 `[模块]` 分节记录。命名方案：基线 `Panicast_V0.1`；修正迭代 `Panicast_V0.1-F01`…`-F99`；帐号线迭代 `Panicast_V0.1-Y01`…`-Y99`；网络控制线迭代 `Panicast_V0.1-N01`…`-N99`。Y/F/N 线并行，互不影响。
 
@@ -7,6 +7,24 @@
 > **📦 dev/m2 批次已合并入 main（2026-08-14）**
 > dev/m2 的 5 刀批次（D17–D24）已 fast-forward 合并入 `main`（origin/main = `a414b98`，已 push）。该批次含：D14 Media 域收敛 / D12-2 游标事件化 / 测试镜像三修 / D15 渲染契约 now-playing 去冗余通道 / D16 save 路径 now-playing 单通道 / D17 draw_help→ui_help.cpp（ui.cpp 947→668）/ D18 mpv_controller wrapper 组→mpv_commands.cpp / D19 静态元数据组→mpv_metadata.cpp / D20 mpv IPTV 检测组→mpv_iptv.cpp（含 log_has 连带搬 + 修 reset 伪 inline）/ D21 ui setter/toggle 组→ui_toggles.cpp / D22 ui lifecycle 组→ui_lifecycle.cpp（ui.cpp 638→263）/ D23 app 持久化组→app_persistence.cpp / D24 ini_config mpv getter 组 inline→cpp。
 > **2026-08-14 起 main 为主线**：新迭代直接进 `main`、push `origin main`（不再走 dev/m2 待测流程）。每步仍守铁律（0-warning + ctest 绿 + commit）。
+
+---
+
+## 网络控制 N08 — 2026-09-04 — mini-LMS（Squeezer 遥控）三期路线 + 编译开关立项
+
+> 目标：用成熟 LMS 控制器 App（Android **Squeezer**）直接遥控 panicast，替代自研 APK/PRP 的交互体验。Squeezer 走 **LMS JSON-RPC (cometd/Bayeux)** 接口 —— 仅控制面，不含音频流协议。现有 `remote_ws.cpp` 的裸 HTTP 解析 + WS 握手基建与 `RemoteControlInterface` 命令面直接复用，属协议适配模块，不动架构。
+
+### 三期路线
+- **阶段一**：Bayeux 骨架（`/jsonrpc.js`：handshake → connect 长轮询 → publish）+ 单虚拟 player 注册（playerid `00:00:00:00:84:21`，名 `panicast`）+ 传输控制（play/pause/stop/next/playlist jump）+ 音量（mixer volume/muting）+ now-playing 推送（mpv 事件 → 长轮询带回）→ Squeezer 主界面完整可用。
+- **阶段二**：队列浏览映射（`playlist tracks` / `songs`）→ Squeezer 可查看队列、选曲跳播。
+- **阶段三（可选）**：`SlimProto`(:3483) 音频协议 —— 仅当需要 squeezelite 设备作独立音频输出时实现；纯 Squeezer 控制不依赖，**不纳入本期开关**。
+
+### 双层控制（本期落地）
+- **编译层**：CMake 选项 `PANICAST_REMOTE_LMS`（默认 `ON`）。ON → 编入 `src/net/lms_server.cpp` 并打印 Enabled；OFF → 模块裁剪（精简体积），打印开启指引。关闭：`cmake -DPANICAST_REMOTE_LMS=OFF ..`
+- **运行层**：即便已编入，`[remote] lms_enable` 默认 `false`，服务不启动；按需改 `true` 并配 `lms_port`（默认 9000）。
+- 模块定位：仅 Bayeux/JSON-RPC 控制面；SlimProto 为后续可选扩展。
+
+**验收**：默认构建含模块 + 配置模板含新键；`-DPANICAST_REMOTE_LMS=OFF` 构建打印指引且不编模块；ini `lms_enable=true` 才监听 9000。
 
 ---
 

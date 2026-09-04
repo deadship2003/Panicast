@@ -63,8 +63,9 @@ void fix_config_paths(const std::string &cfg) {
     static const Rep reps[] = {
         {"/.local/share/podradio", "/.local/share/panicast"},
         {"/.config/podradio", "/.config/panicast"},
-        {"/Downloads/PodRadio", "/Downloads/Panicast"},
-        {"/Downloads/PaniCast", "/Downloads/Panicast"},
+        {"/Downloads/PodRadio", "/Downloads/panicast"},
+        {"/Downloads/PaniCast", "/Downloads/panicast"},
+        {"/Downloads/Panicast", "/Downloads/panicast"},
         {"podradio-", "panicast-"},
     };
     bool changed = false;
@@ -101,9 +102,11 @@ void Paths::migrate_legacy() {
     if (rename_if_needed(h + "/.config/podradio", h + "/.config/panicast"))
         moved = true;
     // Downloads dir (best-effort; fs::rename is atomic same-fs, fails harmlessly cross-fs).
-    rename_if_needed(h + "/Downloads/PodRadio", h + "/Downloads/Panicast");
-    // Also migrate the older camelCase "PaniCast" downloads dir → the canonical "Panicast" name.
-    rename_if_needed(h + "/Downloads/PaniCast", h + "/Downloads/Panicast");
+    rename_if_needed(h + "/Downloads/PodRadio", h + "/Downloads/panicast");
+    // Also migrate the older camelCase "PaniCast" and capital-P "Panicast" downloads
+    //   dirs → the canonical lowercase "panicast" name.
+    rename_if_needed(h + "/Downloads/PaniCast", h + "/Downloads/panicast");
+    rename_if_needed(h + "/Downloads/Panicast", h + "/Downloads/panicast");
     if (moved)
         fix_config_paths(h + "/.config/panicast/config.ini");
 }

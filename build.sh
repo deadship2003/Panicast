@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║          Panicast — build + install (single script, native-only)         ║
+# ║          panicast — build + install (single script, native-only)         ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 # Usage:
 #   ./build.sh                     # compile for the current host CPU (auto-detected)
@@ -226,7 +226,7 @@ do_install() {
     install_panicast
     echo
     echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN} Panicast ready.${NC}"
+    echo -e "${GREEN} panicast ready.${NC}"
     echo -e " Run: ${BLUE}panicast${NC}"
     echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 }

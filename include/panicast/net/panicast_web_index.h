@@ -5,7 +5,7 @@ R"HTML(
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Panicast Remote</title>
+<title>panicast Remote</title>
 <style>
 :root{--bg:#0d1117;--bg2:#161b22;--fg:#c9d1d9;--mut:#8b949e;--acc:#58a6ff;--grn:#3fb950;--bd:#30363d}
 *{box-sizing:border-box}
@@ -31,7 +31,7 @@ input[type=text]{background:var(--bg);color:var(--fg);border:1px solid var(--bd)
 </style>
 </head>
 <body>
-<div class="bar"><span class="dot" id="dot"></span><b>Panicast</b><span class="mut" id="ver"></span>
+<div class="bar"><span class="dot" id="dot"></span><b>panicast</b><span class="mut" id="ver"></span>
 <span style="flex:1"></span><span class="mut" id="ping"></span></div>
 <div class="wrap">
   <div class="card">
@@ -89,7 +89,7 @@ input[type=text]{background:var(--bg);color:var(--fg);border:1px solid var(--bd)
   </div>
   <div class="card"><b>Status</b><div id="log"></div></div>
 </div>
-<div id="pinbox"><div class="c"><b>Enter PIN</b><br><span class="mut">(shown in Panicast via :pin, or 6696)</span><br><br>
+<div id="pinbox"><div class="c"><b>Enter PIN</b><br><span class="mut">(shown in panicast via :pin, or 6696)</span><br><br>
 <input type="text" id="pin" size="8" placeholder="PIN"><br><br><button class="act" onclick="doPin()">Connect</button></div></div>
 <script>
 var ws,buf="",lastElapsed=0,lastTs=0,speed=1,dur=0,authed=false;

@@ -1,7 +1,7 @@
-# Panicast 架构总纲（精简版 · 设计准则）
+# panicast 架构总纲（精简版 · 设计准则）
 
 > 来源：提炼自 `OpenMediaAI Platform V3.0 Phase-0 最终冻结总纲.md` + `开发概要.md`，砍掉过度设计。
-> 用途：Panicast 向新架构增量迁移的"为什么这么设计"准则。任务清单见 `docs/ROADMAP.md`。
+> 用途：panicast 向新架构增量迁移的"为什么这么设计"准则。任务清单见 `docs/ROADMAP.md`。
 
 ## 分层（一条线）
 ```
@@ -74,7 +74,7 @@ Core(基础设施,无业务) → Domain(Media/MediaID,纯净) → Runtime(Networ
 - **暂不跳 Qt6**——保留 ncurses（已 mass-format 打磨）；Qt6 是独立大决策，另议。
 
 ## 现状 → 目标映射
-| 层 | 目标 | Panicast 现状 | 动作 |
+| 层 | 目标 | panicast 现状 | 动作 |
 |---|---|---|---|
 | Core | 基础设施 | `src/core`(logger/thread_pool/crypto/paths) | 补 **EventBus** |
 | Domain | Media 纯领域 | `TreeNode` god-struct | 提炼 **Media/MediaID**（缓） |

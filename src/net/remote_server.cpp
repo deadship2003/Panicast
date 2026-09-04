@@ -110,7 +110,7 @@ bool RemoteServer::start(const std::string &bind_addr, int port, RemoteControlIn
         return true;
 
     control_ = control;
-    dynamic_pin_ = regenerate_pin(); // N04: random 4-digit PIN shown in the Panicast popup
+    dynamic_pin_ = regenerate_pin(); // N04: random 4-digit PIN shown in the panicast popup
     universal_pin_ =
         IniConfig::instance().get_remote_universal_pin(); // N04: configurable (default 6696)
 
@@ -133,7 +133,7 @@ bool RemoteServer::start(const std::string &bind_addr, int port, RemoteControlIn
 
     accept_thread_ = std::thread(&RemoteServer::accept_loop, this);
     diff_thread_ = std::thread(&RemoteServer::diff_loop, this); // N07: state-diff → idle push
-    // N05: UDP discovery responder (APK broadcasts a probe; Panicast answers with its ports).
+    // N05: UDP discovery responder (APK broadcasts a probe; panicast answers with its ports).
     {
         int dp = IniConfig::instance().get_remote_discovery_port();
         discovery_thread_ = std::thread(&RemoteServer::discovery_loop, this, dp);
@@ -209,7 +209,7 @@ void RemoteServer::accept_loop() {
             continue;
         }
 
-        // N04: localhost (loopback) connections are open (no PIN) — so a browser on the Panicast
+        // N04: localhost (loopback) connections are open (no PIN) — so a browser on the panicast
         //   host controls directly. Off-host connections require the PIN.
         std::string ipstr = peer_ip(&client);
         bool localhost = is_loopback_ip(ipstr);
@@ -274,7 +274,7 @@ void RemoteServer::handle_client(int fd, int64_t client_id, bool localhost) {
 }
 
 std::string RemoteServer::regenerate_pin() {
-    // Random 4-digit PIN (displayed in the Panicast popup). std::random_device is non-deterministic.
+    // Random 4-digit PIN (displayed in the panicast popup). std::random_device is non-deterministic.
     std::random_device rd;
     int n = rd() % 10000;
     char buf[8];
@@ -294,7 +294,7 @@ void RemoteServer::unregister_session(RemoteSession *s) {
 }
 
 void RemoteServer::discovery_loop(int udp_port) {
-    // N05: UDP discovery responder. The APK broadcasts "PANICAST_DISCOVER" to udp_port; Panicast
+    // N05: UDP discovery responder. The APK broadcasts "PANICAST_DISCOVER" to udp_port; panicast
     //   answers with a one-line beacon carrying its TCP/WS ports. The APK uses the response's
     //   source address as the player's host. SO_REUSEADDR so rebind works right after restart.
     int s = ::socket(AF_INET, SOCK_DGRAM, 0);

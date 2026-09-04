@@ -1,5 +1,5 @@
 // V0.05B9n3e5g3r P3-3: Unit test infrastructure
-// Tests Panicast's pure-function modules
+// Tests panicast's pure-function modules
 // Build: see the BUILD_TESTING option in CMakeLists.txt
 //   cmake -DBUILD_TESTING=ON -B build && cmake --build build && ctest --test-dir build
 

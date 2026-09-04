@@ -8,6 +8,32 @@ IniConfig &IniConfig::instance() {
     return ic;
 }
 
+namespace
+{
+// Atomic config write: stream to <path>.tmp, flush, then rename(2) over <path>.
+//   A direct ofstream on <path> truncates it in place — a process killed mid-write
+//   leaves a 0-byte file. With tmp+rename the replacement is atomic; on write
+//   failure (disk full) the previous file survives untouched.
+template <typename Writer> bool write_atomic(const std::string &path, Writer &&writer) {
+    std::error_code ec;
+    fs::create_directories(fs::path(path).parent_path(), ec);
+    std::string tmp = path + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f.is_open())
+            return false;
+        writer(f);
+        f.flush();
+        if (!f.good()) {
+            fs::remove(tmp, ec);
+            return false;
+        }
+    }
+    fs::rename(tmp, path, ec); // same-dir rename(2) — atomic replacement
+    return !ec;
+}
+} // namespace
+
 
 // ── mpv-config getters (D24: moved out-of-line from ini_config.h) ──
 std::string IniConfig::get_mpv_vo() const {
@@ -150,6 +176,12 @@ std::string IniConfig::get_remote_universal_pin() const {
 int IniConfig::get_remote_discovery_port() const {
     return get_int("remote", "discovery_port", 18430);
 }
+bool IniConfig::get_remote_lms_enabled() const {
+    return get_bool("remote", "lms_enable", false);
+}
+int IniConfig::get_remote_lms_port() const {
+    return get_int("remote", "lms_port", 9000);
+}
 
 
 // ── misc getters: search/history/region/network/display (D27: moved out-of-line) ──
@@ -206,7 +238,11 @@ int IniConfig::get_display_lyric_bar_height() const {
 // ── core accessors: load/save/get_int/set (D29: moved out-of-line from ini_config.h) ──
 void IniConfig::load() {
     std::string path = get_config_file();
-    if (!fs::exists(path)) {
+    std::error_code ec;
+    // Missing OR empty → (re)generate the default template. The empty case matters:
+    //   an existing-but-0-byte file (a save() interrupted by a kill) must not block
+    //   regeneration, or the user is left with a key-less stub forever.
+    if (!fs::exists(path, ec) || fs::is_empty(path, ec)) {
         create_default(path);
     }
 
@@ -271,9 +307,7 @@ void IniConfig::save() {
     std::string path = get_config_file();
     if (path.empty())
         return;
-    std::ofstream f(path);
-    if (!f.is_open())
-        return;
+    write_atomic(path, [&](std::ostream &f) {
     std::set<std::string> written; // "section\x1fkey"
     std::string current_section;
     for (const auto &raw : raw_lines_) {
@@ -319,6 +353,7 @@ void IniConfig::save() {
             }
         }
     }
+    });
 }
 
 
@@ -477,11 +512,9 @@ std::string IniConfig::get_config_file() {
 
 // ── create_default: auto-generated default config template (D31: moved out-of-line) ──
 void IniConfig::create_default(const std::string &path) {
-    fs::create_directories(fs::path(path).parent_path());
-    std::ofstream f(path);
-    if (f.is_open()) {
+    write_atomic(path, [&](std::ostream &f) {
         f << R"(# ============================================================
-# Panicast Configuration File
+# panicast Configuration File
 # Version: )" << VERSION
           << R"(
 # Author: Panic
@@ -641,7 +674,7 @@ bilibili_direct = true
 # ============================================================
 [storage]
 # 下载文件保存目录 / Download directory
-download_dir = ~/Downloads/Panicast
+download_dir = ~/Downloads/panicast
 # 以下键已移除（从未被代码读取） / The following keys are removed (never read by code):
 #   max_log_entries, search_cache_max, podcast_cache_days
 # 保留并实际生效的键 / Keys still in effect:
@@ -883,6 +916,14 @@ auth_token =
 universal_pin = 6696
 # UDP discovery port the APK broadcasts to in order to auto-find players on the LAN / APK 扫描发现用的 UDP 端口
 discovery_port = 18430
+# N08: mini-LMS（Squeezer 遥控，LMS JSON-RPC 控制面）运行开关 / mini-LMS (Squeezer remote control) runtime toggle
+#   双层控制：编译层由 CMake PANICAST_REMOTE_LMS 决定（默认 ON 已编入）；本键为运行层，
+#   默认 false 不监听。开启后 Squeezer 填本机 IP 即可遥控 / Dual gate: compile layer = the
+#   CMake PANICAST_REMOTE_LMS option (default ON, builtin); this key is the runtime layer —
+#   nothing listens until true. With it on, point Squeezer at this host to take control.
+lms_enable = false
+# mini-LMS 监听端口（LMS 惯例 9000）/ mini-LMS listen port (LMS convention 9000)
+lms_port = 9000
 
 # ============================================================
 # 【艺术显示颜色代码参考】 / Color code reference
@@ -943,7 +984,7 @@ mode_bilibili = B
 mode_iptv = I
 # ============================================================
 )";
-    }
+    });
 }
 
 } // namespace panicast

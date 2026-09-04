@@ -1,5 +1,5 @@
 # ╔═════════════════════════════════════════════════════════════════════════╗
-# ║                    Panicast CI/CD Pipeline                              ║
+# ║                    panicast CI/CD Pipeline                              ║
 # ║        Linux x64 / Linux arm64 / macOS arm64 / macOS x64               ║
 # ║             Build → Test → Package → Release (native)                   ║
 # ╚═════════════════════════════════════════════════════════════════════════╝
@@ -137,7 +137,7 @@ jobs:
         run: |
           cd build
           cpack -G TGZ
-          src_tar=$(ls Panicast-*.tar.gz | head -n1)
+          src_tar=$(ls panicast-*.tar.gz | head -n1)
           cd ..
           dest="panicast-${{ steps.version.outputs.version }}-${{ matrix.label }}.tar.gz"
           mv "build/$src_tar" "$dest"
@@ -216,7 +216,7 @@ jobs:
           TAG: ${{ steps.version.outputs.version }}
         run: |
           cat > notes.md <<'EOF'
-          ## Panicast ${{ steps.version.outputs.version }}
+          ## panicast ${{ steps.version.outputs.version }}
 
           原生多平台构建（无交叉编译）：每个平台在对应架构的 runner 上各自编译。
           自动发布：CI 全部平台构建（Linux 含单元测试）通过后由 GitHub Actions 生成。
@@ -245,7 +245,7 @@ jobs:
           sha256sum -c panicast-*-<你的平台>.tar.gz.sha256     # Linux
           shasum -a 256 -c panicast-*-<你的平台>.tar.gz.sha256 # macOS
           tar xf panicast-*-<你的平台>.tar.gz
-          sudo cp Panicast-*/bin/panicast /usr/local/bin/
+          sudo cp panicast-*/bin/panicast /usr/local/bin/
           ```
 
           ### Runtime requirements
@@ -259,6 +259,6 @@ jobs:
             gh release upload "$TAG" release/* --clobber
           else
             gh release create "$TAG" release/* \
-              --title "Panicast $TAG" \
+              --title "panicast $TAG" \
               --notes-file notes.md
           fi

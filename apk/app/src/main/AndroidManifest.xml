@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Local network: talk to PodRadio on the LAN (TCP PRP + UDP discovery). -->
+    <!-- Local network: talk to panicast on the LAN (TCP PRP + UDP discovery). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -10,7 +10,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="PodRadio Remote"
+        android:label="panicast Remote"
         android:supportsRtl="true"
         android:theme="@style/Theme.PodRadioRemote"
         android:usesCleartextTraffic="true">  <!-- PRP is plaintext TCP on the LAN -->

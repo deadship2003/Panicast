@@ -11,8 +11,8 @@ import java.net.InetAddress
 data class Player(val host: String, val tcpPort: Int, val wsPort: Int)
 
 /**
- * UDP discovery: broadcasts "PODRADIO_DISCOVER" to the LAN broadcast address and collects
- * "PODRADIO 1 tcp=<p> ws=<p>" responses. Requires a MulticastLock so the WiFi radio doesn't
+ * UDP discovery: broadcasts "PANICAST_DISCOVER" to the LAN broadcast address and collects
+ * "PANICAST 1 tcp=<p> ws=<p>" responses. Requires a MulticastLock so the WiFi radio doesn't
  * drop the broadcasts while the screen is off.
  */
 class Discovery {
@@ -27,7 +27,7 @@ class Discovery {
         try {
             sock = DatagramSocket()
             sock.broadcast = true
-            val probe = "PODRADIO_DISCOVER".toByteArray()
+            val probe = "PANICAST_DISCOVER".toByteArray()
             // 18430 is the default PodRadio discovery port.
             sock.send(DatagramPacket(probe, probe.size, InetAddress.getByName("255.255.255.255"), 18430))
             val buf = ByteArray(256)
@@ -38,7 +38,7 @@ class Discovery {
                     val pkt = DatagramPacket(buf, buf.size)
                     sock.receive(pkt)
                     val txt = String(pkt.data, 0, pkt.length)
-                    if (txt.startsWith("PODRADIO 1")) {
+                    if (txt.startsWith("PANICAST 1")) {
                         val p = parse(txt, pkt.address.hostAddress ?: continue)
                         if (p != null && found.none { it.host == p.host }) {
                             found.add(p); onFound?.invoke(p)

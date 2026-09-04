@@ -4,5 +4,5 @@ pluginManagement {
 dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
-rootProject.name = "PodRadioRemote"
+rootProject.name = "PanicastRemote"
 include(":app")

@@ -232,7 +232,7 @@ public:
     // Custom user m3u URLs (comma-separated) shown under I-mode → Custom.
     std::string get_iptv_custom_urls() const;
     // Y24.55: seconds a connected IPTV stream may stay data-less (core-idle, no codec, no
-    //   download) before Panicast reports it as likely off-air. Tunable so slow links can
+    //   download) before panicast reports it as likely off-air. Tunable so slow links can
     //   raise it. See MPVController IPTV detection in mpv_controller.cpp.
     int get_iptv_offair_detect_secs() const;
 
@@ -247,8 +247,13 @@ public:
     // N04: the universal pairing PIN (default 6696) — always valid, for headless/no-display
     //   pairing. Configurable so the user can change it from the INI.
     std::string get_remote_universal_pin() const;
-    // N05: UDP discovery port the APK broadcasts to in order to auto-find Panicast instances.
+    // N05: UDP discovery port the APK broadcasts to in order to auto-find panicast instances.
     int get_remote_discovery_port() const;
+    // N08: mini-LMS (Squeezer remote control, LMS JSON-RPC control plane) — runtime layer of
+    //   the dual gate. Compile layer is the CMake PANICAST_REMOTE_LMS option (default ON);
+    //   even when compiled in, the server stays down until lms_enable=true (default false).
+    bool get_remote_lms_enabled() const;
+    int get_remote_lms_port() const; // LMS convention: 9000
 
     // ─── Network proxy config ([network] proxy) ──────────────────────────────
     // Read the normalized proxy URL (empty string = disabled, use direct/transparent proxy).

@@ -1,4 +1,4 @@
-// Remote protocol types + control/query interface (PRP — Panicast Protocol, MPD-style).
+// Remote protocol types + control/query interface (PRP — panicast Protocol, MPD-style).
 //   RemoteStateSnapshot: a compact, copyable snapshot of App + player state, built on the UI
 //   thread (App::update_remote_state_cache) under remote_state_mtx_ and read by any server thread
 //   via RemoteControlInterface::snapshot_state(). This is the thread-safe read path for query

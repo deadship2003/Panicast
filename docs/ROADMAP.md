@@ -1,4 +1,4 @@
-# Panicast 开发计划（人日任务 · 活清单）
+# panicast 开发计划（人日任务 · 活清单）
 
 > 铁律：**每个人日任务完成后，源码可编译（0-warning）、可执行文件正常运行、ctest 绿。** 不重写，增量演进。
 > 准则见 `docs/DESIGN.md`。完成的任务打 `[x]`，并同步 `CHANGELOG.md` + `DECISIONS_LOG.md`(ADR)。每步保绿色可回退 commit。
@@ -70,7 +70,7 @@
     - App 删 4 个搜索裸成员，换 `SearchService search_`；`app_search.cpp` 全部 4 成员读写改走 `search_` 访问器；`reset_search()` 体塌缩为 `search_.reset()`；`app_run.cpp` draw 调用点 4 形参改走访问器。机械重定向、行为零变化（复刻 D8b-1/D10-1 访问器模式）。
     - **验收**：ctest 39/39、构建 0-warning（19 文件含新 search_service.cpp）、pty 冒烟 exit 0 + clean endwin + quit dialog。**第三个 Application Service 就位**（Playback/Subtitle/Search）。
   - **D10-3 — SubtitleController（= 提前 M3 + 字幕事件化；分两步 strangler-fig）**（Step 1 ✅ / Step 2 ✅）
-    - 设计（用户拍板）：主流媒体框架（mpv/VLC/ExoPlayer）字幕都是**反应式**——媒体换了发事件、字幕组件订阅后加载。Panicast 现状是反模式：PlaybackService 命令式内联编排字幕（持 subtitle_mgr_/transcription_engine_ 裸指针、6~7 处直调、Method A/B 判定泄漏进播放域）。把编排搬进 SubtitleService（即 M3 的 SubtitleController），PlaybackService 只发 PlaybackTrackChanged、不认识字幕。
+    - 设计（用户拍板）：主流媒体框架（mpv/VLC/ExoPlayer）字幕都是**反应式**——媒体换了发事件、字幕组件订阅后加载。panicast 现状是反模式：PlaybackService 命令式内联编排字幕（持 subtitle_mgr_/transcription_engine_ 裸指针、6~7 处直调、Method A/B 判定泄漏进播放域）。把编排搬进 SubtitleService（即 M3 的 SubtitleController），PlaybackService 只发 PlaybackTrackChanged、不认识字幕。
     - [x] **Step 1（搬逻辑、保触发）✅ 2026-08-08**：字幕编排逻辑（stop_realtime / begin_track[完整 A/B 块] / load_transcript[advance Method B]）从 playback_service.cpp **原样搬进** SubtitleService 方法；is_mpv_sub_url/basename_of 两 helper 随之搬入。PlaybackService 的 attach 改收 SubtitleService&、删两个引擎裸指针、4 处调用点改走 subtitle_svc_->方法（触发方式不变=仍命令式直调，仅代码搬家）。SubtitleService init 新存 pool_/mpv_（begin_track 的 pool 提交 + mpv sub_add 用；同一 mpv/pool 对象，行为零变化）。**验收**：ctest 39/39、构建 0-warning、pty 冒烟 exit 0 + clean endwin。
     - [x] **Step 2（换触发、Option B 统一）✅ 2026-08-08**：PlaybackService 把 `begin_track`（手动播放）+ `load_transcript`（自动进阶）两处直调改成**只 publish `PlaybackTrackChanged`**（事件加 `has_video` 字段——按曲目重新识别的 A/B 标志，= `is_youtube || URLClassifier::is_video(url)`，**非** `node->is_video`，两者不同）；SubtitleService `init()` **订阅** `PlaybackTrackChanged` → `begin_track(node, has_video)`。**Option B（用户拍板）**：自动进阶现走与手动播放**完全相同**的 A/B 分支（按 `has_video` 重新识别节目类型）——视频进阶从 Method B 升级到 Method A（mpv 渲染，修了个潜在不一致），音频进阶仅多一行 log。死方法 `load_transcript` 删除。= **D9 reactor 通道首个真实消费者就位** + 播放↔字幕加载彻底解耦。
       - **残留耦合（D11 切）**：`PlaybackTrackChanged` 只在进阶/播放时发，`on_playback_ended` 入口的 `stop_realtime`（杀 ASR）在"曲目结束但不进阶"时也要跑——故保留 `subtitle_svc_` 指针供 on_playback_ended(166) + play_current(416) 两处入口 `stop_realtime` 直接调用（从 4 处直调降到 2 处）。届时加 `PlaybackTrackEnded` 事件可彻底拆。

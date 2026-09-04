@@ -1,5 +1,5 @@
 # ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║                    Panicast CMake Build System                            ║
+# ║                    panicast CMake Build System                            ║
 # ║                   Terminal Podcast/Radio Player                           ║
 # ║                 Author: Panic <Deadship2003@gmail.com>                    ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -11,19 +11,33 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(Panicast
+project(panicast
     VERSION 0.0.1
     DESCRIPTION "Terminal Podcast/Radio Player"
     LANGUAGES CXX
 )
 
 # Version information (single source of truth; five locations must stay in sync: CMakeLists.txt / vcpkg.json / include/panicast/core/constants.h / man/panicast.1 / README.md)
-# Naming scheme: baseline Panicast_V0.1.
-#   - Fix iterations:   Panicast_V0.1-F01 .. -F99  (bug-fix line, parallel)
-#   - Y (account) line: Panicast_V0.1-Y01 .. -Y99  (multi-account / Google-login feature line, parallel to F)
+# Naming scheme: baseline panicast_V0.1.
+#   - Fix iterations:   panicast_V0.1-F01 .. -F99  (bug-fix line, parallel)
+#   - Y (account) line: panicast_V0.1-Y01 .. -Y99  (multi-account / Google-login feature line, parallel to F)
 #   Empty PANICAST_FIX_SUFFIX = baseline.
 set(PANICAST_FIX_SUFFIX "")
-set(PANICAST_FULL_VERSION "Panicast-V0.0.1")
+set(PANICAST_FULL_VERSION "panicast-V0.0.1")
+
+# ── N08: mini-LMS module (Squeezer remote control — LMS JSON-RPC/Bayeux control plane) ──
+#   Default ON (builtin). Disable to trim the binary:
+#     cmake -DPANICAST_REMOTE_LMS=OFF ..
+#   Compile layer only — the runtime service still defaults to [remote] lms_enable=false.
+#   Scope: Bayeux/JSON-RPC control plane only; SlimProto audio protocol is a future optional
+#   extension and is NOT covered by this switch.
+option(PANICAST_REMOTE_LMS "Build the mini-LMS (Squeezer remote control) module" ON)
+if(PANICAST_REMOTE_LMS)
+    message(STATUS "panicast: PANICAST_REMOTE_LMS enabled — mini-LMS (Squeezer remote control) module will be compiled (runtime opt-in via [remote] lms_enable=true)")
+else()
+    message(STATUS "panicast: PANICAST_REMOTE_LMS is OFF — mini-LMS (Squeezer remote control) module is EXCLUDED from this build.")
+    message(STATUS "panicast: to enable it, reconfigure with: cmake -DPANICAST_REMOTE_LMS=ON ..")
+endif()
 
 # V0.05B9n3e5g3p P3-2: Generate version.h via configure_file; source code includes it
 # Avoids manually syncing the version in 3 places (old code had CMake=n, vcpkg=n, source=o mismatch)
@@ -60,7 +74,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/secrets/client_secret.json")
     endif()
     message(STATUS "Builtin OAuth client: baked from secrets/client_secret.json")
 else()
-    message(WARNING "Panicast: no secrets/client_secret.json found — builtin OAuth client is EMPTY. "
+    message(WARNING "panicast: no secrets/client_secret.json found — builtin OAuth client is EMPTY. "
                     "Google login will require a runtime <data_dir>/client_secret*.json. "
                     "Drop your own client_secret.json into secrets/ and rebuild to bake a builtin client.")
 endif()
@@ -88,7 +102,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "Panicast version: ${PANICAST_FULL_VERSION}")
+message(STATUS "panicast version: ${PANICAST_FULL_VERSION}")
 
 # =============================================================================
 # Platform detection
@@ -261,7 +275,7 @@ set(COMPILER_FLAGS ${COMPILER_FLAGS}
 # But add generated/ to the include path to support version.h injection
 # =============================================================================
 add_executable(panicast
-    # Panicast: renamed binary output (target stays 'panicast' internally)
+    # panicast: renamed binary output (target stays 'panicast' internally)
     src/main.cpp
     src/core/paths.cpp
     src/core/logger.cpp
@@ -364,6 +378,14 @@ set_target_properties(panicast PROPERTIES OUTPUT_NAME "panicast")
 
 target_compile_options(panicast PRIVATE ${COMPILER_FLAGS})
 target_compile_definitions(panicast PRIVATE ${PANICAST_PLATFORM_DEFINE})
+
+# N08: mini-LMS module — compiled in only when PANICAST_REMOTE_LMS=ON (default).
+#   The PANICAST_REMOTE_LMS define gates the source (app_run.cpp startup wiring); the
+#   module source itself is added here so OFF builds exclude it entirely.
+if(PANICAST_REMOTE_LMS)
+    target_sources(panicast PRIVATE src/net/lms_server.cpp)
+    target_compile_definitions(panicast PRIVATE PANICAST_REMOTE_LMS=1)
+endif()
 
 target_include_directories(panicast PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -505,7 +527,7 @@ endif()
 # =============================================================================
 # Packaging
 # =============================================================================
-set(CPACK_PACKAGE_NAME "Panicast")
+set(CPACK_PACKAGE_NAME "panicast")
 set(CPACK_PACKAGE_VERSION ${PANICAST_FULL_VERSION})
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Terminal Podcast/Radio Player")
 set(CPACK_PACKAGE_VENDOR "Panic")
@@ -566,12 +588,17 @@ endif()
 # =============================================================================
 message(STATUS "")
 message(STATUS "═══════════════════════════════════════════════════════════════")
-message(STATUS "  Panicast ${PANICAST_FULL_VERSION} Configuration Summary")
+message(STATUS "  panicast ${PANICAST_FULL_VERSION} Configuration Summary")
 message(STATUS "═══════════════════════════════════════════════════════════════")
 message(STATUS "  Platform:     ${PANICAST_PLATFORM}")
 message(STATUS "  Build Type:   ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Compiler:     ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+if(PANICAST_REMOTE_LMS)
+    message(STATUS "  mini-LMS:     ON (Squeezer remote control; runtime opt-in via [remote] lms_enable=true)")
+else()
+    message(STATUS "  mini-LMS:     OFF (excluded — enable with: cmake -DPANICAST_REMOTE_LMS=ON ..)")
+endif()
 message(STATUS "")
 message(STATUS "  Dependencies:")
 message(STATUS "    MPV:       ${MPV_FOUND}")

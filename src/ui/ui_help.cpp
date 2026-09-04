@@ -152,7 +152,7 @@ void UI::draw_help(WINDOW *win, const MPVController::State &state, int cw) {
         "---- Data Storage ----",
         "  Database: ~/.local/share/panicast/panicast.db",
         "  Config:   ~/.config/panicast/config.ini",
-        "  Downloads: ~/Downloads/Panicast/",
+        "  Downloads: ~/Downloads/panicast/",
         "  Log:      ~/.local/share/panicast/panicast-YYYYMMDD.log (daily, kept 365 days)",
         "",
         "  Note: All data in SQLite database.",

@@ -47,7 +47,7 @@ static void print_usage() {
     std::cout << "Data Paths:\n";
     std::cout << "  Database:   ~/.local/share/panicast/panicast.db (SQLite3)\n";
     std::cout << "  Config:     ~/.config/panicast/config.ini\n";
-    std::cout << "  Downloads:  ~/Downloads/Panicast/\n";
+    std::cout << "  Downloads:  ~/Downloads/panicast/\n";
     std::cout
         << "  Log:        ~/.local/share/panicast/panicast-YYYYMMDD.log (daily, kept 365 days)\n\n";
     std::cout << "Database Tables:\n";

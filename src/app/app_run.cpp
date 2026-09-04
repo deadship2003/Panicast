@@ -4,6 +4,7 @@
 #include "panicast/app/playback_events.h"
 #include "panicast/core/event_bus.h"
 #include "panicast/net/bilibili_api.h"
+#include "panicast/net/lms_server.h" // N08: mini-LMS (Squeezer) — guarded use; ON builds only
 #include "panicast/net/network.h" // D45-fix: Network::init_proxy_routing after IniConfig load
 #include "panicast/net/tiktok_region.h"
 #include "panicast/parsers/bilibili_parser.h"
@@ -54,6 +55,14 @@ App::~App() {
         remote_server_.stop();
     } catch (...) {
     }
+#ifdef PANICAST_REMOTE_LMS
+    // N08: singleton (not a member) so OFF builds need no #ifdef in app.h — stop it here,
+    //   next to the remote server, before tearing down the rest.
+    try {
+        LmsServer::instance().stop();
+    } catch (...) {
+    }
+#endif
     remote_bus_.shutdown();
     try {
         player.stop();
@@ -145,7 +154,7 @@ bool App::check_exit_requests() {
             running = false;
             return true;
         }
-        if (frontend_->confirm_box("Quit Panicast? (CTRL+C)")) {
+        if (frontend_->confirm_box("Quit panicast? (CTRL+C)")) {
             running = false;
             return true;
         }
@@ -514,6 +523,29 @@ void App::startup() {
                       "control");
         }
     }
+
+    // N08: mini-LMS (Squeezer control plane) — runtime layer of the dual gate. Compile layer
+    //   is the CMake PANICAST_REMOTE_LMS option (default ON); even compiled in, nothing
+    //   listens until [remote] lms_enable=true (default false → zero local-TUI impact).
+#ifdef PANICAST_REMOTE_LMS
+    if (IniConfig::instance().get_remote_lms_enabled()) {
+        if (LmsServer::instance().start(IniConfig::instance().get_remote_bind(),
+                                        IniConfig::instance().get_remote_lms_port(), this)) {
+            EVENT_LOG(fmt::format("mini-LMS (Squeezer) on :{} — phase-1 Bayeux/JSON-RPC pending "
+                                  "(N08)",
+                                  IniConfig::instance().get_remote_lms_port()));
+        } else {
+            EVENT_LOG("mini-LMS server failed to start (see log); continuing without it");
+        }
+    }
+#else
+    // OFF build still honors the user's intent with an actionable hint instead of silence.
+    if (IniConfig::instance().get_remote_lms_enabled()) {
+        EVENT_LOG("mini-LMS requested ([remote] lms_enable=true) but this build was compiled "
+                  "without PANICAST_REMOTE_LMS — reconfigure with cmake -DPANICAST_REMOTE_LMS=ON "
+                  ".. and rebuild");
+    }
+#endif
 }
 
 // D35: run() shutdown bookend — post-loop teardown, persist state, then _exit(0)

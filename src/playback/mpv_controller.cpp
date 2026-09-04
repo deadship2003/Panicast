@@ -171,7 +171,7 @@ bool MPVController::create_context_() {
     // Y24.55: permanently redirect stderr → /dev/null AFTER mpv_initialize. PULSE/ALSA libraries
     //   (libpulse/libasound) write errors directly to stderr, bypassing mpv's terminal=no → garbles
     //   the ncurses TUI in WSL2. mpv's own AO errors are captured via the log-message callback
-    //   (line 233) → shown in the LOG area. Panicast's LOG uses a file, not stderr. Post-init
+    //   (line 233) → shown in the LOG area. panicast's LOG uses a file, not stderr. Post-init
     //   redirect is safe: VO/AO probing inside mpv_initialize is already done (F25 showed during-init
     //   dup2 broke VO probing; this runs after).
     {
@@ -485,7 +485,7 @@ void MPVController::recover_from_jam_(const std::string &where, int64_t stuck_ms
         EVENT_LOG("MPV: engine restarted OK — press play again if playback stopped");
     } else {
         LOG("[MPV] JAM RECOVERY: fresh context creation FAILED — playback disabled this session");
-        EVENT_LOG("MPV: engine restart FAILED — playback disabled; restart Panicast");
+        EVENT_LOG("MPV: engine restart FAILED — playback disabled; restart panicast");
         jam_running_.store(false); // don't loop on a dead engine
     }
     jam_recovering_.store(false);

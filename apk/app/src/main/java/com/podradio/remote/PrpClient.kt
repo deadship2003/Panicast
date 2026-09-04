@@ -9,8 +9,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * PRP (PodRadio Protocol) TCP client — MPD-style line protocol.
- * Connects to PodRadio :18421, sends commands, parses `key: value` responses, and subscribes
+ * PRP (panicast Protocol) TCP client — MPD-style line protocol.
+ * Connects to panicast :18421, sends commands, parses `key: value` responses, and subscribes
  * to `idle` for live state push. All callbacks fire on a background thread; marshal to the UI
  * thread in the callback.
  */
