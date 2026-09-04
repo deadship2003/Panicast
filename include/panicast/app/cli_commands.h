@@ -8,6 +8,14 @@
 namespace panicast
 {
 
+// S1-4 session handover: if the panicastd systemd service is running, stop it (the TUI
+//   takes over the single-instance playback session; the daemon's clean exit persists
+//   player state, which the TUI then restores). Returns true when a service was stopped
+//   (i.e. the caller should restore it on the way out). Passwordless via the polkit rule.
+bool service_handover_takeover();
+// Restart the daemon after the TUI exits (only meaningful when takeover stopped it).
+void service_handover_restore();
+
 // Returns 0 when the command ran (and a process exit code is appropriate), -1 when
 //   argv does not name a service subcommand (caller continues normal startup).
 int run_cli_command(int argc, char *argv[]);

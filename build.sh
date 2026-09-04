@@ -208,14 +208,39 @@ install_deps() {
 }
 
 install_panicast() {
-    info "installing panicast to /usr/local/bin (system-wide — sudo required, may prompt for password)"
+    info "installing panicast + panicastd to /usr/local/bin (system-wide — sudo required, may prompt for password)"
     if sudo cmake --install build 2>/dev/null; then
-        say "installed -> /usr/local/bin/panicast"
+        say "installed -> /usr/local/bin/panicast, /usr/local/bin/panicastd"
     else
         warn "cmake --install failed, trying direct copy"
         sudo cp -f build/panicast /usr/local/bin/panicast
-        say "installed -> /usr/local/bin/panicast"
+        sudo cp -f build/panicastd /usr/local/bin/panicastd
+        say "installed -> /usr/local/bin/panicast, /usr/local/bin/panicastd"
     fi
+    install_daemon_units
+}
+
+# N09/S1: systemd unit (system-level, runs as the invoking user) + polkit rule granting
+#   that user passwordless start/stop/restart (enable/disable stay sudo-only).
+install_daemon_units() {
+    local user="${SUDO_USER:-$(id -un)}"
+    local home_dir
+    home_dir="$(getent passwd "$user" | cut -d: -f6)"
+    [ -n "$home_dir" ] || { warn "cannot resolve home for $user — skipping daemon units"; return; }
+
+    sed -e "s|@INSTALL_USER@|$user|g" -e "s|@INSTALL_HOME@|$home_dir|g" \
+        scripts/panicastd.service.in > /tmp/panicastd.service
+    sudo cp -f /tmp/panicastd.service /etc/systemd/system/panicastd.service
+    sudo systemctl daemon-reload
+    say "systemd unit -> /etc/systemd/system/panicastd.service"
+
+    if [ -d /etc/polkit-1/rules.d ]; then
+        sed "s|@INSTALL_USER@|$user|g" scripts/49-panicastd-polkit.rules.in \
+            > /tmp/49-panicastd.rules
+        sudo cp -f /tmp/49-panicastd.rules /etc/polkit-1/rules.d/49-panicastd.rules
+        say "polkit rule  -> /etc/polkit-1/rules.d/49-panicastd.rules (passwordless start/stop/restart)"
+    fi
+    echo "Enable autostart with: panicast enable   (or: sudo systemctl enable --now panicastd)"
 }
 
 do_install() {

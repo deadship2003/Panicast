@@ -211,6 +211,29 @@ int cmd_log(int argc, char **argv) {
 }
 } // namespace
 
+bool service_handover_takeover() {
+    int pid = 0;
+    if (!daemon_pid_alive(&pid))
+        return false;
+    std::string stop_cmd = "systemctl stop " + std::string(UNIT) + " 2>/dev/null";
+    if (::system(stop_cmd.c_str()) != 0) { // no polkit rule yet — sudo fallback
+        std::string sudo_cmd = "sudo systemctl stop " + std::string(UNIT);
+        ::system(sudo_cmd.c_str());
+    }
+    // Wait for the daemon to finish its clean shutdown (bounded; it takes ~2-3s).
+    for (int i = 0; i < 100; ++i) {
+        if (!daemon_pid_alive())
+            return true;
+        usleep(100 * 1000);
+    }
+    return true;
+}
+
+void service_handover_restore() {
+    std::string start_cmd = "systemctl start " + std::string(UNIT) + " 2>/dev/null";
+    ::system(start_cmd.c_str());
+}
+
 int run_cli_command(int argc, char *argv[]) {
     if (argc < 2)
         return -1;
