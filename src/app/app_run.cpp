@@ -530,9 +530,11 @@ void App::startup() {
 #ifdef PANICAST_REMOTE_LMS
     if (IniConfig::instance().get_remote_lms_enabled()) {
         if (LmsServer::instance().start(IniConfig::instance().get_remote_bind(),
-                                        IniConfig::instance().get_remote_lms_port(), this)) {
-            EVENT_LOG(fmt::format("mini-LMS (Squeezer) on :{} — phase-1 Bayeux/JSON-RPC pending "
-                                  "(N08)",
+                                        IniConfig::instance().get_remote_lms_port(), this,
+                                        &remote_bus_)) {
+            EVENT_LOG(fmt::format("mini-LMS (Squeezer) CLI on :{} — point Squeezer at "
+                                  "<this-host>:{}",
+                                  IniConfig::instance().get_remote_lms_port(),
                                   IniConfig::instance().get_remote_lms_port()));
         } else {
             EVENT_LOG("mini-LMS server failed to start (see log); continuing without it");

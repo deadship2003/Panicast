@@ -390,8 +390,8 @@ cmake -DPANICAST_REMOTE_LMS=ON ..
 [remote]
 # mini-LMS（Squeezer 遥控）服务开关 — 默认 false，不启动
 lms_enable = false
-# mini-LMS 监听端口（LMS 惯例 9000）
-lms_port = 9000
+# mini-LMS 监听端口（LMS CLI 惯例 9090；Squeezer 手工填 IP:9090）
+lms_port = 9090
 ```
 
 > 范围说明：本模块仅实现 Bayeux/JSON-RPC **控制面**；SlimProto 音频协议（squeezelite 作独立音频输出）为后续可选扩展，不受本开关管理。

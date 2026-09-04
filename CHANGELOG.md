@@ -10,6 +10,20 @@
 
 ---
 
+## 网络控制 N08.1 — 2026-09-04 — mini-LMS 阶段一：LMS CLI 行协议落地（协议修正 + 实测）
+
+> **协议修正**：查证 Squeezer 实际走 **LMS CLI 行协议（TCP :9090，telnet 风格 `[playerid] cmd params\n`）**，而非原计划的 HTTP JSON-RPC/cometd(:9000)（手工填写格式 `IP:9090` 即 CLI 口，见 android-squeezer#30）。行协议远简单于 Bayeux 长轮询，阶段一工作量下调；`lms_port` 默认值 9000→**9090**。
+
+### 实现（`src/net/lms_server.cpp` 重写）
+- 长连接 + 每连接读线程（阻塞按行读），poll 线程 1Hz 快照差分 → 对 `subscribe:N`/`listen 1` 连接推送状态（变更触发或按间隔兜底）；写路径经每连接写锁串行化。
+- 命令集：`login`（接受回显，LAN opt-in 同 PRP）/ `version ?`→8.4.0 / `players 0 100`（单虚拟 player `00:00:00:00:84:21` 名 `panicast`，hash 令牌 URL 编码 `%3A` 等）/ `status - 1 subscribe:10`（mode/playlist_tracks/cur_index/time/duration/mixer volume/title/art_url 全映射自 `RemoteStateSnapshot`）/ 传输 `play`·`pause[ 0|1]`·`stop`·`next`·`prev`·`playlist index ±1` / `mixer volume ?|<n>`·`mixer muting` / `time ?|<sec>`(seekto) / `power`·`mode`·`name` 查询。
+- 写命令全部经 `RemoteCommandBus`（UI 线程执行，同 PRP/WS 单一越界点）；未知命令回显并 `LOG`（真机联调时可从日志直接补命令）。
+- 编解码：`cli_encode/cli_decode`（空格/冒号/百分号百分号编码，hash 令牌不破坏分词）。
+
+**验收**：构建 0-error/0-warning；模拟会话实测 `version`/`login`/`players`/`status`(含订阅)/`pause`/`mixer volume ?|42`/`time ?`/未知命令回显 全通过；`:9090` 监听按 `lms_enable` opt-in。队列浏览（titles/songinfo 现回 `count:0` 占位）→ 阶段二。
+
+---
+
 ## 网络控制 N08 — 2026-09-04 — mini-LMS（Squeezer 遥控）三期路线 + 编译开关立项
 
 > 目标：用成熟 LMS 控制器 App（Android **Squeezer**）直接遥控 panicast，替代自研 APK/PRP 的交互体验。Squeezer 走 **LMS JSON-RPC (cometd/Bayeux)** 接口 —— 仅控制面，不含音频流协议。现有 `remote_ws.cpp` 的裸 HTTP 解析 + WS 握手基建与 `RemoteControlInterface` 命令面直接复用，属协议适配模块，不动架构。

@@ -180,7 +180,7 @@ bool IniConfig::get_remote_lms_enabled() const {
     return get_bool("remote", "lms_enable", false);
 }
 int IniConfig::get_remote_lms_port() const {
-    return get_int("remote", "lms_port", 9000);
+    return get_int("remote", "lms_port", 9090);
 }
 
 
@@ -922,8 +922,8 @@ discovery_port = 18430
 #   CMake PANICAST_REMOTE_LMS option (default ON, builtin); this key is the runtime layer —
 #   nothing listens until true. With it on, point Squeezer at this host to take control.
 lms_enable = false
-# mini-LMS 监听端口（LMS 惯例 9000）/ mini-LMS listen port (LMS convention 9000)
-lms_port = 9000
+# mini-LMS 监听端口（LMS CLI 惯例 9090，Squeezer 手工填写 IP:9090）/ mini-LMS listen port (LMS CLI convention 9090 — enter IP:9090 manually in Squeezer)
+lms_port = 9090
 
 # ============================================================
 # 【艺术显示颜色代码参考】 / Color code reference
