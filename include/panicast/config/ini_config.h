@@ -249,11 +249,18 @@ public:
     std::string get_remote_universal_pin() const;
     // N05: UDP discovery port the APK broadcasts to in order to auto-find panicast instances.
     int get_remote_discovery_port() const;
-    // N08: mini-LMS (Squeezer remote control, LMS JSON-RPC control plane) — runtime layer of
+    // N08: mini-LMS (Squeezer remote control, LMS CLI control plane) — runtime layer of
     //   the dual gate. Compile layer is the CMake PANICAST_REMOTE_LMS option (default ON);
-    //   even when compiled in, the server stays down until lms_enable=true (default false).
+    //   the runtime layer also defaults ON (home-LAN allowlist + optional login below
+    //   bound the exposure).
     bool get_remote_lms_enabled() const;
-    int get_remote_lms_port() const; // LMS convention: 9000
+    int get_remote_lms_port() const; // LMS CLI convention: 9090
+    // Allowed source IPs, comma-separated CIDRs (bare IP = /32). Empty string = allow all.
+    //   Default: home LAN + loopback only (192.168.0.0/16,127.0.0.0/8).
+    std::string get_remote_lms_allow() const;
+    // Login auth (LMS CLI `login <user> <pass>`): active only when lms_pass is non-empty.
+    std::string get_remote_lms_user() const;
+    std::string get_remote_lms_pass() const;
 
     // ─── Network proxy config ([network] proxy) ──────────────────────────────
     // Read the normalized proxy URL (empty string = disabled, use direct/transparent proxy).

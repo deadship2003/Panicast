@@ -165,7 +165,7 @@ int IniConfig::get_remote_port() const {
     return get_int("remote", "port", 8421);
 }
 std::string IniConfig::get_remote_bind() const {
-    return get("remote", "bind", "127.0.0.1");
+    return get("remote", "bind", "0.0.0.0");
 }
 std::string IniConfig::get_remote_auth_token() const {
     return get("remote", "auth_token", "");
@@ -177,10 +177,19 @@ int IniConfig::get_remote_discovery_port() const {
     return get_int("remote", "discovery_port", 18430);
 }
 bool IniConfig::get_remote_lms_enabled() const {
-    return get_bool("remote", "lms_enable", false);
+    return get_bool("remote", "lms_enable", true);
 }
 int IniConfig::get_remote_lms_port() const {
     return get_int("remote", "lms_port", 9090);
+}
+std::string IniConfig::get_remote_lms_allow() const {
+    return get("remote", "lms_allow", "192.168.0.0/16,127.0.0.0/8");
+}
+std::string IniConfig::get_remote_lms_user() const {
+    return get("remote", "lms_user", "");
+}
+std::string IniConfig::get_remote_lms_pass() const {
+    return get("remote", "lms_pass", "");
 }
 
 
@@ -912,26 +921,36 @@ default_region = US
 # unaffected unless you set enable=true. The command protocol is under development (N line).
 #   enable     = false|true        off by default; opt-in / 默认关闭，按需开启
 #   port       = 8421              TCP listen port / 监听端口
-#   bind       = 127.0.0.1         localhost only; set 0.0.0.0 for LAN access / 仅本机；0.0.0.0 开放局域网
+#   bind       = 0.0.0.0           shared by PRP + mini-LMS. 0.0.0.0 = LAN-reachable;
+#                                 127.0.0.1 = localhost only / PRP 与 mini-LMS 共用；0.0.0.0 局域网可达
 #   auth_token =                   empty = no auth (LAN only); set a token to require it / 空=不鉴权(仅局域网)；设置令牌则强制校验
 [remote]
 enable = false
 port = 8421
-bind = 127.0.0.1
+bind = 0.0.0.0
 auth_token =
 # Universal pairing PIN (always valid; for headless/no-display pairing) / 万能配对 PIN（始终有效，无屏场景用）
 # Change it here to your own code / 可在此改成自定义码
 universal_pin = 6696
 # UDP discovery port the APK broadcasts to in order to auto-find players on the LAN / APK 扫描发现用的 UDP 端口
 discovery_port = 18430
-# N08: mini-LMS（Squeezer 遥控，LMS JSON-RPC 控制面）运行开关 / mini-LMS (Squeezer remote control) runtime toggle
-#   双层控制：编译层由 CMake PANICAST_REMOTE_LMS 决定（默认 ON 已编入）；本键为运行层，
-#   默认 false 不监听。开启后 Squeezer 填本机 IP 即可遥控 / Dual gate: compile layer = the
-#   CMake PANICAST_REMOTE_LMS option (default ON, builtin); this key is the runtime layer —
-#   nothing listens until true. With it on, point Squeezer at this host to take control.
-lms_enable = false
+# N08: mini-LMS（Squeezer 遥控，LMS CLI 行协议控制面）运行开关 / mini-LMS (Squeezer remote control) toggle
+#   双层控制：编译层由 CMake PANICAST_REMOTE_LMS 决定（默认 ON 已编入）；本键为运行层，默认开启。
+#   Squeezer 手工填 <本机IP>:9090 连接 / Dual gate: compile layer = the CMake PANICAST_REMOTE_LMS
+#   option (default ON, builtin); this runtime layer defaults ON — point Squeezer at <host>:9090.
+lms_enable = true
 # mini-LMS 监听端口（LMS CLI 惯例 9090，Squeezer 手工填写 IP:9090）/ mini-LMS listen port (LMS CLI convention 9090 — enter IP:9090 manually in Squeezer)
 lms_port = 9090
+# 允许接入的源 IP 白名单（CIDR 逗号分隔；裸 IP 视为 /32）/ allowed source IPs (comma-separated CIDRs; bare IP = /32)
+#   默认仅家庭网段 + 本机回环；Squeezer 手机需在此网段内 / default: home LAN + loopback only
+#   留空 = 允许任意源（不建议）/ empty = allow ALL sources (not recommended)
+lms_allow = 192.168.0.0/16,127.0.0.0/8
+# 登录鉴权：Squeezer 设置里的 Username/Password 与此一致才可控制 / login auth: Squeezer's
+#   Username/Password fields must match these to control playback.
+#   lms_pass 留空 = 不鉴权（仅白名单防护）/ empty lms_pass = no auth (allowlist-only protection)
+#   注意：密码为明文存放，建议 chmod 600 本文件 / note: plaintext — chmod 600 this file
+lms_user = panicast
+lms_pass =
 
 # ============================================================
 # 【艺术显示颜色代码参考】 / Color code reference

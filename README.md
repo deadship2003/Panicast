@@ -383,19 +383,26 @@ cmake -DPANICAST_REMOTE_LMS=OFF ..
 cmake -DPANICAST_REMOTE_LMS=ON ..
 ```
 
-**双层控制**：编译内置 ≠ 自动运行。运行层由配置文件控制，默认关闭、按需开启：
+**双层控制**：编译内置 ≠ 自动运行。运行层由配置文件控制，**默认开启**（`lms_enable = true`，`bind = 0.0.0.0`），并有两道接入防线——源 IP 白名单 + 可选登录鉴权：
 
 ```ini
 # ~/.config/panicast/config.ini
 [remote]
-# mini-LMS（Squeezer 遥控）服务开关 — 默认 false，不启动
-lms_enable = false
+# mini-LMS（Squeezer 遥控）运行开关 — 默认 true
+lms_enable = true
 # mini-LMS 监听端口（LMS CLI 惯例 9090；Squeezer 手工填 IP:9090）
 lms_port = 9090
+# 允许接入的源 IP（CIDR 逗号分隔；裸 IP = /32；留空 = 允许所有，不建议）
+# 默认：家庭网段 + 本机回环
+lms_allow = 192.168.0.0/16,127.0.0.0/8
+# 登录鉴权：与 Squeezer 设置里的 Username/Password 一致才可控制
+# lms_pass 留空 = 不鉴权（仅白名单防护）；密码明文存放，建议 chmod 600 本文件
+lms_user = panicast
+lms_pass =
 ```
 
-> 范围说明：本模块仅实现 Bayeux/JSON-RPC **控制面**；SlimProto 音频协议（squeezelite 作独立音频输出）为后续可选扩展，不受本开关管理。
-> 开发路线（三期）详见 [CHANGELOG.md](CHANGELOG.md) 的 N08 条目。
+> 范围说明：本模块实现 LMS **CLI 行协议控制面**（传输/音量/now-playing，队列浏览为阶段二）；SlimProto 音频协议（squeezelite 作独立音频输出）为后续可选扩展，不受本开关管理。
+> 开发路线详见 [CHANGELOG.md](CHANGELOG.md) 的 N08 / N08.1 / N08.2 条目。
 
 ---
 

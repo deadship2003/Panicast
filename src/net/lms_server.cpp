@@ -2,6 +2,7 @@
 //   See lms_server.h for the protocol/threading/gating contract.
 #include "panicast/net/lms_server.h"
 
+#include "panicast/config/ini_config.h"
 #include "panicast/core/logger.h"
 #include "panicast/net/remote_command_bus.h"
 
@@ -9,6 +10,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <thread>
 
 #include <arpa/inet.h>
@@ -128,6 +130,58 @@ std::vector<std::string> split_ws(const std::string &line) {
         out.push_back(cur);
     return out;
 }
+
+// Parse "a.b.c.d[/n],..." into network-order CIDRs. Bare IP = /32. Invalid entries are
+//   logged and skipped (a typo must not silently open the list to everything).
+std::vector<LmsCidr> parse_cidrs(const std::string &csv) {
+    std::vector<LmsCidr> out;
+    std::string cur;
+    auto emit = [&](const std::string &entry) {
+        std::string e = entry;
+        e.erase(0, e.find_first_not_of(" \t"));
+        e.erase(e.find_last_not_of(" \t") + 1);
+        if (e.empty())
+            return;
+        int bits = 32;
+        std::string ip = e;
+        size_t slash = e.find('/');
+        if (slash != std::string::npos) {
+            ip = e.substr(0, slash);
+            bits = std::atoi(e.c_str() + slash + 1);
+            if (bits < 0 || bits > 32) {
+                LOG(fmt::format("[LMS] lms_allow: bad prefix in '{}', skipped", e));
+                return;
+            }
+        }
+        struct in_addr a{};
+        if (::inet_pton(AF_INET, ip.c_str(), &a) != 1) {
+            LOG(fmt::format("[LMS] lms_allow: bad IP in '{}', skipped", e));
+            return;
+        }
+        uint32_t host_mask = (bits == 0) ? 0u : (0xFFFFFFFFu << (32 - bits));
+        out.push_back({a.s_addr & htonl(host_mask), htonl(host_mask)});
+    };
+    for (char c : csv) {
+        if (c == ',') {
+            emit(cur);
+            cur.clear();
+        } else {
+            cur += c;
+        }
+    }
+    emit(cur);
+    return out;
+}
+
+// Constant-time equality — a byte-wise diff accumulator, so a probing client can't learn
+//   the password one character at a time from response timing.
+bool ct_equal(const std::string &a, const std::string &b) {
+    unsigned char diff = (unsigned char)(a.size() ^ b.size());
+    size_t n = std::max(a.size(), b.size());
+    for (size_t i = 0; i < n; ++i)
+        diff |= (unsigned char)(a[i % a.size()]) ^ (unsigned char)(b[i % b.size()]);
+    return diff == 0;
+}
 } // namespace
 
 LmsServer &LmsServer::instance() {
@@ -144,6 +198,14 @@ bool LmsServer::start(const std::string &bind_addr, int port, RemoteControlInter
     if (running_.load())
         return true;
 
+    // Access policy (read once — restart after editing lms_allow/lms_user/lms_pass).
+    std::string allow_csv = IniConfig::instance().get_remote_lms_allow();
+    allow_all_ = allow_csv.find_first_not_of(" \t") == std::string::npos;
+    allow_ = parse_cidrs(allow_csv);
+    lms_user_ = IniConfig::instance().get_remote_lms_user();
+    lms_pass_ = IniConfig::instance().get_remote_lms_pass();
+    auth_required_ = !lms_pass_.empty();
+
     control_ = control;
     bus_ = bus;
     listen_fd_ = make_listen_fd(bind_addr, port);
@@ -158,6 +220,8 @@ bool LmsServer::start(const std::string &bind_addr, int port, RemoteControlInter
     LOG(fmt::format("[LMS] mini-LMS CLI (Squeezer control plane) listening on {}:{} — point "
                     "Squeezer at <this host>:{}",
                     bind_addr, port, port));
+    LOG(fmt::format("[LMS] allowlist: {} | login auth: {}", allow_all_ ? "ALL sources" : allow_csv,
+                    auth_required_ ? fmt::format("on (user '{}')", lms_user_) : "off"));
     return true;
 }
 
@@ -200,6 +264,17 @@ void LmsServer::accept_loop() {
                 break; // listen fd closed by stop()
             continue;
         }
+        // Source-IP gate (lms_allow): reject before the protocol layer ever speaks.
+        if (!peer_allowed(peer)) {
+            char ip[INET6_ADDRSTRLEN] = "?";
+            if (peer.ss_family == AF_INET6)
+                ::inet_ntop(AF_INET6, &((struct sockaddr_in6 *)&peer)->sin6_addr, ip, sizeof(ip));
+            else if (peer.ss_family == AF_INET)
+                ::inet_ntop(AF_INET, &((struct sockaddr_in *)&peer)->sin_addr, ip, sizeof(ip));
+            LOG(fmt::format("[LMS] rejected connection from {} (not in lms_allow)", ip));
+            ::close(fd);
+            continue;
+        }
         int nodelay = 1;
         ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
         std::lock_guard<std::mutex> lk(conns_mtx_);
@@ -212,6 +287,36 @@ void LmsServer::accept_loop() {
         c->reader = std::thread([this, raw] { client_loop(raw); });
         conns_.push_back(std::move(c));
     }
+}
+
+// lms_allow check. IPv4 and v4-mapped IPv6 go through the CIDR list; native IPv6 only
+//   passes for ::1 (loopback) — the default list is v4-shaped by design.
+bool LmsServer::peer_allowed(const sockaddr_storage &peer) const {
+    if (allow_all_)
+        return true;
+    const unsigned char *v4 = nullptr;
+    if (peer.ss_family == AF_INET) {
+        v4 = (const unsigned char *)&((const struct sockaddr_in *)&peer)->sin_addr;
+    } else if (peer.ss_family == AF_INET6) {
+        const struct sockaddr_in6 *a6 = (const struct sockaddr_in6 *)&peer;
+        const unsigned char *b = (const unsigned char *)&a6->sin6_addr;
+        static const unsigned char v4mapped_prefix[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF};
+        static const unsigned char v6loop[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+        if (std::equal(b, b + 12, v4mapped_prefix))
+            v4 = b + 12;
+        else if (std::equal(b, b + 16, v6loop))
+            return true;
+        else
+            return false;
+    } else {
+        return false;
+    }
+    uint32_t ip;
+    std::memcpy(&ip, v4, sizeof(ip)); // network order
+    for (const auto &c : allow_)
+        if ((ip & c.mask) == c.net)
+            return true;
+    return false;
 }
 
 void LmsServer::reap_done() { // conns_mtx_ held
@@ -249,9 +354,31 @@ std::string LmsServer::handle_line(const std::string &raw, Conn &c) {
         return s.paused ? "pause" : "play";
     };
 
-    // ── server-level ──
+    // ── login gate: with lms_user/lms_pass set, nothing executes before a successful login.
+    //   Failed login gets no echo and the connection is dropped (clear failure signal for
+    //   the app, no brute-force window); pre-login commands are silently ignored, and more
+    //   than a few of them drops the connection too.
+    if (auth_required_ && !c.authed.load()) {
+        if (cmd == "login" && p.size() >= 2) {
+            if (ct_equal(p[0], lms_user_) && ct_equal(p[1], lms_pass_)) {
+                c.authed.store(true);
+                LOG(fmt::format("[LMS] client {} logged in as '{}'", c.client_id, lms_user_));
+                return raw; // echo = success (what Squeezer waits for)
+            }
+            LOG(fmt::format("[LMS] auth FAILED (client {})", c.client_id));
+            c.kick = true;
+            return {};
+        }
+        if (++c.unauth_cmds > 5) {
+            LOG(fmt::format("[LMS] dropping unauthenticated client {} (command flood)", c.client_id));
+            c.kick = true;
+        }
+        return {}; // silent drop
+    }
     if (cmd == "login")
-        return raw; // phase 1: accept any credentials (LAN opt-in like PRP)
+        return raw; // auth disabled — accept any credentials (allowlist-only)
+
+    // ── server-level ──
     if (cmd == "version")
         return "version 8.4.0"; // LMS-compatible version Squeezer gates features on
     if (cmd == "listen") {
@@ -447,6 +574,8 @@ void LmsServer::client_loop(Conn *c) {
             LOG(fmt::format("[LMS] >> {}", line.substr(0, 200)));
             std::string resp = handle_line(line, *c);
             send_line(c, resp);
+            if (c->kick)
+                break; // auth failure / unauth flood → close now
         }
         if (pending.size() > 65536) // runaway garbage guard
             pending.clear();
@@ -471,6 +600,8 @@ void LmsServer::poll_loop() {
         for (auto &c : conns_) {
             if (c->done.load() || !(c->subscribed || c->listening))
                 continue;
+            if (auth_required_ && !c->authed.load())
+                continue; // no state pushes before login
             bool changed = hash != c->last_status_hash;
             bool due = now - c->last_push >= std::chrono::seconds(c->sub_interval_sec);
             if (changed || due) {

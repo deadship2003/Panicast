@@ -29,6 +29,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -38,10 +39,19 @@
 
 #include "panicast/net/remote_protocol.h"
 
+#include <sys/socket.h> // sockaddr_storage (peer_allowed — POSIX-only module)
+
 namespace panicast
 {
 
 class RemoteCommandBus;
+
+// One IPv4 CIDR entry (network order). Bare IPs parse as /32. Namespace scope so the
+//   file-local parser in lms_server.cpp can build the list.
+struct LmsCidr {
+    uint32_t net;
+    uint32_t mask;
+};
 
 class LmsServer {
 public:
@@ -75,7 +85,7 @@ private:
     LmsServer() = default;
     ~LmsServer();
 
-    // One live controller connection: fd + write mutex + subscription state.
+    // One live controller connection: fd + write mutex + subscription/auth state.
     struct Conn {
         int fd = -1;
         int64_t client_id = 0;
@@ -87,6 +97,9 @@ private:
         bool listening = false;                // listen 1
         std::string last_status_hash;          // suppress no-op pushes
         std::chrono::steady_clock::time_point last_push{};
+        std::atomic<bool> authed{false};       // login succeeded (read by the poll thread)
+        bool kick = false;                     // reader thread closes after this response
+        int unauth_cmds = 0;                   // pre-login commands (probe deterrent)
     };
 
     void accept_loop();
@@ -96,6 +109,7 @@ private:
     std::string status_line() const; // full hash-style status for the virtual player
     void send_line(Conn *c, const std::string &line); // locked write + log
     void reap_done(); // join + drop finished conns (conns_mtx_ held)
+    bool peer_allowed(const sockaddr_storage &peer) const; // lms_allow CIDR check
 
     RemoteControlInterface *control_ = nullptr;
     RemoteCommandBus *bus_ = nullptr;
@@ -104,6 +118,13 @@ private:
     int listen_fd_ = -1;
     int port_ = 0;
     std::string bind_addr_;
+
+    // Access policy, parsed once at start() from [remote] lms_allow / lms_user / lms_pass.
+    std::vector<LmsCidr> allow_;    // empty + !allow_all_ = nothing gets in (defensive)
+    bool allow_all_ = false;        // lms_allow explicitly empty
+    std::string lms_user_;
+    std::string lms_pass_;
+    bool auth_required_ = false;    // lms_pass non-empty → login gate
 
     std::thread accept_thread_;
     std::thread poll_thread_;

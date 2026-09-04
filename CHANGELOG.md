@@ -10,6 +10,19 @@
 
 ---
 
+## 网络控制 N08.2 — 2026-09-04 — mini-LMS 默认开启 + 源 IP 白名单 + 登录鉴权
+
+> 应用户要求转为"默认可用"：`lms_enable` 默认 **true**、`[remote] bind` 默认 **0.0.0.0**（PRP 不受影响——其 `enable` 仍默认 false），并以两道接入防线约束默认暴露面。
+
+### 改动
+- **`[remote] lms_allow`**（新键）：允许接入的源 IP 白名单，CIDR 逗号分隔（裸 IP=/32）。默认 `192.168.0.0/16,127.0.0.0/8`（家庭网+回环）；留空=允许所有（文档注明风险）。实现于 `accept()` 时校验（用户态，无需防火墙权限）：IPv4 与 v4-mapped IPv6 走 CIDR 匹配，原生 IPv6 仅放行 `::1`；拒绝即 `close()` + 日志 `[LMS] rejected connection from <ip>`。非法条目跳过并记日志（拼写错误不会静默放开）。
+- **`[remote] lms_user` / `lms_pass`**（新键）：LMS CLI `login <user> <pass>` 登录鉴权。`lms_pass` 非空才启用；未登录任何命令静默丢弃（连续 >5 条未登录命令踢线）；登录失败不回显并断开（无爆破窗口）；成功回显（Squeezer 以此判定握手完成）。比较用常数时间（防时序侧信道）。密码明文存放（与 proxy/cookies 文化一致，模板注明 chmod 600）。
+- `IniConfig`：`get_remote_lms_allow/user/pass()` 新增；`get_remote_lms_enabled()` 兜底 true；`get_remote_bind()` 兜底 0.0.0.0（键注释标明 PRP+LMS 共用）。
+
+**验收**（实测）：默认无键启动 → `*:9090` 监听、回环可连、`version`→8.4.0；`lms_allow=10.0.0.0/8` 时 127.0.0.1 被拒（ConnectionReset + 拒绝日志含 `::ffff:` 归一化）；鉴权开启后未登录命令超时静默、错误密码断开、正确登录回显且后续命令正常；新模板含全部新键与 `bind = 0.0.0.0`、`lms_enable = true`。
+
+---
+
 ## 网络控制 N08.1 — 2026-09-04 — mini-LMS 阶段一：LMS CLI 行协议落地（协议修正 + 实测）
 
 > **协议修正**：查证 Squeezer 实际走 **LMS CLI 行协议（TCP :9090，telnet 风格 `[playerid] cmd params\n`）**，而非原计划的 HTTP JSON-RPC/cometd(:9000)（手工填写格式 `IP:9090` 即 CLI 口，见 android-squeezer#30）。行协议远简单于 Bayeux 长轮询，阶段一工作量下调；`lms_port` 默认值 9000→**9090**。
