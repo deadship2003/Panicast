@@ -720,6 +720,17 @@ nlohmann::json LmsServer::json_slim_request(Conn &c, const std::vector<std::stri
         return r;
     }
     if (k == "play") {
+        // Remote-control intuition: resume if something is loaded (paused or playing);
+        //   only fall through to "play the tree cursor node" when nothing is loaded —
+        //   the bare "play" action is Enter-on-cursor, which surprised phone users.
+        if (control_) {
+            auto st = control_->snapshot_state();
+            if (st.has_media) {
+                if (st.paused)
+                    push("resume");
+                return nlohmann::json::object();
+            }
+        }
         push("play");
     } else if (k == "pause") {
         std::string want = cmd.size() > 1 ? cmd[1] : "";
