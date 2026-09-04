@@ -1,0 +1,107 @@
+// panicast --daemon mode — implementation. See daemon_mode.h for the contract.
+//   Migrated from the former src/panicastd_main.cpp (N09/S1) when the two binaries
+//   merged into one (N10): the service subcommand forwarding block is gone (service
+//   commands are intercepted in main() long before -d can reach this path), and the
+//   double-instance guard + N09 pidfile rename landed here.
+#include "panicast/app/daemon_mode.h"
+
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <string>
+
+#include <curl/curl.h>
+#include <libxml/parser.h>
+#include <libxml/tree.h>
+#include <signal.h>
+#include <unistd.h>
+
+#include "panicast/app/app.h"
+#include "panicast/core/paths.h"
+#include "panicast/parsers/xml_helpers.h"
+#include "panicast/ui/ui.h" // setup_signal_handlers / tui_cleanup (curses-guarded no-op here)
+
+namespace panicast
+{
+
+std::string daemon_pidfile_path() {
+    return Paths::get_data_dir() + "/panicast-daemon.pid";
+}
+
+bool daemon_pid_alive(int *out_pid) {
+    std::ifstream f(daemon_pidfile_path());
+    int pid = 0;
+    if (!(f >> pid) || pid <= 0)
+        return false; // no (valid) pid file → not running via daemon path
+    if (out_pid)
+        *out_pid = pid;
+    return ::kill(pid, 0) == 0; // ESRCH → stale file, daemon is gone
+}
+
+namespace
+{
+void write_pidfile() {
+    std::string p = daemon_pidfile_path();
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(p).parent_path(), ec);
+    std::ofstream f(p);
+    if (f.is_open())
+        f << getpid() << "\n";
+}
+
+void remove_pidfile() {
+    std::remove(daemon_pidfile_path().c_str());
+}
+} // namespace
+
+int run_daemon() {
+    // Double-instance guard: a manual `panicast -d` while the systemd service (or
+    //   another manual run) is already alive would fight over :9090, the mpv instance
+    //   and the SQLite writes. Refuse instead of racing.
+    if (daemon_pid_alive()) {
+        std::fprintf(stderr,
+                     "panicast -d: another daemon instance is already running (pid file "
+                     "%s).\nUse `panicast status` to inspect it, or `panicast restart` "
+                     "to recycle it.\n",
+                     daemon_pidfile_path().c_str());
+        return 1;
+    }
+
+    // N09 → N10 migration: remove a stale panicastd.pid so daemon_pid_alive() can never
+    //   see two "running" pid files at once after an upgrade.
+    std::remove((Paths::get_data_dir() + "/panicastd.pid").c_str());
+
+    // Same boot sequence as the TUI main (minus the terminal save — no terminal here).
+    Paths::migrate_legacy();
+    curl_global_init(CURL_GLOBAL_ALL);
+    xmlInitParser();
+    xmlSetGenericErrorFunc(NULL, xml_error_handler);
+    xmlSetStructuredErrorFunc(NULL, (xmlStructuredErrorFunc)xml_structured_error_handler);
+
+    setup_signal_handlers(); // SIGTERM/SIGHUP/SIGINT → the clean flush-and-exit path
+    atexit(tui_cleanup);     // no-op until ncurses initializes (never does here)
+
+    write_pidfile();
+    int rc = 0;
+    {
+        App app;
+        app.set_headless();
+        app.set_exit_hook(remove_pidfile);
+        try {
+            app.run();
+        } catch (const std::exception &e) {
+            std::fprintf(stderr, "panicast -d: fatal: %s\n", e.what());
+            rc = 1;
+        } catch (...) {
+            std::fprintf(stderr, "panicast -d: fatal: unknown exception\n");
+            rc = 1;
+        }
+    } // ~App joins everything before the pid file disappears
+    remove_pidfile();
+
+    curl_global_cleanup();
+    xmlCleanupParser();
+    return rc;
+}
+
+} // namespace panicast

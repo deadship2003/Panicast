@@ -208,39 +208,57 @@ install_deps() {
 }
 
 install_panicast() {
-    info "installing panicast + panicastd to /usr/local/bin (system-wide — sudo required, may prompt for password)"
+    info "installing panicast to /usr/local/bin (system-wide — sudo required, may prompt for password)"
     if sudo cmake --install build 2>/dev/null; then
-        say "installed -> /usr/local/bin/panicast, /usr/local/bin/panicastd"
+        say "installed -> /usr/local/bin/panicast"
     else
         warn "cmake --install failed, trying direct copy"
         sudo cp -f build/panicast /usr/local/bin/panicast
-        sudo cp -f build/panicastd /usr/local/bin/panicastd
-        say "installed -> /usr/local/bin/panicast, /usr/local/bin/panicastd"
+        say "installed -> /usr/local/bin/panicast"
+    fi
+    # N10: the separate panicastd binary is gone — one binary, two frontends (`panicast`
+    #   TUI / `panicast -d` daemon). Remove a stale installed copy so it can never be
+    #   started again (it would race the merged daemon over :9090 and the DB).
+    if [ -x /usr/local/bin/panicastd ]; then
+        sudo systemctl stop panicastd.service 2>/dev/null
+        sudo systemctl disable panicastd.service 2>/dev/null
+        sudo rm -f /usr/local/bin/panicastd
+        say "removed legacy binary -> /usr/local/bin/panicastd"
     fi
     install_daemon_units
 }
 
-# N09/S1: systemd unit (system-level, runs as the invoking user) + polkit rule granting
-#   that user passwordless start/stop/restart (enable/disable stay sudo-only).
+# N09/S1→N10: systemd unit (system-level, runs as the invoking user) + polkit rule
+#   granting that user passwordless start/stop/restart (enable/disable stay sudo-only).
 install_daemon_units() {
     local user="${SUDO_USER:-$(id -un)}"
     local home_dir
     home_dir="$(getent passwd "$user" | cut -d: -f6)"
     [ -n "$home_dir" ] || { warn "cannot resolve home for $user — skipping daemon units"; return; }
 
+    # N10 migration: retire the old panicastd unit (stop + remove); the new unit is
+    #   panicast.service running `panicast -d`.
+    if [ -f /etc/systemd/system/panicastd.service ]; then
+        sudo systemctl stop panicastd.service 2>/dev/null
+        sudo systemctl disable panicastd.service 2>/dev/null
+        sudo rm -f /etc/systemd/system/panicastd.service
+        say "removed legacy unit -> panicastd.service"
+    fi
+    [ -f /etc/polkit-1/rules.d/49-panicastd.rules ] && sudo rm -f /etc/polkit-1/rules.d/49-panicastd.rules
+
     sed -e "s|@INSTALL_USER@|$user|g" -e "s|@INSTALL_HOME@|$home_dir|g" \
-        scripts/panicastd.service.in > /tmp/panicastd.service
-    sudo cp -f /tmp/panicastd.service /etc/systemd/system/panicastd.service
+        scripts/panicast.service.in > /tmp/panicast.service
+    sudo cp -f /tmp/panicast.service /etc/systemd/system/panicast.service
     sudo systemctl daemon-reload
-    say "systemd unit -> /etc/systemd/system/panicastd.service"
+    say "systemd unit -> /etc/systemd/system/panicast.service (ExecStart=panicast -d)"
 
     if [ -d /etc/polkit-1/rules.d ]; then
-        sed "s|@INSTALL_USER@|$user|g" scripts/49-panicastd-polkit.rules.in \
-            > /tmp/49-panicastd.rules
-        sudo cp -f /tmp/49-panicastd.rules /etc/polkit-1/rules.d/49-panicastd.rules
-        say "polkit rule  -> /etc/polkit-1/rules.d/49-panicastd.rules (passwordless start/stop/restart)"
+        sed "s|@INSTALL_USER@|$user|g" scripts/49-panicast-polkit.rules.in \
+            > /tmp/49-panicast.rules
+        sudo cp -f /tmp/49-panicast.rules /etc/polkit-1/rules.d/49-panicast.rules
+        say "polkit rule  -> /etc/polkit-1/rules.d/49-panicast.rules (passwordless start/stop/restart)"
     fi
-    echo "Enable autostart with: panicast enable   (or: sudo systemctl enable --now panicastd)"
+    echo "Enable autostart with: panicast enable   (or: sudo systemctl enable --now panicast)"
 }
 
 do_install() {

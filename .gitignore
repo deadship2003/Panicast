@@ -20,3 +20,4 @@ include/panicast/net/client_secret_builtin.h
 *~
 .DS_Store
 Thumbs.db
+.build-root-owned/

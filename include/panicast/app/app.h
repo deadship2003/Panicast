@@ -109,7 +109,7 @@ public:
     void run();
 
     // N09/S1: swap the ncurses frontend for the no-op NullFrontend and mark the App
-    //   headless — panicastd (the daemon binary) runs the full engine without a terminal;
+    //   headless — `panicast -d` runs the full engine without a terminal;
     //   the run loop then paces on sleeps instead of draw/input. Must be called before run().
     void set_headless();
 

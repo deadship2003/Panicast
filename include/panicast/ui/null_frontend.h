@@ -1,4 +1,4 @@
-// NullFrontend — the headless IFrontend implementation for panicastd (N09/S1).
+// NullFrontend — the headless IFrontend implementation for `panicast -d` (N09/S1).
 //   The daemon runs the full engine (playback, queue, downloads, transcription, the
 //   LMS/PRP remote-control servers) with NO terminal: every render/dialog call is a
 //   no-op and state-bearing queries return the same defaults UI starts with. This is

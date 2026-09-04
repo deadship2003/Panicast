@@ -274,12 +274,13 @@ set(COMPILER_FLAGS ${COMPILER_FLAGS}
 # V0.05B9n3e5g3p P3-1: Keep a single source file (splitting into multiple files is v0.6 work)
 # But add generated/ to the include path to support version.h injection
 # =============================================================================
-# N09/S1: shared engine objects — both the TUI binary (panicast) and the daemon
-#   (panicastd) link these; only the entry point differs (main.cpp vs panicastd_main.cpp).
+# N10: shared engine objects — the TUI (main.cpp) and the daemon mode
+#   (daemon_mode.cpp) are both frontends over this single engine.
 add_library(panicast_engine OBJECT
     # panicast: renamed binary output (target stays 'panicast' internally)
         src/core/paths.cpp
     src/app/cli_commands.cpp
+    src/app/daemon_mode.cpp
     src/core/logger.cpp
     src/core/event_log.cpp
     src/core/thread_pool.cpp
@@ -389,14 +390,11 @@ endif()
 add_executable(panicast src/main.cpp)
 target_link_libraries(panicast PRIVATE panicast_engine)
 
-# N09/S1: the headless daemon — full engine, NullFrontend instead of ncurses.
-add_executable(panicastd src/panicastd_main.cpp)
-target_link_libraries(panicastd PRIVATE panicast_engine)
+# N10: one binary, two frontends — `panicast -d` is the headless daemon (N09's separate
+
 set_target_properties(panicast PROPERTIES OUTPUT_NAME "panicast")
-set_target_properties(panicastd PROPERTIES OUTPUT_NAME "panicastd")
 
 target_compile_options(panicast PRIVATE ${COMPILER_FLAGS})
-target_compile_options(panicastd PRIVATE ${COMPILER_FLAGS})
 
 # N08: mini-LMS module — compiled into the shared engine only when PANICAST_REMOTE_LMS=ON
 #   (default); OFF builds exclude it entirely from both binaries.
@@ -531,7 +529,7 @@ endforeach()
 # =============================================================================
 # Install
 # =============================================================================
-install(TARGETS panicast panicastd
+install(TARGETS panicast
     RUNTIME DESTINATION bin
 )
 

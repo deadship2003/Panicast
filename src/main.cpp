@@ -1,4 +1,5 @@
-// Program entry point: command-line parsing (TUI / import subscriptions / export OPML / purge cache / version help).
+// Program entry point: command-line parsing (TUI / headless daemon / import subscriptions
+//   / export OPML / purge cache / version help).
 #include <iostream>
 #include <string>
 #include <vector>
@@ -17,7 +18,7 @@
 #include "panicast/ui/ui.h"
 #include "panicast/app/app.h"
 #include "panicast/app/cli_commands.h"
-#include "panicast/app/cli_commands.h"
+#include "panicast/app/daemon_mode.h"
 
 #if __has_include("version.h")
 #include "version.h"
@@ -30,6 +31,8 @@ static void print_usage() {
               << panicast::BUILD_TIME << "\n\n";
     std::cout << "Usage:\n";
     std::cout << "  panicast                  Start the application (TUI mode)\n";
+    std::cout << "  panicast -d, --daemon     Run the headless daemon (same engine, no TUI;\n";
+    std::cout << "                            foreground — Ctrl+C exits cleanly)\n";
     std::cout << "  panicast -a <url>         Add feed from URL\n";
     std::cout << "  panicast -i <file>        Import OPML subscriptions\n";
     std::cout << "  panicast -e <file>        Export to OPML file\n";
@@ -90,13 +93,8 @@ int main(int argc, char *argv[]) {
     //   so IniConfig / DatabaseManager see the new (~/.local/share/panicast) location. Idempotent.
     Paths::migrate_legacy();
 
-    // N09/S1: service subcommands (status/start/stop/restart/enable/disable/log) — handled
-    //   and exited here, before any TUI/daemon machinery starts.
-    if (int rc = run_cli_command(argc, argv); rc >= 0)
-        return rc;
-
-    // N09/S1: service subcommands (status/start/stop/restart/enable/disable/log) — handled
-    //   and exited here, before any TUI/daemon machinery starts.
+    // N09/S1→N10: service subcommands (status/start/stop/restart/enable/disable/log) are
+    //   handled and exited here, before any TUI/daemon machinery starts.
     if (int rc = run_cli_command(argc, argv); rc >= 0)
         return rc;
 
@@ -105,18 +103,23 @@ int main(int argc, char *argv[]) {
     bool purge = false;
     bool quiet_mode = false; /* --quiet = pure audio (vid=no, vo=null) */
 
-    /* CLI long options: --purge, --quiet, --vid, --vo, --ao, --help, --version */
+    /* CLI long options: --daemon, --purge, --quiet, --vid, --vo, --ao, --help, --version */
     static struct option long_options[] = {
-        {"purge", no_argument, 0, 'P'},     {"quiet", no_argument, 0, 'q'},
-        {"vid", required_argument, 0, 'V'}, {"vo", required_argument, 0, 'O'},
-        {"ao", required_argument, 0, 'A'},  {"help", no_argument, 0, 'h'},
-        {"version", no_argument, 0, 'v'},   {0, 0, 0, 0}};
+        {"daemon", no_argument, 0, 'd'},    {"purge", no_argument, 0, 'P'},
+        {"quiet", no_argument, 0, 'q'},     {"vid", required_argument, 0, 'V'},
+        {"vo", required_argument, 0, 'O'},  {"ao", required_argument, 0, 'A'},
+        {"help", no_argument, 0, 'h'},      {"version", no_argument, 0, 'v'},
+        {0, 0, 0, 0}};
 
     std::string cli_vo, cli_vid, cli_ao; /* CLI overrides (empty = use defaults) */
+    bool daemon_mode = false;            /* N10: -d → headless foreground daemon */
 
     int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "a:i:e:t:h?v", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "a:i:e:t:dh?v", long_options, &option_index)) != -1) {
         switch (opt) {
+        case 'd':
+            daemon_mode = true;
+            break;
         case 'a':
             import_url = optarg;
             break;
@@ -156,6 +159,12 @@ int main(int argc, char *argv[]) {
             break;
         }
     }
+
+    /* N10: -d / --daemon → headless foreground daemon (same engine, NullFrontend).
+       Takes precedence over the TUI-only options; the double-instance guard lives in
+       run_daemon(). */
+    if (daemon_mode)
+        return run_daemon();
 
     /* --quiet = --vid=no --vo=null */
     if (quiet_mode) {

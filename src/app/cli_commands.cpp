@@ -16,6 +16,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "panicast/app/daemon_mode.h"
 #include "panicast/config/ini_config.h"
 #include "panicast/core/paths.h"
 
@@ -24,18 +25,9 @@ namespace panicast
 
 namespace
 {
-const char *UNIT = "panicastd.service";
-
-bool daemon_pid_alive(int *out_pid = nullptr) {
-    std::string p = Paths::get_data_dir() + "/panicastd.pid";
-    std::ifstream f(p);
-    int pid = 0;
-    if (!(f >> pid) || pid <= 0)
-        return false; // no (valid) pid file → not running via daemon path
-    if (out_pid)
-        *out_pid = pid;
-    return ::kill(pid, 0) == 0; // ESRCH → stale file, daemon is gone
-}
+// N10: the unit runs `panicast -d` (formerly the separate panicastd binary, N09/S1 —
+//   unit renamed panicastd.service → panicast.service with it).
+const char *UNIT = "panicast.service";
 
 int systemctl(const char *verb, bool use_sudo) {
     std::string cmd = use_sudo ? "sudo " : "";
@@ -118,7 +110,7 @@ int cmd_status() {
     IniConfig::instance().load();
     int pid = 0;
     bool alive = daemon_pid_alive(&pid);
-    printf("panicastd: %s", alive ? "running" : "stopped");
+    printf("panicast daemon: %s", alive ? "running" : "stopped");
     if (alive)
         printf(" (pid %d)", pid);
     else if (::system(("systemctl is-enabled " + std::string(UNIT) + " >/dev/null 2>&1").c_str()) == 0)

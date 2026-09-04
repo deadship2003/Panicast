@@ -10,6 +10,23 @@
 
 ---
 
+## 网络控制 N10 — 2026-09-04 — 单二进制合并：panicastd 并入 panicast（-d 前台守护模式）
+
+> **用户定版**：一个文件名、一个可执行文件——`panicast` 默认 TUI；`panicast -d`（或 systemd `panicast start`）为后台服务。`panicastd` 这个名字从仓库中彻底移除（不留兼容别名）。
+
+### 实现
+- **入口合一**：原 `src/panicastd_main.cpp` 主体迁至 `src/app/daemon_mode.cpp`（`run_daemon()`，engine 内共享）；`panicastd` 可执行目标从 CMake 删除，install 只装 `panicast`。
+- **CLI**：`-d / --daemon` 进入前台守护（同引擎 + NullFrontend）；service 子命令（start/stop/restart/status/enable/disable/log）拦截不变。
+- **双实例保护**：`run_daemon()` 启动前查 pidfile 活进程，已有实例则拒绝（exit 1）并提示 `panicast status/restart`——手动 `-d` 与 systemd 实例互斥，杜绝 ：9090/mpv/SQLite 三重争抢。
+- **pidfile 改名**：`panicastd.pid` → `panicast-daemon.pid`；启动时清理旧名残留。pidfile 路径 + 活性探测收敛为 `daemon_mode.h` 单一定义（cli_commands.cpp 私有副本删除）。
+- **systemd/polkit**：unit 改名 `panicast.service`（`ExecStart=panicast -d`）、polkit `49-panicast-polkit.rules`；build.sh 安装段自动退役旧 unit/二进制/规则（stop + disable + rm）。
+- **顺修**：main.cpp 里 `run_cli_command` 调用块与 `cli_commands.h` include 双重复制（合并事故死代码）删除。
+- **文档**：man 加 `-d` 条目；`--help` usage 加 daemon 行；`status` 输出改 "panicast daemon"。
+
+**验收**：0-warning 构建；ctest 50/50；pty 冒烟——`-d` 运行/status 报 running(pid)/双实例拒绝 exit 1/SIGTERM 干净退出/pidfile 自动清理。N02（TUI 变 daemon 真客户端，MPD 风格协议）保持 deferred，见 ROADMAP。
+
+---
+
 ## 网络控制 N08.3 — 2026-09-04 — mini-LMS 增补 cometd/JSON-RPC 通道（真机抓包驱动）
 
 > **真机抓包反转 N08.1 的结论**：用户的新版 Squeezer 实际走 **HTTP cometd (Bayeux/JSON-RPC)**（`POST /cometd`，Jetty 客户端，HTTP Basic 鉴权），并非纯 CLI 行协议（那是旧版行为）。N08.1 的 CLI 实现保留（旧工具兼容），本迭代在同一端口增加 cometd 通道。

@@ -195,6 +195,14 @@
 ## Connectivity 跟进 ✅ 完成（D45）
 - ~~Downloader 全面经 Connectivity（补 D3 未覆盖路径）+ 首批代理规则（youtube→代理、`*.googlevideo.com`→代理、bilibili→直连）。~~ → **D45 完成**：yt-dlp 全路径经 `resolveProxy(source_url)` + bilibili→direct 种子规则（INI `bilibili_direct` 门控）。youtube/googlevideo 走全局 fall-through（无需显式规则）。后续若需 per-platform 专用代理，规则链 API（setPlatform/setDomain）+ `IniConfig::get(section,key)` 已就位。
 
+## 服务/UI 分离 — N09 ✅ 完成（2026-09-04）/ N10 ✅ 完成（2026-09-04）→ N02 进行中
+- **N09/S1 ✅**：双二进制分离（panicast TUI + panicastd daemon）→ **N10 ✅ 用户定版单二进制合并**：`panicastd` 彻底移除；`panicast -d` = 前台守护（同引擎 NullFrontend）；unit 改名 `panicast.service`（ExecStart=panicast -d）；双实例保护（pidfile 活进程拒绝）；pidfile `panicast-daemon.pid`；handover（TUI 接管→退出恢复）保持。详见 CHANGELOG N10。
+- **N02（进行中，用户定版方向：彻底 C/S 分离）**——TUI 从"接管引擎"升级为"daemon 的真客户端"，目标形态：
+  - `panicast`（TUI）连上运行中的 daemon，**不再 handover**——两进程并存，TUI 纯粹做视图/输入，引擎只在 daemon。
+  - 协议基线：**MPD/ncmpcpp 风格**——本地 TCP 行协议 + `idle` 事件订阅（daemon 主动推状态变更），备选直接复用已验证的 LMS cometd 通道（N08.3）。定版前须完成：命令面盘点（播放/队列/订阅/下载/搜索映射）、状态快照 schema、事件类型清单（player/queue/progress/library）。
+  - 迁移分阶段：N02a 协议服务器侧（daemon 内）+ ctest 契约测试 → N02b TUI 客户端模式（`panicast` 检测 daemon 在跑则连上去，否则回落本地引擎）→ N02c handover 退役。
+  - 约束：协议默认仅监听 loopback；鉴权复用 LMS user/pass；桌面 TUI 延迟要求 <100ms（round-trip 一帧状态）。
+
 ## 规则
 - 每个人日任务完成 → 本文件对应项打 `[x]` + `CHANGELOG.md` 一行 + 架构决策入 `DECISIONS_LOG.md`。
 - 计划随实际演进更新（任务可拆并、可插入）；不顺就回退到上一个绿色提交。
