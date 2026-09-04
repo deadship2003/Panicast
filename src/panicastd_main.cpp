@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include <curl/curl.h>
 #include <libxml/parser.h>
@@ -44,8 +45,30 @@ static void remove_pidfile() {
     std::remove(pidfile_path().c_str());
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     using namespace panicast;
+
+    // Service subcommands belong to `panicast <cmd>`; `panicastd status` etc. must NOT
+    //   silently start ANOTHER daemon (observed in the wild: `sudo panicastd status`
+    //   launched a root-uid daemon that stole :9090 from the systemd one). Forward them.
+    if (argc > 1) {
+        std::string a = argv[1];
+        if (a == "status" || a == "start" || a == "stop" || a == "restart" ||
+            a == "enable" || a == "disable" || a == "log" || a == "-h" || a == "--help") {
+            std::fprintf(stderr,
+                         "panicastd is the daemon binary — service commands run via "
+                         "`panicast %s`.\nStarting the daemon: `panicast start` "
+                         "(systemd unit panicastd.service).\n",
+                         a.c_str());
+            std::vector<char *> args;
+            args.push_back((char *)"panicast");
+            for (int i = 1; i < argc; ++i)
+                args.push_back(argv[i]);
+            args.push_back(nullptr);
+            ::execvp("panicast", args.data());
+            return 127; // exec failed — the hint above already told the user what to run
+        }
+    }
 
     // Same boot sequence as the TUI main (minus the terminal save — no terminal here).
     Paths::migrate_legacy();
