@@ -655,8 +655,16 @@ nlohmann::json LmsServer::json_slim_request(Conn &c, const std::vector<std::stri
         r["mode"] = mode;
         r["playlist_tracks"] = S((int)s.playlist.size());
         r["playlist_cur_index"] = S(idx);
-        r["playlist_repeat"] = "0";
-        r["playlist_shuffle"] = "0";
+        // LMS spellings the app reads (BaseClient.parseStatus) — space in the key names:
+        r["playlist repeat"] = "0";
+        r["playlist shuffle"] = "0";
+        r["playlist_timestamp"] = "0";
+        r["playlist_name"] = "";
+        r["will_sleep_in"] = "0";
+        r["sleep"] = "0";
+        r["remote"] = "1";
+        r["sync_master"] = "";
+        r["sync_slaves"] = "";
         r["song"] = S(idx);
         r["seq_no"] = "0";
         r["rate"] = "1";
