@@ -438,6 +438,7 @@ std::string LmsServer::handle_http(Conn &c, const std::string &method, const std
         for (const auto &m : msgs) {
             std::string ch = m.value("channel", std::string());
             nlohmann::json id = m.contains("id") ? m["id"] : nlohmann::json(nullptr);
+            std::string m_cid = m.value("clientId", std::string());
 
             if (ch.rfind("/meta/handshake", 0) == 0) {
                 static std::atomic<uint64_t> next_cid{1};
@@ -478,6 +479,26 @@ std::string LmsServer::handle_http(Conn &c, const std::string &method, const std
                 j["advice"] = adv;
                 j["id"] = id;
                 out.push_back(j);
+                // Bidirectional state sync: piggyback a playerstatus push on this connect
+                //   reply whenever the playback state changed since the last push to this
+                //   Bayeux clientId (first connect always pushes once). The client
+                //   subscribed <cid>/slim/playerstatus/* and updates its UI from it.
+                //   State is server-global — the app spreads requests over several
+                //   sockets, so per-connection bookkeeping would miss pushes.
+                if (any_subscribed_.load() && !m_cid.empty() && running_.load()) {
+                    std::string st = status_data().dump();
+                    std::lock_guard<std::mutex> lk(push_mtx_);
+                    auto it = last_push_by_cid_.find(m_cid);
+                    if (it == last_push_by_cid_.end() || it->second != st) {
+                        nlohmann::json push;
+                        push["channel"] =
+                            fmt::format("{}/slim/playerstatus/{}", m_cid, player_id());
+                        push["data"] = status_data();
+                        push["id"] = nullptr;
+                        out.push_back(push);
+                        last_push_by_cid_[m_cid] = st;
+                    }
+                }
             } else if (ch.rfind("/meta/subscribe", 0) == 0 || ch.rfind("/meta/unsubscribe", 0) == 0) {
                 nlohmann::json j;
                 j["channel"] = ch;
@@ -560,6 +581,74 @@ std::string LmsServer::handle_http(Conn &c, const std::string &method, const std
     return http_resp(200, "OK", dump);
 }
 
+// Shared status builder: the object returned for slim "status" requests AND pushed on
+//   /meta/connect replies when the state changed (bidirectional sync). Shaped for
+//   BaseClient.parseStatus + parsePlayerStatus (item_loop[0] = current song).
+nlohmann::json LmsServer::status_data() {
+    nlohmann::json r;
+    if (!control_)
+        return r;
+    auto s = control_->snapshot_state();
+    const char *mode = !s.has_media ? "stop" : (s.paused ? "pause" : "play");
+    int idx = std::max(0, s.current_index);
+    auto S = [](int v) { return std::to_string(v); };
+    r["player_name"] = player_name();
+    r["player_connected"] = "1";
+    r["playerid"] = player_id();
+    r["power"] = "1";
+    r["mode"] = mode;
+    r["playlist_tracks"] = S((int)s.playlist.size());
+    r["playlist_cur_index"] = S(idx);
+    // LMS spellings the app reads (BaseClient.parseStatus) — space in the key names:
+    r["playlist repeat"] = "0";
+    r["playlist shuffle"] = "0";
+    r["playlist_timestamp"] = "0";
+    r["playlist_name"] = "";
+    r["will_sleep_in"] = "0";
+    r["sleep"] = "0";
+    r["remote"] = "1";
+    r["sync_master"] = "";
+    r["sync_slaves"] = "";
+    r["song"] = S(idx);
+    r["seq_no"] = "0";
+    r["rate"] = "1";
+    r["time"] = S((int)s.elapsed);
+    r["duration"] = S((int)s.duration);
+    r["canseek"] = "1";
+    r["digital_volume_control"] = "1";
+    r["mixer volume"] = S(s.volume); // LMS keeps the space in the JSON key
+    if (s.has_media) {
+        r["current_title"] = s.title;
+        r["title"] = s.title;
+        if (!s.art_url.empty())
+            r["art_url"] = s.art_url;
+        // item_loop[0] is what parsePlayerStatus builds the CurrentPlaylistItem from.
+        nlohmann::json item;
+        item["id"] = S(idx);
+        item["title"] = s.title;
+        item["track"] = "";
+        item["artist"] = "";
+        item["album"] = "";
+        item["duration"] = S((int)s.duration);
+        if (!s.art_url.empty())
+            item["artwork_url"] = s.art_url;
+        r["item_loop"] = nlohmann::json::array({item});
+    }
+    // The queue (Squeezer's playlist view): LMS delivers it as playlist_loop inside the
+    //   status response — the app does not fetch it anywhere else.
+    nlohmann::json loop = nlohmann::json::array();
+    for (size_t i = 0; i < s.playlist.size() && i < 200; ++i) {
+        nlohmann::json it;
+        it["playlist index"] = S((int)i);
+        it["id"] = S((int)i);
+        it["title"] = s.playlist[i].title;
+        it["duration"] = S(s.playlist[i].duration);
+        loop.push_back(it);
+    }
+    r["playlist_loop"] = loop;
+    return r;
+}
+
 // JSON-RPC command mapping — LMS-JSON shaped: stringly-typed values, players_loop array
 //   for player listings, flat status object.
 nlohmann::json LmsServer::json_slim_request(Conn &c, const std::vector<std::string> &cmd) {
@@ -639,59 +728,8 @@ nlohmann::json LmsServer::json_slim_request(Conn &c, const std::vector<std::stri
         return r;
     }
     if (k == "status") {
-        for (const auto &a : cmd)
-            if (a.rfind("subscribe:", 0) == 0)
-                c.subscribed = true; // async pushes ride the connect poll (next iteration)
-        if (!control_)
-            return nlohmann::json::object();
-        auto s = control_->snapshot_state();
-        const char *mode = !s.has_media ? "stop" : (s.paused ? "pause" : "play");
-        int idx = std::max(0, s.current_index);
-        auto S = [](int v) { return std::to_string(v); };
-        nlohmann::json r;
-        r["player_name"] = player_name();
-        r["player_connected"] = "1";
-        r["power"] = "1";
-        r["mode"] = mode;
-        r["playlist_tracks"] = S((int)s.playlist.size());
-        r["playlist_cur_index"] = S(idx);
-        // LMS spellings the app reads (BaseClient.parseStatus) — space in the key names:
-        r["playlist repeat"] = "0";
-        r["playlist shuffle"] = "0";
-        r["playlist_timestamp"] = "0";
-        r["playlist_name"] = "";
-        r["will_sleep_in"] = "0";
-        r["sleep"] = "0";
-        r["remote"] = "1";
-        r["sync_master"] = "";
-        r["sync_slaves"] = "";
-        r["song"] = S(idx);
-        r["seq_no"] = "0";
-        r["rate"] = "1";
-        r["time"] = S((int)s.elapsed);
-        r["duration"] = S((int)s.duration);
-        r["canseek"] = "1";
-        r["digital_volume_control"] = "1";
-        r["mixer volume"] = S(s.volume); // LMS keeps the space in the JSON key
-        if (s.has_media) {
-            r["current_title"] = s.title;
-            r["title"] = s.title;
-            if (!s.art_url.empty())
-                r["art_url"] = s.art_url;
-        }
-        // The queue (Squeezer's playlist view): LMS delivers it as playlist_loop inside
-        //   the status response — the app does not fetch it anywhere else.
-        nlohmann::json loop = nlohmann::json::array();
-        for (size_t i = 0; i < s.playlist.size() && i < 200; ++i) {
-            nlohmann::json it;
-            it["playlist index"] = S((int)i);
-            it["id"] = S((int)i);
-            it["title"] = s.playlist[i].title;
-            it["duration"] = S(s.playlist[i].duration);
-            loop.push_back(it);
-        }
-        r["playlist_loop"] = loop;
-        return r;
+        any_subscribed_.store(true); // any status interest enables connect-time pushes
+        return status_data();
     }
     if (k == "songinfo") { // current-track details for the now-playing screen
         nlohmann::json r;

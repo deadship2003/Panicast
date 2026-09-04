@@ -31,6 +31,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -96,7 +97,6 @@ private:
         std::atomic<bool> done{false};   // set by client_loop right before returning
         std::atomic<bool> authed{false}; // Basic credentials verified (cached per conn)
         std::string http_auth_user;      // verified user (logging)
-        bool subscribed = false;         // status request carried subscribe: (push = next iter)
     };
 
     void accept_loop();
@@ -104,6 +104,7 @@ private:
     std::string handle_http(Conn &c, const std::string &method, const std::string &path,
                             const std::string &headers, const std::string &body);
     nlohmann::json json_slim_request(Conn &c, const std::vector<std::string> &cmd);
+    nlohmann::json status_data(); // shared by status replies and connect-time pushes
     void reap_done(); // join + drop finished conns (conns_mtx_ held)
     bool peer_allowed(const sockaddr_storage &peer) const; // lms_allow CIDR check
 
@@ -123,6 +124,13 @@ private:
     bool auth_required_ = false;    // non-empty lms_pass → Basic auth gate
 
     std::thread accept_thread_;
+
+    // Push-state (server-global, NOT per-Conn: the app spreads requests over several
+    //   sockets, so subscription state and last-push bookkeeping must survive across
+    //   connections — keyed by Bayeux clientId).
+    std::atomic<bool> any_subscribed_{false};      // any status interest seen
+    std::mutex push_mtx_;                          // guards last_push_by_cid_
+    std::map<std::string, std::string> last_push_by_cid_; // cid → last pushed dump
 
     std::mutex conns_mtx_;
     std::vector<std::unique_ptr<Conn>> conns_;
