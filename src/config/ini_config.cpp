@@ -257,6 +257,11 @@ void IniConfig::load() {
             line.pop_back();
         raw_lines_.push_back(line);
 
+        // UTF-8 BOM (generated file carries one so Windows editors auto-detect the encoding
+        //   and show the bilingual comments correctly): strip it from the PARSED copy only —
+        //   raw_lines_ keeps it verbatim so save() round-trips it.
+        if (raw_lines_.size() == 1 && line.compare(0, 3, "\xEF\xBB\xBF") == 0)
+            line = line.substr(3);
         std::string trimmed = line;
         trimmed.erase(0, trimmed.find_first_not_of(" \t\r\n"));
         trimmed.erase(trimmed.find_last_not_of(" \t\r\n") + 1);
@@ -513,6 +518,9 @@ std::string IniConfig::get_config_file() {
 // ── create_default: auto-generated default config template (D31: moved out-of-line) ──
 void IniConfig::create_default(const std::string &path) {
     write_atomic(path, [&](std::ostream &f) {
+        // UTF-8 BOM first: makes Windows editors (Notepad et al.) auto-detect UTF-8 so the
+        //   bilingual comments render instead of mojibake; load() strips it when parsing.
+        f << "\xEF\xBB\xBF";
         f << R"(# ============================================================
 # panicast Configuration File
 # Version: )" << VERSION
