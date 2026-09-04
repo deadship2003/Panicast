@@ -29,6 +29,7 @@ void UI::draw_help(WINDOW *win, const MPVController::State &state, int cw) {
         "  k / j      Move up/down",
         "  g / G      Go to first/last item",
         "  PgUp/PgDn  Page up/down",
+        "  N          Jump to the currently playing node (Now playing; switches to its mode)",
         "  h          Collapse/Go back",
         "  l / Enter  Expand/Play (marked: add to playlist)",
         "",
@@ -193,8 +194,13 @@ void UI::draw_help(WINDOW *win, const MPVController::State &state, int cw) {
     if (!help_win)
         return; // NULL guard: avoid box(NULL) crash
     keypad(help_win, TRUE);
+    // Anti-flicker: keep the terminal cursor out of the refresh path — wgetch() repositions
+    //   the physical cursor to the window's cursor on every keypress, which reads as
+    //   flicker while scrolling.
+    leaveok(help_win, TRUE);
 
-    // Draw the border
+    // Draw the border ONCE — it never changes; redrawing it on every scroll step flashed
+    //   the whole overlay region.
     box(help_win, 0, 0);
 
     // V0.03: if content overflows the window, add scrolling
@@ -202,12 +208,15 @@ void UI::draw_help(WINDOW *win, const MPVController::State &state, int cw) {
     bool needs_scroll = content_height > help_h - 2;
 
     auto draw_content = [&]() {
-        werase(help_win);
-        box(help_win, 0, 0);
         if (scroll_offset < 0)
             scroll_offset = 0; // defensive clamp
         int y = 1;
         int visible_lines = help_h - 2;
+
+        // Clear ONLY the inner rows (mvwhline stops short of the border columns) — the old
+        //   werase()+box() full-window repaint flashed the overlay on every j/k.
+        for (int row = 1; row < help_h - 1; ++row)
+            mvwhline(help_win, row, 1, ' ', help_w - 2);
 
         for (int i = scroll_offset; i < content_height && y < help_h - 1; ++i) {
             const std::string &line = help_lines[i];
