@@ -583,11 +583,52 @@ nlohmann::json LmsServer::json_slim_request(Conn &c, const std::vector<std::stri
         nlohmann::json r;
         r["count"] = "1";
         r["player_count"] = "1";
-        if (k == "serverstatus") {
-            r["version"] = "8.4.0";
-            r["sn"] = "0";
-        }
-        r["players_loop"] = nlohmann::json::array({p});
+        r["version"] = "8.4.0";
+        r["sn"] = "0";
+        // Squeezer names the prefs it wants ("prefs:k1,k2..." / "playerprefs:k1,k2...") and
+        //   stalls initializing until they come back (observed: it re-sends serverstatus
+        //   forever when they're absent). Echo sensible defaults for every requested key.
+        auto add_prefs = [&](const std::string &prefix, nlohmann::json &target) {
+            static const std::map<std::string, nlohmann::json> defaults = {
+                {"mediadirs", nlohmann::json::array()}, // ARRAY — a String "" crashes the
+                                                       // app's (Object[]) cast in Util
+                {"defeatDestructiveTouchToPlay", "0"},
+                {"defeatDestru", "0"}, // truncated form seen on the wire
+                {"digitalVolumeControl", "1"},
+                {"alarmDefaultVolume", "40"},
+                {"alarmfadeseconds", "0"},
+                {"alarmSnoozeSeconds", "600"},
+                {"alarmTimeoutSeconds", "3600"},
+                {"alarmsEnabled", "0"},
+                {"playtrackalbum", "0"},
+                {"syncVolume", "1"},
+                {"syncPower", "1"},
+            };
+            for (const auto &a : cmd) {
+                if (a.rfind(prefix, 0) != 0)
+                    continue;
+                std::string list = a.substr(prefix.size());
+                std::string cur;
+                auto emit_key = [&](const std::string &key) {
+                    auto it = defaults.find(key);
+                    target[key] = it != defaults.end() ? it->second : nlohmann::json("0");
+                };
+                for (char c : list) {
+                    if (c == ',') {
+                        emit_key(cur);
+                        cur.clear();
+                    } else {
+                        cur += c;
+                    }
+                }
+                emit_key(cur);
+            }
+        };
+        add_prefs("prefs:", r);
+        add_prefs("playerprefs:", p); // FLAT in the player record — Player.java reads
+                                      // record.get(prefName), not a nested object
+        p["ip"] = "127.0.0.1";         // Player.java reads it (cosmetic, but it parses it)
+        r["players_loop"] = nlohmann::json::array({p}); // AFTER all p mutations (copies!)
         return r;
     }
     if (k == "status") {
@@ -622,6 +663,37 @@ nlohmann::json LmsServer::json_slim_request(Conn &c, const std::vector<std::stri
             r["title"] = s.title;
             if (!s.art_url.empty())
                 r["art_url"] = s.art_url;
+        }
+        // The queue (Squeezer's playlist view): LMS delivers it as playlist_loop inside
+        //   the status response — the app does not fetch it anywhere else.
+        nlohmann::json loop = nlohmann::json::array();
+        for (size_t i = 0; i < s.playlist.size() && i < 200; ++i) {
+            nlohmann::json it;
+            it["playlist index"] = S((int)i);
+            it["id"] = S((int)i);
+            it["title"] = s.playlist[i].title;
+            it["duration"] = S(s.playlist[i].duration);
+            loop.push_back(it);
+        }
+        r["playlist_loop"] = loop;
+        return r;
+    }
+    if (k == "songinfo") { // current-track details for the now-playing screen
+        nlohmann::json r;
+        r["count"] = "0";
+        r["songinfo_loop"] = nlohmann::json::array();
+        if (control_) {
+            auto s = control_->snapshot_state();
+            if (s.has_media) {
+                nlohmann::json it;
+                it["id"] = std::to_string(std::max(0, s.current_index));
+                it["title"] = s.title;
+                it["duration"] = std::to_string((int)s.duration);
+                if (!s.art_url.empty())
+                    it["art_url"] = s.art_url;
+                r["songinfo_loop"] = nlohmann::json::array({it});
+                r["count"] = "1";
+            }
         }
         return r;
     }
