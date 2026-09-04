@@ -262,6 +262,11 @@ int main(int argc, char *argv[]) {
         }
     } else {
         App app;
+        // N10.1 (user-final): `panicast` implies the background service — when the daemon
+        //   is not running, bring it up FIRST, then take it over for the TUI session and
+        //   restore it on exit. Net effect: the service is running before AND after any
+        //   TUI session (failure to start it, e.g. unit not installed, is non-fatal).
+        service_ensure_running();
         // N09/S1-4: single-instance session handover — stop the daemon (it persists
         //   player state on its clean exit), run the TUI, restart the daemon afterwards.
         took_over = service_handover_takeover();

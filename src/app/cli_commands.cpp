@@ -106,6 +106,18 @@ std::string lms_status_reply() {
     return sep == std::string::npos ? "" : resp.substr(sep + 4);
 }
 
+// N10.1: `panicast start` refuses when the daemon is already running (user-final
+//   semantics — starting twice would be a silent no-op via systemctl otherwise).
+int cmd_start() {
+    int pid = 0;
+    if (daemon_pid_alive(&pid)) {
+        printf("panicast daemon: already running (pid %d) — nothing to start.\n", pid);
+        printf("Use `panicast restart` to recycle it.\n");
+        return 1;
+    }
+    return systemctl("start", false);
+}
+
 int cmd_status() {
     IniConfig::instance().load();
     int pid = 0;
@@ -233,7 +245,7 @@ int run_cli_command(int argc, char *argv[]) {
     if (cmd == "status")
         return cmd_status();
     if (cmd == "start")
-        return systemctl("start", false);
+        return cmd_start();
     if (cmd == "stop")
         return systemctl("stop", false);
     if (cmd == "restart")
@@ -243,6 +255,24 @@ int run_cli_command(int argc, char *argv[]) {
     if (cmd == "log")
         return cmd_log(argc, argv);
     return -1;
+}
+
+bool service_ensure_running() {
+    if (daemon_pid_alive())
+        return true;
+    if (systemctl("start", false) != 0) {
+        // Unit not installed / no polkit — the TUI still runs standalone.
+        std::fprintf(stderr,
+                     "panicast: could not start the background service (unit missing?) "
+                     "— continuing without it.\n");
+        return false;
+    }
+    for (int i = 0; i < 30; ++i) { // bounded wait for the pidfile (~3s)
+        if (daemon_pid_alive())
+            return true;
+        usleep(100 * 1000);
+    }
+    return false;
 }
 
 } // namespace panicast

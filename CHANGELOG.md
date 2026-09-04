@@ -27,6 +27,19 @@
 
 ---
 
+## 网络控制 N10.1 — 2026-09-04 — 入口语义定版：TUI 隐含后台服务 + start/-d 已运行即拒绝
+
+> **用户定版**：默认 `panicast`（TUI）隐含后台服务——服务没跑就**先拉起**再开 UI；服务已运行时 `panicast start` / `-d` 一律**拒绝**（不再静默幂等/双开）。
+
+### 实现
+- **TUI 路径**（main.cpp）：`service_ensure_running()`（新，cli_commands 导出）在 handover 之前调用——daemon 没跑则 `systemctl start` + 有界等待 pidfile 活进程（~3s）；随后照旧 takeover 接管、退出恢复。净效果：**任何 TUI 会话前后，后台服务都在运行**。unit 未装/polkit 缺失时打警告继续（TUI 独立可用，非致命）。
+- **`panicast start`**：改为 `cmd_start()`——daemon 已活则打印 `already running (pid N)` + 提示 `panicast restart`，**exit 1**；未跑才 systemctl start。
+- **`panicast -d`**：N10 已有的双实例保护即此语义（已运行拒绝 exit 1），本轮验证回归通过。
+
+**验收**：0-warning 构建；ctest 全绿；冒烟——daemon 运行中 `start` 拒绝（exit 1）、`-d` 拒绝（exit 1）、daemon 停止时 `start` 正常放行。
+
+---
+
 ## 网络控制 N08.3 — 2026-09-04 — mini-LMS 增补 cometd/JSON-RPC 通道（真机抓包驱动）
 
 > **真机抓包反转 N08.1 的结论**：用户的新版 Squeezer 实际走 **HTTP cometd (Bayeux/JSON-RPC)**（`POST /cometd`，Jetty 客户端，HTTP Basic 鉴权），并非纯 CLI 行协议（那是旧版行为）。N08.1 的 CLI 实现保留（旧工具兼容），本迭代在同一端口增加 cometd 通道。
